@@ -242,7 +242,7 @@ class OnboardingController
             'units'                      => $d['units'] ?? 'miles',
             'medical_clearance_confirmed' => (int)($d['medical_clearance_confirmed'] ?? 0),
             'medical_clearance_at'       => ($d['medical_clearance_confirmed'] ?? 0) ? date('Y-m-d H:i:s') : null,
-            'return_time_off_band'       => $d['return_time_off_band'] ?: null,
+            'return_time_off_band'       => $d['return_time_off_band'] ?? null,
         ];
 
         // Set peak_volume_ceiling_mins: current volume × 1.4
@@ -250,9 +250,10 @@ class OnboardingController
             $fields['peak_volume_ceiling_mins'] = (int)round($fields['current_weekly_minutes'] * 1.4);
         }
 
+        $cols       = implode(', ', array_map(fn($k) => "`$k`", array_keys($fields)));
         $setClauses = implode(', ', array_map(fn($k) => "`$k` = ?", array_keys($fields)));
         $stmt = $db->prepare(
-            "INSERT INTO athlete_profiles (athlete_id, $setClauses)
+            "INSERT INTO athlete_profiles (athlete_id, $cols)
              VALUES (?, " . implode(', ', array_fill(0, count($fields), '?')) . ")
              ON DUPLICATE KEY UPDATE $setClauses"
         );
