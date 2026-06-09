@@ -4,17 +4,22 @@
  */
 class Auth
 {
+    private static function applyCookieParams(): void
+    {
+        session_set_cookie_params([
+            'lifetime' => SESSION_LIFETIME,
+            'path'     => '/app',
+            'secure'   => true,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+    }
+
     public static function startSession(): void
     {
         if (session_status() === PHP_SESSION_NONE) {
             session_name(SESSION_NAME);
-            session_set_cookie_params([
-                'lifetime' => SESSION_LIFETIME,
-                'path'     => '/',
-                'secure'   => isset($_SERVER['HTTPS']),
-                'httponly' => true,
-                'samesite' => 'Strict',
-            ]);
+            self::applyCookieParams();
             session_start();
         }
 
@@ -95,6 +100,8 @@ class Auth
     {
         $_SESSION = [];
         session_destroy();
+        session_name(SESSION_NAME);
+        self::applyCookieParams();
         session_start();
         session_regenerate_id(true);
     }

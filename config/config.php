@@ -30,7 +30,7 @@ defined('APP_DEBUG')   || define('APP_DEBUG',   APP_ENV === 'development');
 
 // Security
 defined('SESSION_NAME')         || define('SESSION_NAME',         'srf_session');
-defined('SESSION_LIFETIME')     || define('SESSION_LIFETIME',     60 * 60 * 24 * 14); // 14 days
+defined('SESSION_LIFETIME')     || define('SESSION_LIFETIME',     60 * 60 * 24 * 30); // 30 days
 defined('CSRF_TOKEN_NAME')      || define('CSRF_TOKEN_NAME',      'srf_csrf');
 defined('PASSWORD_MIN_LENGTH')  || define('PASSWORD_MIN_LENGTH',  8);
 
