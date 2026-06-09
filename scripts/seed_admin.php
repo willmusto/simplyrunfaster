@@ -6,6 +6,10 @@
  */
 declare(strict_types=1);
 
+// Load production credentials before config.php so its defined() guards pick them up
+if (file_exists('/home/public/config/config.local.php')) {
+    require '/home/public/config/config.local.php';
+}
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../config/database.php';
 
