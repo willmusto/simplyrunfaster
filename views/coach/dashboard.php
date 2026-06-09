@@ -30,8 +30,8 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
             <?php endif; ?>
         </div>
         <div style="display:flex;gap:8px;margin-top:10px;">
-            <a href="/coach/athlete/<?= (int)$flag['athlete_id'] ?>" class="btn btn-secondary btn-sm">View athlete</a>
-            <form method="POST" action="/coach/flags/<?= (int)$flag['id'] ?>/dismiss" style="display:inline;">
+            <a href="/app/coach/athlete/<?= (int)$flag['athlete_id'] ?>" class="btn btn-secondary btn-sm">View athlete</a>
+            <form method="POST" action="/app/coach/flags/<?= (int)$flag['id'] ?>/dismiss" style="display:inline;">
                 <?= Auth::csrfField() ?>
                 <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
             </form>
@@ -55,8 +55,8 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
             <?php endif; ?>
         </div>
         <div style="display:flex;gap:8px;margin-top:10px;">
-            <a href="/coach/athlete/<?= (int)$flag['athlete_id'] ?>" class="btn btn-secondary btn-sm">View athlete</a>
-            <form method="POST" action="/coach/flags/<?= (int)$flag['id'] ?>/dismiss" style="display:inline;">
+            <a href="/app/coach/athlete/<?= (int)$flag['athlete_id'] ?>" class="btn btn-secondary btn-sm">View athlete</a>
+            <form method="POST" action="/app/coach/flags/<?= (int)$flag['id'] ?>/dismiss" style="display:inline;">
                 <?= Auth::csrfField() ?>
                 <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
             </form>
@@ -83,7 +83,7 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
                     · <?= date('M j', strtotime($plan['plan_start_date'])) ?> – <?= date('M j, Y', strtotime($plan['plan_end_date'])) ?>
                 </div>
             </div>
-            <a href="/coach/approvals" class="btn btn-primary btn-sm">Review</a>
+            <a href="/app/coach/approvals" class="btn btn-primary btn-sm">Review</a>
         </div>
     </div>
     <?php endforeach; ?>

@@ -18,7 +18,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <div class="flash flash-success"><?= h($success) ?></div>
         <?php endif; ?>
 
-        <form method="POST" action="/login">
+        <form method="POST" action="/app/login">
             <?= Auth::csrfField() ?>
 
             <div class="form-group">
@@ -32,7 +32,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
                 <input type="password" id="password" name="password" class="form-input"
                        placeholder="Your password" required autocomplete="current-password">
                 <div style="text-align:right;margin-top:4px;">
-                    <a href="/forgot-password" style="font-size:12px;color:var(--text-muted);">Forgot password?</a>
+                    <a href="/app/forgot-password" style="font-size:12px;color:var(--text-muted);">Forgot password?</a>
                 </div>
             </div>
 
@@ -45,7 +45,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
 
         <p style="text-align:center;font-size:13px;color:var(--text-muted);margin-top:16px;">
             Don't have an account?
-            <a href="/register" style="color:var(--accent-mid);">Create one</a>
+            <a href="/app/register" style="color:var(--accent-mid);">Create one</a>
         </p>
     </div>
 </div>

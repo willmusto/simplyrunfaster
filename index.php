@@ -22,7 +22,14 @@ require_once __DIR__ . '/src/Controllers/CoachController.php';
 // Start session
 Auth::startSession();
 
-$router = new Router();
+// ── Marketing / root ─────────────────────────────────────────
+$uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
+if ($uri === '/' || $uri === '') {
+    include __DIR__ . '/views/marketing/placeholder.php';
+    exit;
+}
+
+$router = new Router('/app');
 
 // ── Auth ─────────────────────────────────────────────────────
 $router->get('/login',    [AuthController::class, 'loginForm']);
@@ -72,7 +79,7 @@ $router->post('/theme', function () {
     $stmt = $db->prepare('UPDATE users SET theme_preference = ? WHERE id = ?');
     $stmt->execute([$theme, Auth::userId()]);
     $_SESSION['theme'] = $theme;
-    header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? '/'));
+    header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? '/app'));
     exit;
 });
 

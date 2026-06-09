@@ -9,7 +9,7 @@ RewriteRule ^\.git(/.*)?$ - [F,L]
 RewriteRule ^\.(?!well-known) - [F,L]
 
 # Allow direct access to assets and well-known paths
-RewriteCond %{REQUEST_URI} ^/(assets|sw\.js|manifest\.json|offline|favicon)
+RewriteCond %{REQUEST_URI} ^/(assets|sw\.js|manifest\.json|favicon)
 RewriteRule ^ - [L]
 
 # Skip if file or directory actually exists

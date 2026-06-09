@@ -8,7 +8,7 @@ $theme     = Auth::theme();
         <?php if (!empty($pendingApprovals) && $pendingApprovals > 0): ?>
         <span class="pill pill-warning" style="font-size:11px;"><?= (int)$pendingApprovals ?> pending</span>
         <?php endif; ?>
-        <form method="POST" action="/theme" class="theme-toggle-form">
+        <form method="POST" action="/app/theme" class="theme-toggle-form">
             <?= Auth::csrfField() ?>
             <input type="hidden" name="theme" value="<?= $theme === 'dark' ? 'light' : 'dark' ?>">
             <button type="submit" class="theme-toggle-btn" title="Toggle dark mode">
@@ -29,7 +29,7 @@ $theme     = Auth::theme();
                 <?php endif; ?>
             </button>
         </form>
-        <a href="/logout" class="btn btn-secondary btn-sm">Sign out</a>
+        <a href="/app/logout" class="btn btn-secondary btn-sm">Sign out</a>
     </div>
 </nav>
 
@@ -37,7 +37,7 @@ $theme     = Auth::theme();
 <nav class="sidebar-nav">
     <div class="sidebar-logo">Simply<span>Run</span>Faster</div>
 
-    <a href="/coach" class="sidebar-nav-item <?= $activeNav === 'dashboard' ? 'active' : '' ?>">
+    <a href="/app/coach" class="sidebar-nav-item <?= $activeNav === 'dashboard' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
@@ -45,7 +45,7 @@ $theme     = Auth::theme();
         </svg>
         Dashboard
     </a>
-    <a href="/coach/athletes" class="sidebar-nav-item <?= $activeNav === 'athletes' ? 'active' : '' ?>">
+    <a href="/app/coach/athletes" class="sidebar-nav-item <?= $activeNav === 'athletes' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -55,7 +55,7 @@ $theme     = Auth::theme();
         </svg>
         Athletes
     </a>
-    <a href="/coach/approvals" class="sidebar-nav-item <?= $activeNav === 'approvals' ? 'active' : '' ?>">
+    <a href="/app/coach/approvals" class="sidebar-nav-item <?= $activeNav === 'approvals' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="9 11 12 14 22 4"/>
@@ -66,7 +66,7 @@ $theme     = Auth::theme();
         <span class="pill pill-warning" style="margin-left:auto;"><?= (int)$pendingApprovals ?></span>
         <?php endif; ?>
     </a>
-    <a href="/coach/flags" class="sidebar-nav-item <?= $activeNav === 'flags' ? 'active' : '' ?>">
+    <a href="/app/coach/flags" class="sidebar-nav-item <?= $activeNav === 'flags' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
@@ -86,7 +86,7 @@ $theme     = Auth::theme();
         </svg>
         Library
     </a>
-    <a href="/coach/settings" class="sidebar-nav-item <?= $activeNav === 'settings' ? 'active' : '' ?>">
+    <a href="/app/coach/settings" class="sidebar-nav-item <?= $activeNav === 'settings' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
@@ -99,7 +99,7 @@ $theme     = Auth::theme();
     <div class="sidebar-roster">
         <div class="sidebar-roster-label">Athletes</div>
         <?php foreach ($athletes as $a): ?>
-        <a href="/coach/athlete/<?= (int)$a['id'] ?>" class="sidebar-roster-item">
+        <a href="/app/coach/athlete/<?= (int)$a['id'] ?>" class="sidebar-roster-item">
             <span style="width:6px;height:6px;border-radius:50%;background:<?=
                 ($a['open_critical'] ?? 0) > 0 ? 'var(--color-danger)' :
                 (($a['open_warnings'] ?? 0) > 0 ? 'var(--color-warning)' : 'var(--color-success)')
@@ -112,13 +112,13 @@ $theme     = Auth::theme();
 
     <div style="padding:12px 20px;border-top:var(--card-border);margin-top:auto;">
         <div style="font-size:13px;color:var(--text-muted);"><?= h(Auth::name()) ?></div>
-        <a href="/logout" style="font-size:12px;color:var(--text-muted);">Sign out</a>
+        <a href="/app/logout" style="font-size:12px;color:var(--text-muted);">Sign out</a>
     </div>
 </nav>
 
 <!-- Mobile bottom nav for coach -->
 <nav class="bottom-nav">
-    <a href="/coach" class="bottom-nav-item <?= $activeNav === 'dashboard' ? 'active' : '' ?>">
+    <a href="/app/coach" class="bottom-nav-item <?= $activeNav === 'dashboard' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
@@ -126,7 +126,7 @@ $theme     = Auth::theme();
         </svg>
         Home
     </a>
-    <a href="/coach/athletes" class="bottom-nav-item <?= $activeNav === 'athletes' ? 'active' : '' ?>">
+    <a href="/app/coach/athletes" class="bottom-nav-item <?= $activeNav === 'athletes' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -136,7 +136,7 @@ $theme     = Auth::theme();
         </svg>
         Athletes
     </a>
-    <a href="/coach/approvals" class="bottom-nav-item <?= $activeNav === 'approvals' ? 'active' : '' ?>">
+    <a href="/app/coach/approvals" class="bottom-nav-item <?= $activeNav === 'approvals' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="9 11 12 14 22 4"/>
@@ -144,7 +144,7 @@ $theme     = Auth::theme();
         </svg>
         Approvals
     </a>
-    <a href="/coach/flags" class="bottom-nav-item <?= $activeNav === 'flags' ? 'active' : '' ?>">
+    <a href="/app/coach/flags" class="bottom-nav-item <?= $activeNav === 'flags' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
@@ -152,7 +152,7 @@ $theme     = Auth::theme();
         </svg>
         Alerts
     </a>
-    <a href="/coach/settings" class="bottom-nav-item <?= $activeNav === 'settings' ? 'active' : '' ?>">
+    <a href="/app/coach/settings" class="bottom-nav-item <?= $activeNav === 'settings' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>

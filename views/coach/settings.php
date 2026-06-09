@@ -9,7 +9,7 @@
     <div class="flash flash-success"><?= h($success) ?></div>
     <?php endif; ?>
 
-    <form method="POST" action="/coach/settings">
+    <form method="POST" action="/app/coach/settings">
         <?= Auth::csrfField() ?>
 
         <div class="section-label">DISPLAY</div>
@@ -46,6 +46,6 @@
             Role: <?= h($coachUser['role']) ?>
         </div>
         <div class="divider" style="margin:12px 0;"></div>
-        <a href="/logout" class="btn btn-danger btn-sm">Sign out</a>
+        <a href="/app/logout" class="btn btn-danger btn-sm">Sign out</a>
     </div>
 </div>

@@ -50,7 +50,7 @@ $sort = $_GET['sort'] ?? 'alerts';
                 ? 'var(--color-success)'
                 : ($compliance >= 0.70 ? 'var(--color-warning)' : 'var(--color-danger)'));
     ?>
-    <a href="/coach/athlete/<?= (int)$a['id'] ?>" class="roster-row <?= $severityClass ?>"
+    <a href="/app/coach/athlete/<?= (int)$a['id'] ?>" class="roster-row <?= $severityClass ?>"
        style="text-decoration:none;display:block;margin-bottom:8px;">
         <div style="display:flex;align-items:center;gap:10px;">
 

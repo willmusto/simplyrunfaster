@@ -16,7 +16,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <div class="onboarding-step-label">Step <?= $currentStep ?> of <?= $totalSteps ?></div>
     </div>
 
-    <form method="POST" action="/onboarding/5" class="onboarding-content" id="step5Form">
+    <form method="POST" action="/app/onboarding/5" class="onboarding-content" id="step5Form">
         <?= Auth::csrfField() ?>
 
         <h1 class="onboarding-heading">Watch setup</h1>
@@ -104,7 +104,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
     </form>
 
     <div class="onboarding-footer">
-        <a href="/onboarding/4" class="btn btn-secondary">← Back</a>
+        <a href="/app/onboarding/4" class="btn btn-secondary">← Back</a>
         <button type="submit" form="step5Form" class="btn btn-primary">Continue →</button>
     </div>
 </div>

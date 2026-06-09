@@ -33,7 +33,7 @@
                     Requested <?= date('M j', strtotime($plan['requested_at'])) ?>
                 </div>
             </div>
-            <a href="/coach/athlete/<?= (int)$plan['athlete_id'] ?>" class="btn btn-secondary btn-sm">
+            <a href="/app/coach/athlete/<?= (int)$plan['athlete_id'] ?>" class="btn btn-secondary btn-sm">
                 View athlete
             </a>
         </div>
@@ -41,7 +41,7 @@
         <div class="divider" style="margin:0 0 12px;"></div>
 
         <!-- Approve form -->
-        <form method="POST" action="/coach/plans/<?= (int)$plan['plan_id'] ?>/approve" style="margin-bottom:8px;">
+        <form method="POST" action="/app/coach/plans/<?= (int)$plan['plan_id'] ?>/approve" style="margin-bottom:8px;">
             <?= Auth::csrfField() ?>
             <div class="form-group" style="margin-bottom:10px;">
                 <label class="form-label" for="notes_a_<?= (int)$plan['plan_id'] ?>">
@@ -56,7 +56,7 @@
         </form>
 
         <!-- Reject form -->
-        <form method="POST" action="/coach/plans/<?= (int)$plan['plan_id'] ?>/reject">
+        <form method="POST" action="/app/coach/plans/<?= (int)$plan['plan_id'] ?>/reject">
             <?= Auth::csrfField() ?>
             <div class="form-group" style="margin-bottom:10px;">
                 <textarea name="coach_notes" class="form-textarea" rows="2"

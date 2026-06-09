@@ -2,12 +2,12 @@
     "name": "SimplyRunFaster",
     "short_name": "SRF",
     "description": "Real running coaching — not an algorithm.",
-    "start_url": "/",
+    "start_url": "/app",
     "display": "standalone",
     "orientation": "portrait-primary",
     "theme_color": "#1D9E75",
     "background_color": "#F5F3EF",
-    "scope": "/",
+    "scope": "/app/",
     "lang": "en",
     "icons": [
         {
@@ -29,13 +29,13 @@
         {
             "name": "Today's workout",
             "short_name": "Today",
-            "url": "/",
+            "url": "/app",
             "icons": [{ "src": "/assets/icons/icon-192.png", "sizes": "192x192" }]
         },
         {
             "name": "Training log",
             "short_name": "Log",
-            "url": "/log",
+            "url": "/app/log",
             "icons": [{ "src": "/assets/icons/icon-192.png", "sizes": "192x192" }]
         }
     ]

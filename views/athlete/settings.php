@@ -12,7 +12,7 @@
     <div class="flash flash-error"><?= h($error) ?></div>
     <?php endif; ?>
 
-    <form method="POST" action="/settings">
+    <form method="POST" action="/app/settings">
         <?= Auth::csrfField() ?>
 
         <div class="section-label">DISPLAY</div>
@@ -63,7 +63,7 @@
 
     <div class="section-label">SECURITY</div>
     <div class="card" style="margin-bottom:16px;">
-        <form method="POST" action="/settings/password">
+        <form method="POST" action="/app/settings/password">
             <?= Auth::csrfField() ?>
 
             <div class="form-group">
@@ -98,6 +98,6 @@
         <div style="font-size:14px;font-weight:500;"><?= h($athlete['name']) ?></div>
         <div style="font-size:13px;color:var(--text-muted);margin-top:2px;"><?= h($athlete['email']) ?></div>
         <div class="divider" style="margin:12px 0;"></div>
-        <a href="/logout" class="btn btn-danger btn-sm">Sign out</a>
+        <a href="/app/logout" class="btn btn-danger btn-sm">Sign out</a>
     </div>
 </div>

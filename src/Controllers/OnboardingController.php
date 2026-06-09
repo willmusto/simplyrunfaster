@@ -19,10 +19,10 @@ class OnboardingController
         Auth::requireRole('athlete');
         $athlete = Auth::getAthlete();
         if ($athlete && $athlete['onboarding_completed_at']) {
-            header('Location: /');
+            header('Location: /app');
             exit;
         }
-        header('Location: /onboarding/1');
+        header('Location: /app/onboarding/1');
         exit;
     }
 
@@ -34,7 +34,7 @@ class OnboardingController
         // Enforce sequential completion
         $progress = $_SESSION['onboarding_progress'] ?? 1;
         if ($step > $progress) {
-            header('Location: /onboarding/' . $progress);
+            header('Location: /app/onboarding/' . $progress);
             exit;
         }
 
@@ -82,7 +82,7 @@ class OnboardingController
         $planType = $_POST['plan_type'] ?? '';
         if (!in_array($planType, ['race_cycle', 'development_plan', 'return_to_running'], true)) {
             $_SESSION['flash_error'] = 'Please select your goal.';
-            header('Location: /onboarding/1');
+            header('Location: /app/onboarding/1');
             exit;
         }
 
@@ -108,7 +108,7 @@ class OnboardingController
 
         if ($weekly < 1 || $longest < 1 || $months < 0) {
             $_SESSION['flash_error'] = 'Please fill in your current training volume.';
-            header('Location: /onboarding/2');
+            header('Location: /app/onboarding/2');
             exit;
         }
 
@@ -127,7 +127,7 @@ class OnboardingController
         $years = $_POST['years_running'] ?? '';
         if ($years === '' || $years < 0) {
             $_SESSION['flash_error'] = 'Please enter how long you\'ve been running.';
-            header('Location: /onboarding/3');
+            header('Location: /app/onboarding/3');
             exit;
         }
 
@@ -144,7 +144,7 @@ class OnboardingController
         $days = (int)($_POST['training_days_per_week'] ?? 0);
         if ($days < 1 || $days > 7) {
             $_SESSION['flash_error'] = 'Please select how many days per week you\'re running.';
-            header('Location: /onboarding/4');
+            header('Location: /app/onboarding/4');
             exit;
         }
 
@@ -195,7 +195,7 @@ class OnboardingController
         // Clear onboarding session data
         unset($_SESSION['onboarding_data'], $_SESSION['onboarding_progress']);
 
-        header('Location: /');
+        header('Location: /app');
         exit;
     }
 
@@ -270,7 +270,7 @@ class OnboardingController
     {
         $next = $step + 1;
         $_SESSION['onboarding_progress'] = max($_SESSION['onboarding_progress'] ?? 1, $next);
-        header('Location: /onboarding/' . $next);
+        header('Location: /app/onboarding/' . $next);
         exit;
     }
 

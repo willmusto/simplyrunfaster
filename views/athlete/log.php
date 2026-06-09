@@ -15,7 +15,7 @@
     <!-- Manual log form (hidden by default) -->
     <div id="manualLogForm" style="display:none;" class="card" style="margin-bottom:20px;">
         <div class="card-title" style="margin-bottom:16px;">Log a workout</div>
-        <form method="POST" action="/log/manual">
+        <form method="POST" action="/app/log/manual">
             <?= Auth::csrfField() ?>
             <input type="hidden" name="activity_date" value="<?= date('Y-m-d') ?>">
 

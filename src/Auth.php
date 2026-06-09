@@ -106,7 +106,7 @@ class Auth
         return !empty($_SESSION['user_id']);
     }
 
-    public static function requireLogin(string $redirect = '/login'): void
+    public static function requireLogin(string $redirect = '/app/login'): void
     {
         if (!self::check()) {
             header('Location: ' . $redirect);

@@ -13,12 +13,12 @@ include __DIR__ . '/../../views/layout/html_open.php';
             Reset links are valid for 1 hour.
         </p>
 
-        <a href="/forgot-password" class="btn btn-primary btn-full">
+        <a href="/app/forgot-password" class="btn btn-primary btn-full">
             Request a new link
         </a>
 
         <p style="text-align:center;font-size:13px;color:var(--text-muted);margin-top:20px;">
-            <a href="/login" style="color:var(--accent-mid);">Back to sign in</a>
+            <a href="/app/login" style="color:var(--accent-mid);">Back to sign in</a>
         </p>
     </div>
 </div>

@@ -14,7 +14,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <div class="flash flash-error"><?= h($error) ?></div>
         <?php endif; ?>
 
-        <form method="POST" action="/register">
+        <form method="POST" action="/app/register">
             <?= Auth::csrfField() ?>
 
             <div class="form-group">
@@ -49,7 +49,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
 
         <p style="text-align:center;font-size:13px;color:var(--text-muted);margin-top:20px;">
             Already have an account?
-            <a href="/login" style="color:var(--accent-mid);">Sign in</a>
+            <a href="/app/login" style="color:var(--accent-mid);">Sign in</a>
         </p>
     </div>
 </div>

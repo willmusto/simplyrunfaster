@@ -147,7 +147,7 @@ class CoachController
             )->execute([$coachId, $planId]);
         }
 
-        header('Location: /coach/approvals');
+        header('Location: /app/coach/approvals');
         exit;
     }
 
@@ -177,7 +177,7 @@ class CoachController
             $db->prepare('UPDATE training_plans SET status="archived" WHERE id=?')->execute([$planId]);
         }
 
-        header('Location: /coach/approvals');
+        header('Location: /app/coach/approvals');
         exit;
     }
 
@@ -227,7 +227,7 @@ class CoachController
             )->execute([$coachId, $reason ?: null, $flagId]);
         }
 
-        header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? '/coach/flags'));
+        header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? '/app/coach/flags'));
         exit;
     }
 
@@ -269,7 +269,7 @@ class CoachController
         $db->prepare('UPDATE users SET theme_preference = ? WHERE id = ?')->execute([$theme, $coachId]);
         $_SESSION['theme']         = $theme;
         $_SESSION['flash_success'] = 'Settings saved.';
-        header('Location: /coach/settings');
+        header('Location: /app/coach/settings');
         exit;
     }
 

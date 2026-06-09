@@ -217,11 +217,13 @@ img { max-width: 100%; display: block; }
     left: 0;
     right: 0;
     z-index: 100;
-    height: var(--nav-height-bottom);
+    min-height: var(--nav-height-bottom);
     background: var(--nav-bg);
     border-top: var(--card-border);
     display: flex;
     align-items: stretch;
+    padding-bottom: 16px;
+    padding-bottom: env(safe-area-inset-bottom);
 }
 
 .bottom-nav-item {
@@ -351,7 +353,7 @@ img { max-width: 100%; display: block; }
 
     /* Sidebar pages (coach): top-nav duplicates the sidebar logo — hide it */
     body:has(.sidebar-nav) .top-nav { display: none; }
-    body:has(.sidebar-nav) .page-content { padding-top: 32px; }
+    body:has(.sidebar-nav) .page-content { padding-top: 32px; max-width: 1280px; }
 }
 
 @media (min-width: 768px) and (max-width: 1023px) {

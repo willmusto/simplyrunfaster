@@ -13,7 +13,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
                 It may have expired, already been used, or the link is incorrect.
                 Ask your coach to send a new invite link.
             </p>
-            <a href="/login" class="btn btn-secondary">Back to sign in</a>
+            <a href="/app/login" class="btn btn-secondary">Back to sign in</a>
         </div>
     </div>
 </div>

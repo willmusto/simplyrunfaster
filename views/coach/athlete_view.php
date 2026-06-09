@@ -6,7 +6,7 @@ $today = date('Y-m-d');
 
     <!-- Header -->
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-        <a href="/coach/athletes" style="color:var(--text-muted);text-decoration:none;font-size:20px;">←</a>
+        <a href="/app/coach/athletes" style="color:var(--text-muted);text-decoration:none;font-size:20px;">←</a>
         <div class="athlete-avatar"><?= h(avatar_initials($athlete['name'])) ?></div>
         <div>
             <div class="page-heading" style="margin-bottom:0;"><?= h($athlete['name']) ?></div>
@@ -33,7 +33,7 @@ $today = date('Y-m-d');
                     </span>
                     <span style="font-size:13px;font-weight:500;margin-left:6px;"><?= h($flag['flag_type']) ?></span>
                 </div>
-                <form method="POST" action="/coach/flags/<?= (int)$flag['id'] ?>/dismiss">
+                <form method="POST" action="/app/coach/flags/<?= (int)$flag['id'] ?>/dismiss">
                     <?= Auth::csrfField() ?>
                     <button type="submit" class="btn btn-sm"
                             style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>

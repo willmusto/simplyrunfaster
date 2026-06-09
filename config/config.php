@@ -23,7 +23,7 @@ defined('DB_CHARSET') || define('DB_CHARSET', 'utf8');
 
 // Application
 defined('APP_NAME')    || define('APP_NAME',    'SimplyRunFaster');
-defined('APP_URL')     || define('APP_URL',     getenv('SRF_APP_URL') ?: 'http://localhost');
+defined('APP_URL')     || define('APP_URL',     getenv('SRF_APP_URL') ?: 'http://localhost/app');
 defined('APP_VERSION') || define('APP_VERSION', '1.0.0');
 defined('APP_ENV')     || define('APP_ENV',     getenv('SRF_ENV') ?: 'development');
 defined('APP_DEBUG')   || define('APP_DEBUG',   APP_ENV === 'development');

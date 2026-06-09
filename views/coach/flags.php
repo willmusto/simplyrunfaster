@@ -47,8 +47,8 @@ foreach ($flags as $f) {
                 </div>
             </div>
             <div style="display:flex;gap:8px;flex-shrink:0;">
-                <a href="/coach/athlete/<?= (int)$flag['athlete_id'] ?>" class="btn btn-secondary btn-sm">View</a>
-                <form method="POST" action="/coach/flags/<?= (int)$flag['id'] ?>/dismiss">
+                <a href="/app/coach/athlete/<?= (int)$flag['athlete_id'] ?>" class="btn btn-secondary btn-sm">View</a>
+                <form method="POST" action="/app/coach/flags/<?= (int)$flag['id'] ?>/dismiss">
                     <?= Auth::csrfField() ?>
                     <button type="submit" class="btn btn-sm"
                             style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>

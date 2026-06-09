@@ -21,13 +21,13 @@ class AuthController
 
         if (!$email || !$password) {
             $_SESSION['flash_error'] = 'Please enter your email and password.';
-            header('Location: /login');
+            header('Location: /app/login');
             exit;
         }
 
         if (!Auth::attempt($email, $password)) {
             $_SESSION['flash_error'] = 'Invalid email or password.';
-            header('Location: /login');
+            header('Location: /app/login');
             exit;
         }
 
@@ -63,13 +63,13 @@ class AuthController
         $errors = self::validateRegistration($name, $email, $password, $confirm);
         if ($errors) {
             $_SESSION['flash_error'] = implode(' ', $errors);
-            header('Location: /register');
+            header('Location: /app/register');
             exit;
         }
 
         if (self::emailExists($email)) {
             $_SESSION['flash_error'] = 'An account with that email already exists.';
-            header('Location: /register');
+            header('Location: /app/register');
             exit;
         }
 
@@ -81,7 +81,7 @@ class AuthController
             'signup_source' => 'organic',
         ]);
 
-        header('Location: /onboarding');
+        header('Location: /app/onboarding');
         exit;
     }
 
@@ -109,7 +109,7 @@ class AuthController
         $code   = $params['code'] ?? '';
         $invite = self::getValidInvite($code);
         if (!$invite) {
-            header('Location: /login');
+            header('Location: /app/login');
             exit;
         }
 
@@ -121,13 +121,13 @@ class AuthController
         $errors = self::validateRegistration($name, $email, $password, $confirm);
         if ($errors) {
             $_SESSION['flash_error'] = implode(' ', $errors);
-            header('Location: /invite/' . $code);
+            header('Location: /app/invite/' . $code);
             exit;
         }
 
         if (self::emailExists($email)) {
             $_SESSION['flash_error'] = 'An account with that email already exists.';
-            header('Location: /invite/' . $code);
+            header('Location: /app/invite/' . $code);
             exit;
         }
 
@@ -153,7 +153,7 @@ class AuthController
         // Update invite_code on user record
         $db->prepare('UPDATE users SET invite_code = ? WHERE id = ?')->execute([$code, $userId]);
 
-        header('Location: /onboarding');
+        header('Location: /app/onboarding');
         exit;
     }
 
@@ -163,9 +163,9 @@ class AuthController
     {
         $role = Auth::role();
         if (in_array($role, ['coach','assistant_coach','admin'], true)) {
-            header('Location: /coach');
+            header('Location: /app/coach');
         } else {
-            header('Location: /');
+            header('Location: /app');
         }
         exit;
     }
@@ -228,7 +228,7 @@ class AuthController
         $email = strtolower(trim($_POST['email'] ?? ''));
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $_SESSION['flash_error'] = 'Please enter a valid email address.';
-            header('Location: /forgot-password');
+            header('Location: /app/forgot-password');
             exit;
         }
 
@@ -253,7 +253,7 @@ class AuthController
 
         // Always show the same message to prevent email enumeration
         $_SESSION['flash_success'] = "If an account exists for that email, you'll receive a reset link shortly.";
-        header('Location: /forgot-password');
+        header('Location: /app/forgot-password');
         exit;
     }
 
@@ -281,19 +281,19 @@ class AuthController
         $record = self::getValidResetToken($token);
         if (!$record) {
             $_SESSION['flash_error'] = 'This reset link is invalid or has expired.';
-            header('Location: /forgot-password');
+            header('Location: /app/forgot-password');
             exit;
         }
 
         if (strlen($password) < PASSWORD_MIN_LENGTH) {
             $_SESSION['flash_error'] = 'Password must be at least ' . PASSWORD_MIN_LENGTH . ' characters.';
-            header('Location: /reset-password?token=' . urlencode($token));
+            header('Location: /app/reset-password?token=' . urlencode($token));
             exit;
         }
 
         if ($password !== $confirm) {
             $_SESSION['flash_error'] = 'Passwords do not match.';
-            header('Location: /reset-password?token=' . urlencode($token));
+            header('Location: /app/reset-password?token=' . urlencode($token));
             exit;
         }
 

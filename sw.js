@@ -7,14 +7,14 @@
  *   - Everything else: network-first, fallback to offline page
  */
 
-const CACHE_NAME    = 'srf-v1';
-const OFFLINE_URL   = '/offline';
+const CACHE_NAME    = 'srf-v2';
+const OFFLINE_URL   = '/app/offline';
 
 // Resources to pre-cache on install
 const PRECACHE = [
-    '/',
-    '/plan',
-    '/offline',
+    '/app',
+    '/app/plan',
+    '/app/offline',
     '/assets/css/app.css',
     '/assets/js/app.js',
     '/manifest.json',
@@ -96,7 +96,7 @@ self.addEventListener('push', function (event) {
 
 self.addEventListener('notificationclick', function (event) {
     event.notification.close();
-    const url = event.notification.data || '/';
+    const url = event.notification.data || '/app';
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
             for (const client of list) {
@@ -118,7 +118,7 @@ function isStaticAsset(url) {
 
 function isPlanPage(url) {
     const path = new URL(url).pathname;
-    return path === '/' || path === '/plan' || path.startsWith('/log');
+    return path === '/app' || path === '/app/' || path === '/app/plan' || path.startsWith('/app/log');
 }
 
 async function cacheFirst(req) {

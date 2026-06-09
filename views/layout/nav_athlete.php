@@ -16,7 +16,7 @@ $userName  = Auth::name();
             </svg>
         </button>
         <!-- Theme toggle -->
-        <form method="POST" action="/theme" class="theme-toggle-form">
+        <form method="POST" action="/app/theme" class="theme-toggle-form">
             <?= Auth::csrfField() ?>
             <input type="hidden" name="theme"
                    value="<?= $theme === 'dark' ? 'light' : 'dark' ?>">
@@ -46,7 +46,7 @@ $userName  = Auth::name();
 </nav>
 
 <nav class="bottom-nav">
-    <a href="/" class="bottom-nav-item <?= $activeTab === 'today' ? 'active' : '' ?>">
+    <a href="/app" class="bottom-nav-item <?= $activeTab === 'today' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
@@ -54,7 +54,7 @@ $userName  = Auth::name();
         </svg>
         Today
     </a>
-    <a href="/plan" class="bottom-nav-item <?= $activeTab === 'plan' ? 'active' : '' ?>">
+    <a href="/app/plan" class="bottom-nav-item <?= $activeTab === 'plan' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
@@ -62,7 +62,7 @@ $userName  = Auth::name();
         </svg>
         Plan
     </a>
-    <a href="/log" class="bottom-nav-item <?= $activeTab === 'log' ? 'active' : '' ?>">
+    <a href="/app/log" class="bottom-nav-item <?= $activeTab === 'log' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -71,14 +71,14 @@ $userName  = Auth::name();
         </svg>
         Log
     </a>
-    <a href="/progress" class="bottom-nav-item <?= $activeTab === 'progress' ? 'active' : '' ?>">
+    <a href="/app/progress" class="bottom-nav-item <?= $activeTab === 'progress' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
         </svg>
         Progress
     </a>
-    <a href="/settings" class="bottom-nav-item <?= $activeTab === 'settings' ? 'active' : '' ?>">
+    <a href="/app/settings" class="bottom-nav-item <?= $activeTab === 'settings' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>

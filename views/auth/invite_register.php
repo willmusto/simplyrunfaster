@@ -23,7 +23,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <div class="flash flash-error"><?= h($error) ?></div>
         <?php endif; ?>
 
-        <form method="POST" action="/invite/<?= h($invite['code']) ?>">
+        <form method="POST" action="/app/invite/<?= h($invite['code']) ?>">
             <?= Auth::csrfField() ?>
 
             <div class="form-group">

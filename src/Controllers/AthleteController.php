@@ -11,7 +11,7 @@ class AthleteController
 
         // Redirect to onboarding if not complete
         if (!$athlete || !$athlete['onboarding_completed_at']) {
-            header('Location: /onboarding');
+            header('Location: /app/onboarding');
             exit;
         }
 
@@ -65,7 +65,7 @@ class AthleteController
 
         $athlete = Auth::getAthlete();
         if (!$athlete || !$athlete['onboarding_completed_at']) {
-            header('Location: /onboarding');
+            header('Location: /app/onboarding');
             exit;
         }
 
@@ -89,7 +89,7 @@ class AthleteController
 
         $athlete = Auth::getAthlete();
         if (!$athlete || !$athlete['onboarding_completed_at']) {
-            header('Location: /onboarding');
+            header('Location: /app/onboarding');
             exit;
         }
 
@@ -120,7 +120,7 @@ class AthleteController
 
         $athlete = Auth::getAthlete();
         if (!$athlete) {
-            header('Location: /');
+            header('Location: /app');
             exit;
         }
 
@@ -153,7 +153,7 @@ class AthleteController
         );
         $stmt->execute([$athleteId, $plannedId, $actDate, $type, $duration, $complStatus, $rpe, $effortDesc]);
 
-        header('Location: /log');
+        header('Location: /app/log');
         exit;
     }
 
@@ -164,7 +164,7 @@ class AthleteController
 
         $athlete = Auth::getAthlete();
         if (!$athlete || !$athlete['onboarding_completed_at']) {
-            header('Location: /onboarding');
+            header('Location: /app/onboarding');
             exit;
         }
 
@@ -223,19 +223,19 @@ class AthleteController
 
         if (!$user || !password_verify($current, $user['password_hash'])) {
             $_SESSION['flash_error'] = 'Current password is incorrect.';
-            header('Location: /settings');
+            header('Location: /app/settings');
             exit;
         }
 
         if (strlen($new) < PASSWORD_MIN_LENGTH) {
             $_SESSION['flash_error'] = 'New password must be at least ' . PASSWORD_MIN_LENGTH . ' characters.';
-            header('Location: /settings');
+            header('Location: /app/settings');
             exit;
         }
 
         if ($new !== $confirm) {
             $_SESSION['flash_error'] = 'New passwords do not match.';
-            header('Location: /settings');
+            header('Location: /app/settings');
             exit;
         }
 

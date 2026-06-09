@@ -16,7 +16,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <div class="onboarding-step-label">Step <?= $currentStep ?> of <?= $totalSteps ?></div>
     </div>
 
-    <form method="POST" action="/onboarding/1" class="onboarding-content" id="step1Form">
+    <form method="POST" action="/app/onboarding/1" class="onboarding-content" id="step1Form">
         <?= Auth::csrfField() ?>
 
         <?php if ($error): ?>

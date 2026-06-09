@@ -14,7 +14,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <div class="flash flash-error"><?= h($error) ?></div>
         <?php endif; ?>
 
-        <form method="POST" action="/reset-password">
+        <form method="POST" action="/app/reset-password">
             <?= Auth::csrfField() ?>
             <input type="hidden" name="token" value="<?= h($token) ?>">
 
