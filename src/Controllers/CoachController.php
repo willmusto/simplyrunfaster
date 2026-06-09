@@ -101,12 +101,47 @@ class CoachController
         $openFlags        = self::getOpenFlagsCount($coachId, $db);
         $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
 
+        $flashSuccess = $_SESSION['flash_success'] ?? null;
+        $flashError   = $_SESSION['flash_error']   ?? null;
+        unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
         $pageTitle = h($athlete['name']);
         $activeNav = 'athletes';
         include __DIR__ . '/../../views/layout/html_open.php';
         include __DIR__ . '/../../views/layout/nav_coach.php';
         include __DIR__ . '/../../views/coach/athlete_view.php';
         include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    public static function generatePlan(array $params): void
+    {
+        Auth::requireRole(['coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId   = Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+        $db        = Database::get();
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) {
+            header('Location: /app/coach/athletes');
+            exit;
+        }
+
+        try {
+            $planId = PlanGenerator::generate($athleteId, 'coach_manual');
+            if ($planId) {
+                $_SESSION['flash_success'] = 'New plan generated and added to the approval queue.';
+            } else {
+                $_SESSION['flash_error'] = 'Plan generation returned no result. Check athlete profile data.';
+            }
+        } catch (Throwable $e) {
+            error_log('PlanGenerator::generate failed (coach_manual) for athlete ' . $athleteId . ': ' . $e->getMessage());
+            $_SESSION['flash_error'] = 'Plan generation failed: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES);
+        }
+
+        header('Location: /app/coach/athlete/' . $athleteId);
+        exit;
     }
 
     public static function approvals(): void

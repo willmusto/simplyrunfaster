@@ -68,8 +68,9 @@ $router->get('/coach/dashboard',          [CoachController::class, 'dashboard'])
 $router->get('/coach',                    [CoachController::class, 'dashboard']);
 $router->get('/coach/athletes',           [CoachController::class, 'roster']);
 $router->get('/coach/athlete/:id',             [CoachController::class, 'athleteView']);
-$router->get('/coach/athlete/:id/messages',    [CoachController::class, 'coachMessages']);
-$router->post('/coach/athlete/:id/messages/send', [CoachController::class, 'coachMessagesSend']);
+$router->get('/coach/athlete/:id/messages',         [CoachController::class, 'coachMessages']);
+$router->post('/coach/athlete/:id/messages/send',   [CoachController::class, 'coachMessagesSend']);
+$router->post('/coach/athlete/:id/generate-plan',   [CoachController::class, 'generatePlan']);
 $router->get('/coach/approvals',                    [CoachController::class, 'approvals']);
 $router->post('/coach/plans/:planId/approve',       [CoachController::class, 'approvePlan']);
 $router->post('/coach/plans/:planId/reject',        [CoachController::class, 'rejectPlan']);

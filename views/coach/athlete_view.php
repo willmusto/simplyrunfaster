@@ -4,6 +4,19 @@ $today = date('Y-m-d');
 ?>
 <div class="page-content">
 
+    <?php if (!empty($flashSuccess)): ?>
+    <div class="alert alert-success" style="margin-bottom:16px;padding:10px 14px;border-radius:var(--radius-card);
+         background:var(--color-success-bg,#d1fae5);color:var(--color-success-text,#065f46);font-size:13px;">
+        <?= h($flashSuccess) ?>
+    </div>
+    <?php endif; ?>
+    <?php if (!empty($flashError)): ?>
+    <div class="alert alert-error" style="margin-bottom:16px;padding:10px 14px;border-radius:var(--radius-card);
+         background:#fdecea;color:#991b1b;font-size:13px;">
+        <?= h($flashError) ?>
+    </div>
+    <?php endif; ?>
+
     <!-- Header -->
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
         <a href="/app/coach/athletes" style="color:var(--text-muted);text-decoration:none;font-size:20px;">←</a>
@@ -141,6 +154,17 @@ $today = date('Y-m-d');
 
     <!-- Right sidebar -->
     <div>
+
+        <!-- Generate plan -->
+        <div style="margin-bottom:16px;">
+            <form method="POST" action="/app/coach/athlete/<?= (int)$athlete['id'] ?>/generate-plan"
+                  onsubmit="return confirm('Generate a new plan for <?= h(addslashes($athlete['name'])) ?>? Any pending plan in the queue will be replaced.');">
+                <?= Auth::csrfField() ?>
+                <button type="submit" class="btn btn-primary btn-full">
+                    Generate Plan
+                </button>
+            </form>
+        </div>
 
         <!-- Training load -->
         <div class="section-label">TRAINING LOAD</div>
