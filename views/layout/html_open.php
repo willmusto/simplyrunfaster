@@ -19,6 +19,6 @@
         <?= $extraCss ?>
     <?php endif; ?>
 </head>
-<body class="<?= h($bodyClass ?? '') ?>">
+<body class="<?= h(trim(($bodyClass ?? '') . (isset($activeNav) ? ' coach-page' : ''))) ?>">
 
 <div class="offline-banner">You're offline — your plan is still available</div>
