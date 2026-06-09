@@ -22,7 +22,7 @@ class AthleteController
 
         // Today's workout and this week's schedule (visible window)
         $today      = date('Y-m-d');
-        $windowEnd  = date('Y-m-d', strtotime("+{$_ENV['ATHLETE_WINDOW_DAYS']} days") ?: strtotime('+10 days'));
+        $windowEnd  = date('Y-m-d', strtotime('+' . ($_ENV['ATHLETE_WINDOW_DAYS'] ?? 10) . ' days'));
         $workouts   = self::getVisibleWorkouts((int)$athlete['id'], $today, $windowEnd, $db);
 
         $todayWorkout   = null;
