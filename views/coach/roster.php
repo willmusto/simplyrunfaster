@@ -72,6 +72,11 @@ $sort = $_GET['sort'] ?? 'alerts';
                         <?= (int)$a['open_warnings'] ?> warning<?= $a['open_warnings'] > 1 ? 's' : '' ?>
                     </span>
                     <?php endif; ?>
+                    <?php if (!empty($a['unread_messages'])): ?>
+                    <span class="roster-msg-badge" title="<?= (int)$a['unread_messages'] ?> unread">
+                        <?= (int)$a['unread_messages'] > 9 ? '9+' : (int)$a['unread_messages'] ?>
+                    </span>
+                    <?php endif; ?>
                 </div>
                 <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
                     <?php if ($a['plan_type']): ?>

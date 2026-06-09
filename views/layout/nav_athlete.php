@@ -1,8 +1,9 @@
 <?php
-// $activeTab should be set to: today | plan | log | progress | settings
-$activeTab = $activeTab ?? 'today';
-$theme     = Auth::theme();
-$userName  = Auth::name();
+// $activeTab should be set to: today | plan | log | messages | progress | settings
+$activeTab      = $activeTab ?? 'today';
+$theme          = Auth::theme();
+$userName       = Auth::name();
+$unreadMessages = $unreadMessages ?? 0;
 ?>
 <nav class="top-nav">
     <div class="logo">Simply<span>Run</span>Faster</div>
@@ -70,6 +71,16 @@ $userName  = Auth::name();
             <line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
         </svg>
         Log
+    </a>
+    <a href="/app/messages" class="bottom-nav-item <?= $activeTab === 'messages' ? 'active' : '' ?>">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <?php if ($unreadMessages > 0): ?>
+        <span class="nav-unread-badge"><?= $unreadMessages > 9 ? '9+' : $unreadMessages ?></span>
+        <?php endif; ?>
+        Messages
     </a>
     <a href="/app/progress" class="bottom-nav-item <?= $activeTab === 'progress' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"

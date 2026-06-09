@@ -115,20 +115,24 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
     <?php if (!empty($unreadMessages)): ?>
     <div class="section-label" style="margin-top:16px;">MESSAGES</div>
     <?php foreach ($unreadMessages as $msg): ?>
-    <div class="card" style="margin-bottom:8px;">
+    <a href="/app/coach/athlete/<?= (int)$msg['athlete_id'] ?>/messages"
+       class="card" style="margin-bottom:8px;display:block;text-decoration:none;color:var(--text-primary);">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
-            <div>
-                <div style="font-size:13px;font-weight:600;"><?= h($msg['athlete_name']) ?></div>
+            <div style="min-width:0;flex:1;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <div style="font-size:13px;font-weight:600;"><?= h($msg['athlete_name']) ?></div>
+                    <span class="unread-badge" style="background:var(--color-info);">new</span>
+                </div>
                 <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;
-                            overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px;">
+                            overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                     <?= h($msg['body']) ?>
                 </div>
             </div>
-            <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;">
+            <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;flex-shrink:0;">
                 <?= date('M j', strtotime($msg['sent_at'])) ?>
             </span>
         </div>
-    </div>
+    </a>
     <?php endforeach; ?>
     <?php endif; ?>
 

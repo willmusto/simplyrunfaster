@@ -83,6 +83,20 @@ class CoachController
         $pbs           = self::getPersonalBests($athleteId, $db);
         $nextRace      = self::getNextRace($athleteId, $db);
 
+        // Message summary for sidebar
+        $lastMsgStmt = $db->prepare(
+            'SELECT body, sent_at, sender_role FROM messages WHERE athlete_id = ? ORDER BY sent_at DESC LIMIT 1'
+        );
+        $lastMsgStmt->execute([$athleteId]);
+        $lastMessage = $lastMsgStmt->fetch() ?: null;
+
+        $unreadAthleteMessages = 0;
+        $unreadMsgStmt = $db->prepare(
+            'SELECT COUNT(*) FROM messages WHERE athlete_id = ? AND sender_role = "athlete" AND read_at IS NULL'
+        );
+        $unreadMsgStmt->execute([$athleteId]);
+        $unreadAthleteMessages = (int)$unreadMsgStmt->fetchColumn();
+
         $athletes         = self::getRosterAthletes($coachId, $db);
         $openFlags        = self::getOpenFlagsCount($coachId, $db);
         $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
@@ -374,6 +388,83 @@ class CoachController
         exit;
     }
 
+    public static function coachMessages(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db        = Database::get();
+        $coachId   = Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) {
+            http_response_code(404);
+            include __DIR__ . '/../../views/errors/404.php';
+            return;
+        }
+
+        // Mark athlete messages as read
+        $db->prepare(
+            'UPDATE messages SET read_at = NOW() WHERE athlete_id = ? AND sender_role = "athlete" AND read_at IS NULL'
+        )->execute([$athleteId]);
+
+        // Fetch thread (oldest first)
+        $stmt = $db->prepare(
+            'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date,
+                    u.name AS sender_name
+             FROM messages m
+             LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
+             LEFT JOIN users u ON u.id = m.sender_id
+             WHERE m.athlete_id = ?
+             ORDER BY m.sent_at ASC
+             LIMIT 200'
+        );
+        $stmt->execute([$athleteId]);
+        $messages = $stmt->fetchAll();
+
+        $athletes         = self::getRosterAthletes($coachId, $db);
+        $openFlags        = self::getOpenFlagsCount($coachId, $db);
+        $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
+
+        $pageTitle = h($athlete['name']) . ' — Messages';
+        $activeNav = 'athletes';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_coach.php';
+        include __DIR__ . '/../../views/coach/messages.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    public static function coachMessagesSend(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId   = Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+        $db        = Database::get();
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) {
+            header('Location: /app/coach/athletes');
+            exit;
+        }
+
+        $body = trim($_POST['body'] ?? '');
+        if (!$body || mb_strlen($body) > 2000) {
+            header('Location: /app/coach/athlete/' . $athleteId . '/messages');
+            exit;
+        }
+
+        $db->prepare(
+            'INSERT INTO messages (athlete_id, sender_id, sender_role, body, message_type)
+             VALUES (?, ?, "coach", ?, "message")'
+        )->execute([$athleteId, $coachId, $body]);
+
+        header('Location: /app/coach/athlete/' . $athleteId . '/messages');
+        exit;
+    }
+
     // ── Data helpers ───────────────────────────────────────────
 
     private static function getRosterAthletes(int $coachId, PDO $db): array
@@ -387,7 +478,8 @@ class CoachController
                 (SELECT COUNT(*) FROM engine_flags ef WHERE ef.athlete_id=a.id AND ef.status="open" AND ef.severity="warning")  as open_warnings,
                 (SELECT race_date FROM races r WHERE r.athlete_id=a.id AND r.race_date >= CURDATE() ORDER BY race_date LIMIT 1) as next_race_date,
                 (SELECT race_distance FROM races r WHERE r.athlete_id=a.id AND r.race_date >= CURDATE() ORDER BY race_date LIMIT 1) as next_race_distance,
-                (SELECT AVG(cw.compliance_score) FROM completed_workouts cw WHERE cw.athlete_id=a.id AND cw.compliance_score IS NOT NULL AND cw.activity_date >= DATE_SUB(CURDATE(), INTERVAL 28 DAY)) as avg_compliance
+                (SELECT AVG(cw.compliance_score) FROM completed_workouts cw WHERE cw.athlete_id=a.id AND cw.compliance_score IS NOT NULL AND cw.activity_date >= DATE_SUB(CURDATE(), INTERVAL 28 DAY)) as avg_compliance,
+                (SELECT COUNT(*) FROM messages m WHERE m.athlete_id=a.id AND m.sender_role="athlete" AND m.read_at IS NULL) as unread_messages
              FROM athletes a
              JOIN users u ON u.id = a.user_id
              LEFT JOIN athlete_profiles ap ON ap.athlete_id = a.id

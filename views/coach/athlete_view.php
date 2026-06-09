@@ -206,7 +206,7 @@ $today = date('Y-m-d');
         <!-- Personal bests -->
         <?php if (!empty($pbs)): ?>
         <div class="section-label">PERSONAL BESTS</div>
-        <div class="card">
+        <div class="card" style="margin-bottom:16px;">
             <?php foreach ($pbs as $pb):
                 $secs = (int)$pb['time_seconds'];
                 $t = $secs < 3600
@@ -221,6 +221,30 @@ $today = date('Y-m-d');
             <?php endforeach; ?>
         </div>
         <?php endif; ?>
+
+        <!-- Messages -->
+        <div class="section-label">MESSAGES</div>
+        <div class="card">
+            <?php if ($lastMessage): ?>
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;
+                        overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                <strong><?= $lastMessage['sender_role'] === 'athlete' ? h($athlete['name']) : 'You' ?>:</strong>
+                <?= h(mb_substr($lastMessage['body'], 0, 70)) ?>
+            </div>
+            <?php endif; ?>
+            <?php if ($unreadAthleteMessages > 0): ?>
+            <div style="margin-bottom:10px;display:flex;align-items:center;gap:6px;">
+                <span class="unread-badge" style="background:var(--color-info);"><?= $unreadAthleteMessages ?></span>
+                <span style="font-size:12px;color:var(--text-secondary);">
+                    unread message<?= $unreadAthleteMessages !== 1 ? 's' : '' ?>
+                </span>
+            </div>
+            <?php endif; ?>
+            <a href="/app/coach/athlete/<?= (int)$athlete['id'] ?>/messages"
+               class="btn btn-secondary btn-sm btn-full">
+                <?= $unreadAthleteMessages > 0 ? 'Reply →' : ($lastMessage ? 'View thread →' : 'Start conversation →') ?>
+            </a>
+        </div>
 
     </div><!-- /sidebar -->
 

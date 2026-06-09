@@ -131,6 +131,32 @@
             Felt: <strong><?= h(ucfirst(str_replace('_', ' ', $entry['effort_descriptor']))) ?></strong>
         </div>
         <?php endif; ?>
+
+        <!-- Session note -->
+        <div style="margin-top:10px;padding-top:10px;border-top:var(--card-border);">
+            <button class="btn btn-sm btn-secondary"
+                    onclick="this.style.display='none';document.getElementById('note-<?= (int)$entry['id'] ?>').style.display='block'">
+                + Add note
+            </button>
+            <div id="note-<?= (int)$entry['id'] ?>" style="display:none;">
+                <form method="POST" action="/app/log/note">
+                    <?= Auth::csrfField() ?>
+                    <input type="hidden" name="completed_workout_id" value="<?= (int)$entry['id'] ?>">
+                    <textarea name="body" class="form-textarea" rows="2" maxlength="1000"
+                              placeholder="How did it go? Anything notable…"
+                              style="margin-bottom:8px;font-size:13px;min-height:60px;"></textarea>
+                    <div style="display:flex;gap:8px;">
+                        <button type="submit" class="btn btn-primary btn-sm">Save note</button>
+                        <button type="button" class="btn btn-sm"
+                                style="background:var(--recessed-bg);color:var(--text-muted);"
+                                onclick="var f=this.closest('div[id]');f.style.display='none';f.previousElementSibling.style.display=''">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
     </div>
     <?php endforeach; ?>
 

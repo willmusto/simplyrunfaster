@@ -104,6 +104,9 @@ body {
     line-height: 1.5;
     color: var(--text-primary);
     background: var(--page-bg);
+    min-height: 100vh;
+    min-height: 100dvh;
+    overscroll-behavior-y: none;
 }
 
 a {
@@ -238,6 +241,7 @@ img { max-width: 100%; display: block; }
     text-decoration: none;
     padding: 8px 4px;
     transition: color 0.15s;
+    position: relative;
 }
 
 .bottom-nav-item.active,
@@ -924,6 +928,8 @@ img { max-width: 100%; display: block; }
     background: var(--page-bg);
     display: flex;
     flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
 }
 
 .onboarding-progress {
@@ -958,6 +964,7 @@ img { max-width: 100%; display: block; }
     max-width: 520px;
     margin: 0 auto;
     width: 100%;
+    flex: 1;
 }
 
 .onboarding-heading {
@@ -1149,10 +1156,230 @@ body.is-offline .offline-banner { display: block; }
 /* ── Responsive helpers ─────────────────────────────────────── */
 @media (max-width: 1023px) {
     .sidebar-nav { display: none; }
-    body.coach-page .page-content { padding-top: 16px; }
+    body.coach-page .page-content { padding-top: 60px; }
 }
 
 @media (max-width: 480px) {
     .metric-grid { grid-template-columns: repeat(2, 1fr); }
     .page-heading { font-size: 18px; }
+}
+
+/* ── Messages ────────────────────────────────────────────────── */
+
+.msg-thread {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 0;
+}
+
+.msg-row {
+    display: flex;
+    flex-direction: column;
+}
+
+.msg-row.coach  { align-items: flex-start; }
+.msg-row.athlete { align-items: flex-end; }
+
+.msg-bubble {
+    max-width: 78%;
+    padding: 10px 14px;
+    border-radius: 16px;
+    font-size: 14px;
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.msg-row.coach  .msg-bubble {
+    background: #F0EDE7;
+    color: #1A1A1A;
+    border-bottom-left-radius: 4px;
+}
+
+.msg-row.athlete .msg-bubble {
+    background: #1D9E75;
+    color: #ffffff;
+    border-bottom-right-radius: 4px;
+}
+
+[data-theme="dark"] .msg-row.coach  .msg-bubble { background: #2A2A2A; color: #F0F0F0; }
+[data-theme="dark"] .msg-row.athlete .msg-bubble { background: #0F6E56; }
+
+.msg-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 3px;
+    padding: 0 2px;
+}
+
+.msg-timestamp {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 8px 0;
+    align-self: center;
+}
+
+/* Session note card */
+.msg-session-card {
+    max-width: 85%;
+    background: var(--card-bg);
+    border: var(--card-border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    border-left: 3px solid var(--accent-mid);
+}
+
+.msg-session-card-header {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent-mid);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.msg-session-card-body {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 8px;
+}
+
+.msg-session-link {
+    font-size: 12px;
+    color: var(--accent-mid);
+    font-weight: 500;
+    text-decoration: none;
+}
+.msg-session-link:hover { text-decoration: underline; }
+
+/* Compose elements */
+.msg-compose {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+}
+
+.msg-compose-input {
+    flex: 1;
+    min-height: 40px;
+    max-height: 120px;
+    padding: 10px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--border-strong);
+    background: var(--recessed-bg);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: inherit;
+    resize: none;
+    outline: none;
+    line-height: 1.5;
+    overflow-y: auto;
+}
+.msg-compose-input:focus { border-color: var(--accent-mid); }
+.msg-compose-input::placeholder { color: var(--text-muted); }
+
+.msg-compose-send {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--accent-mid);
+    border: none;
+    cursor: pointer;
+    color: #fff;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+}
+.msg-compose-send:hover { background: var(--accent-strong); }
+.msg-compose-send:disabled { background: var(--border-strong); cursor: default; }
+
+/* Compose bar wrapper — fixed on mobile, inline on desktop */
+.msg-compose-wrap {
+    padding: 10px 16px;
+    background: var(--nav-bg);
+    border-top: var(--card-border);
+}
+
+@media (max-width: 1023px) {
+    .msg-compose-wrap {
+        position: fixed;
+        bottom: calc(var(--nav-height-bottom) + env(safe-area-inset-bottom, 0px));
+        left: 0;
+        right: 0;
+        z-index: 50;
+    }
+    /* Extra padding so thread content isn't hidden behind compose + bottom nav */
+    .page-content.has-fixed-compose {
+        padding-bottom: calc(80px + 60px + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+@media (min-width: 1024px) {
+    .msg-compose-wrap {
+        padding: 12px 0 0;
+        border-top: var(--card-border);
+        margin-top: 8px;
+    }
+}
+
+/* Unread badge on bottom-nav Messages tab */
+.nav-unread-badge {
+    position: absolute;
+    top: 5px;
+    right: calc(50% - 20px);
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--color-danger);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    pointer-events: none;
+}
+
+/* Inline unread badge */
+.unread-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--color-danger);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+/* Unread message badge on coach roster rows */
+.roster-msg-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: 10px;
+    background: var(--color-info);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+/* 6-tab bottom nav: shrink font on very small screens */
+@media (max-width: 400px) {
+    .bottom-nav-item { font-size: 10px; }
+    .bottom-nav-item svg { width: 20px; height: 20px; }
 }

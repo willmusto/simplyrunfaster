@@ -43,12 +43,7 @@ class AthleteController
         $load->execute([(int)$athlete['id']]);
         $loadData = $load->fetch();
 
-        // Unread messages count
-        $msgStmt = $db->prepare(
-            'SELECT COUNT(*) FROM messages WHERE athlete_id = ? AND sender_role = "coach" AND read_at IS NULL'
-        );
-        $msgStmt->execute([(int)$athlete['id']]);
-        $unreadMessages = (int)$msgStmt->fetchColumn();
+        $unreadMessages = self::getUnreadCount((int)$athlete['id'], $db);
 
         $pageTitle = 'Today';
         $activeTab = 'today';
@@ -73,6 +68,8 @@ class AthleteController
         $today   = date('Y-m-d');
         $endDate = date('Y-m-d', strtotime('+10 days'));
         $workouts = self::getVisibleWorkouts((int)$athlete['id'], $today, $endDate, $db);
+
+        $unreadMessages = self::getUnreadCount((int)$athlete['id'], $db);
 
         $pageTitle = 'My Plan';
         $activeTab = 'plan';
@@ -104,6 +101,8 @@ class AthleteController
         );
         $stmt->execute([(int)$athlete['id']]);
         $recentLog = $stmt->fetchAll();
+
+        $unreadMessages = self::getUnreadCount((int)$athlete['id'], $db);
 
         $pageTitle = 'Training Log';
         $activeTab = 'log';
@@ -179,6 +178,8 @@ class AthleteController
         $stmt->execute([(int)$athlete['id']]);
         $weeklyTrend = array_reverse($stmt->fetchAll());
 
+        $unreadMessages = self::getUnreadCount((int)$athlete['id'], $db);
+
         $pageTitle = 'Progress';
         $activeTab = 'progress';
         include __DIR__ . '/../../views/layout/html_open.php';
@@ -198,6 +199,9 @@ class AthleteController
         $success = $_SESSION['flash_success'] ?? null;
         $error   = $_SESSION['flash_error']   ?? null;
         unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
+        $db = Database::get();
+        $unreadMessages = $athlete ? self::getUnreadCount((int)$athlete['id'], $db) : 0;
 
         $pageTitle = 'Settings';
         $activeTab = 'settings';
@@ -274,7 +278,140 @@ class AthleteController
         exit;
     }
 
+    public static function messages(): void
+    {
+        Auth::requireRole('athlete');
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $athlete = Auth::getAthlete();
+        if (!$athlete || !$athlete['onboarding_completed_at']) {
+            header('Location: /app/onboarding');
+            exit;
+        }
+
+        $db        = Database::get();
+        $athleteId = (int)$athlete['id'];
+
+        // Mark all coach messages as read
+        $db->prepare(
+            'UPDATE messages SET read_at = NOW() WHERE athlete_id = ? AND sender_role = "coach" AND read_at IS NULL'
+        )->execute([$athleteId]);
+
+        // Fetch thread (oldest first)
+        $stmt = $db->prepare(
+            'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date,
+                    u.name AS sender_name
+             FROM messages m
+             LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
+             LEFT JOIN users u ON u.id = m.sender_id
+             WHERE m.athlete_id = ?
+             ORDER BY m.sent_at ASC
+             LIMIT 200'
+        );
+        $stmt->execute([$athleteId]);
+        $messages = $stmt->fetchAll();
+
+        // Coach name
+        $coachName = 'Your coach';
+        if (!empty($athlete['coach_id'])) {
+            $cs = $db->prepare('SELECT name FROM users WHERE id = ? LIMIT 1');
+            $cs->execute([(int)$athlete['coach_id']]);
+            $coachName = $cs->fetchColumn() ?: 'Your coach';
+        }
+
+        $unreadMessages = 0; // already marked read above
+
+        $pageTitle = 'Messages';
+        $activeTab = 'messages';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_athlete.php';
+        include __DIR__ . '/../../views/athlete/messages.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    public static function messagesSend(): void
+    {
+        Auth::requireRole('athlete');
+        Auth::verifyCsrf();
+
+        $athlete = Auth::getAthlete();
+        if (!$athlete) {
+            header('Location: /app/messages');
+            exit;
+        }
+
+        $body = trim($_POST['body'] ?? '');
+        if (!$body || mb_strlen($body) > 2000) {
+            header('Location: /app/messages');
+            exit;
+        }
+
+        $db = Database::get();
+        $db->prepare(
+            'INSERT INTO messages (athlete_id, sender_id, sender_role, body, message_type)
+             VALUES (?, ?, "athlete", ?, "message")'
+        )->execute([(int)$athlete['id'], Auth::userId(), $body]);
+
+        header('Location: /app/messages');
+        exit;
+    }
+
+    public static function sessionNoteSave(): void
+    {
+        Auth::requireRole('athlete');
+        Auth::verifyCsrf();
+
+        $athlete = Auth::getAthlete();
+        if (!$athlete) {
+            header('Location: /app/log');
+            exit;
+        }
+
+        $db        = Database::get();
+        $athleteId = (int)$athlete['id'];
+        $userId    = Auth::userId();
+        $cwId      = (int)($_POST['completed_workout_id'] ?? 0);
+        $body      = trim($_POST['body'] ?? '');
+
+        if (!$cwId || !$body || mb_strlen($body) > 1000) {
+            header('Location: /app/log');
+            exit;
+        }
+
+        // Verify workout belongs to this athlete
+        $check = $db->prepare('SELECT id FROM completed_workouts WHERE id = ? AND athlete_id = ? LIMIT 1');
+        $check->execute([$cwId, $athleteId]);
+        if (!$check->fetch()) {
+            header('Location: /app/log');
+            exit;
+        }
+
+        // Save session note
+        $db->prepare(
+            'INSERT INTO session_notes (completed_workout_id, athlete_id, author_id, author_role, body)
+             VALUES (?, ?, ?, "athlete", ?)'
+        )->execute([$cwId, $athleteId, $userId, $body]);
+
+        // Auto-post to messages thread as session card
+        $db->prepare(
+            'INSERT INTO messages (athlete_id, sender_id, sender_role, body, message_type, completed_workout_id)
+             VALUES (?, ?, "athlete", ?, "session_note", ?)'
+        )->execute([$athleteId, $userId, $body, $cwId]);
+
+        header('Location: /app/log');
+        exit;
+    }
+
     // ── Helpers ────────────────────────────────────────────────
+
+    private static function getUnreadCount(int $athleteId, PDO $db): int
+    {
+        $stmt = $db->prepare(
+            'SELECT COUNT(*) FROM messages WHERE athlete_id = ? AND sender_role = "coach" AND read_at IS NULL'
+        );
+        $stmt->execute([$athleteId]);
+        return (int)$stmt->fetchColumn();
+    }
 
     private static function getActivePlan(int $athleteId, PDO $db): ?array
     {
