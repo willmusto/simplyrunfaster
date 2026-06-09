@@ -25,7 +25,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
 
         <h1 class="onboarding-heading">Your running history</h1>
         <p class="onboarding-subheading">
-            Context for your coach and the engine. This doesn't change your plan goal —
+            Context for your coach and the engine. This doesn't change your plan goal:
             it shapes how we get you there.
         </p>
 
@@ -34,13 +34,13 @@ include __DIR__ . '/../../views/layout/html_open.php';
             <input type="number" id="years_running" name="years_running" class="form-input"
                    placeholder="e.g. 3" step="0.5" min="0" max="60" required
                    value="<?= h($d['years_running'] ?? '') ?>">
-            <div class="form-hint">Estimate is fine — 0.5 = about 6 months.</div>
+            <div class="form-hint">Estimate is fine; 0.5 = about 6 months.</div>
         </div>
 
         <div class="form-group">
             <label class="form-label" for="peak_weekly_minutes">
                 What's the most you've ever trained in a week (minutes)?
-                <span style="font-weight:400;color:var(--text-muted);"> — optional</span>
+                <span style="font-weight:400;color:var(--text-muted);"> (optional)</span>
             </label>
             <input type="number" id="peak_weekly_minutes" name="peak_weekly_minutes"
                    class="form-input" placeholder="e.g. 300" min="0" max="1800"
@@ -50,7 +50,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <div class="form-group">
             <label class="form-label" for="injury_history">
                 Any injury history?
-                <span style="font-weight:400;color:var(--text-muted);"> — optional</span>
+                <span style="font-weight:400;color:var(--text-muted);"> (optional)</span>
             </label>
             <textarea id="injury_history" name="injury_history" class="form-textarea"
                       placeholder="e.g. IT band issues in 2022, nothing recent. Or: none."

@@ -43,7 +43,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
                 <span class="goal-card-icon">📈</span>
                 <div>
                     <div class="goal-card-title">Get fitter and run consistently</div>
-                    <div class="goal-card-desc">No race planned — I want to build fitness</div>
+                    <div class="goal-card-desc">No race planned. I want to build fitness.</div>
                 </div>
             </label>
 
@@ -86,7 +86,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
             <div class="form-group">
                 <label class="form-label" for="goal_finish_time">
                     Goal finish time
-                    <span style="font-weight:400;color:var(--text-muted);"> — optional</span>
+                    <span style="font-weight:400;color:var(--text-muted);"> (optional)</span>
                 </label>
                 <input type="text" id="goal_finish_time" name="goal_finish_time" class="form-input"
                        placeholder="e.g. 1:45:00"

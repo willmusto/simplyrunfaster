@@ -59,7 +59,7 @@
 
             <div class="form-group">
                 <label class="form-label" for="notes">Notes
-                    <span style="font-weight:400;color:var(--text-muted);"> — optional</span>
+                    <span style="font-weight:400;color:var(--text-muted);"> (optional)</span>
                 </label>
                 <textarea id="notes" name="notes" class="form-textarea" rows="2"
                           placeholder="How it went, how you felt, anything notable..."

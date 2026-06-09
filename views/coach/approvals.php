@@ -46,7 +46,7 @@
             <div class="form-group" style="margin-bottom:10px;">
                 <label class="form-label" for="notes_a_<?= (int)$plan['plan_id'] ?>">
                     Coach notes
-                    <span style="font-weight:400;color:var(--text-muted);"> — optional</span>
+                    <span style="font-weight:400;color:var(--text-muted);"> (optional)</span>
                 </label>
                 <textarea id="notes_a_<?= (int)$plan['plan_id'] ?>" name="coach_notes"
                           class="form-textarea" rows="2"

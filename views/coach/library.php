@@ -61,7 +61,7 @@ function parse_tags(?string $json): array {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                 <div class="form-group">
                     <label class="form-label" for="wl_name">Internal name <span style="color:var(--color-danger);">*</span></label>
-                    <input type="text" id="wl_name" name="name" class="form-input" placeholder="e.g. E2 — 45-min easy" required>
+                    <input type="text" id="wl_name" name="name" class="form-input" placeholder="e.g. E2: 45-min easy" required>
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="wl_athlete_name">Athlete-facing name</label>

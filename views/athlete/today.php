@@ -19,7 +19,7 @@ $today    = date('Y-m-d');
         </p>
         <?php else: ?>
         <p class="body-text" style="margin-top:4px;color:var(--text-muted);">
-            Your coach is building your plan — it'll appear here once approved.
+            Your coach is building your plan. It will appear here once approved.
         </p>
         <?php endif; ?>
     </div>
@@ -75,7 +75,7 @@ $today    = date('Y-m-d');
         </p>
         <?php elseif ($todayWorkout['workout_type'] === 'rest'): ?>
         <p class="body-text" style="margin-bottom:12px;">
-            Rest day. Take it easy — recovery is training too.
+            Rest day. Take it easy. Recovery is training too.
         </p>
         <?php endif; ?>
         <a href="/log" class="btn btn-primary btn-sm">Log this workout</a>

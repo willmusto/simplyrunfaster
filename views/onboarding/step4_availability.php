@@ -45,7 +45,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
 
         <div class="form-group">
             <label class="form-label">Which days are absolute rest days?</label>
-            <div class="form-hint" style="margin-bottom:8px;">Tap to mark a day as must-off. You can override these later — but they're off by default.</div>
+            <div class="form-hint" style="margin-bottom:8px;">Tap to mark a day as must-off. You can override these later, but they're off by default.</div>
             <div class="day-picker" id="mustOffPicker">
                 <?php foreach ($days as $i => $label): ?>
                 <button type="button" class="day-btn <?= in_array((string)$i, $mustOff) ? 'selected must-off' : '' ?>"

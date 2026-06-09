@@ -60,7 +60,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
             <div class="body-text">
                 <p style="margin-bottom:8px;">
                     Your coach has been notified. They'll review your profile and build your
-                    training plan — nothing appears in your account until your coach approves it.
+                    training plan. Nothing appears in your account until your coach approves it.
                 </p>
                 <p>
                     Your coach will be in touch to schedule a short onboarding call. That's where

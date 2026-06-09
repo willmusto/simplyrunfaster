@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="csrf-token" content="<?= h(Auth::csrfToken()) ?>">
 
-    <title><?= h($pageTitle ?? 'SimplyRunFaster') ?> — SimplyRunFaster</title>
+    <title><?= h($pageTitle ?? 'SimplyRunFaster') ?> | SimplyRunFaster</title>
 
     <link rel="manifest" href="/manifest.json">
     <link rel="shortcut icon" href="/favicon.ico">
@@ -23,4 +23,4 @@
 </head>
 <body class="<?= h(trim(($bodyClass ?? '') . (isset($activeNav) ? ' coach-page' : ''))) ?>">
 
-<div class="offline-banner">You're offline — your plan is still available</div>
+<div class="offline-banner">You're offline. Your plan is still available.</div>

@@ -17,7 +17,7 @@ $db   = Database::get();
 $stmt = $db->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
 $stmt->execute([strtolower($email)]);
 if ($stmt->fetch()) {
-    echo "Account already exists for {$email} — nothing created.\n";
+    echo "Account already exists for {$email} - nothing created.\n";
     exit(1);
 }
 
@@ -37,4 +37,4 @@ echo "  Email:    {$email}\n";
 echo "  Name:     {$name}\n";
 echo "  Role:     {$role}\n";
 echo "  Password: {$password}\n";
-echo "\nStore this password now — it cannot be recovered. Delete or chmod 000 this script after use.\n";
+echo "\nStore this password now. It cannot be recovered. Delete or chmod 000 this script after use.\n";

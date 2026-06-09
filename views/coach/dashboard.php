@@ -8,7 +8,7 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
     <p class="body-text" style="margin-bottom:24px;">
         <?= date('l, F j') ?>
         <?php if ($totalFlags > 0 || $pendingApprovals > 0): ?>
-        — <?php $parts = [];
+        - <?php $parts = [];
             if ($totalFlags)        $parts[] = $totalFlags . ' alert' . ($totalFlags !== 1 ? 's' : '');
             if ($pendingApprovals)  $parts[] = $pendingApprovals . ' plan' . ($pendingApprovals !== 1 ? 's' : '') . ' pending review';
             echo implode(', ', $parts); ?>
@@ -67,7 +67,7 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
 
     <?php if (empty($criticalFlags) && empty($warningFlags)): ?>
     <div class="card" style="margin-bottom:24px;border-left:3px solid var(--color-success);">
-        <span style="font-size:13px;color:var(--text-secondary);">All athletes are on track — no open alerts.</span>
+        <span style="font-size:13px;color:var(--text-secondary);">All athletes are on track. No open alerts.</span>
     </div>
     <?php endif; ?>
 

@@ -25,7 +25,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
 
         <h1 class="onboarding-heading">Your current fitness</h1>
         <p class="onboarding-subheading">
-            This tells the engine where to start. Be honest — starting conservatively keeps you healthy.
+            This tells the engine where to start. Be honest: starting conservatively keeps you healthy.
         </p>
 
         <div class="form-group">
@@ -58,7 +58,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
 
         <div class="divider"></div>
         <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
-            Optional — helps set your starting pace zones.
+            Optional. Helps set your starting pace zones.
         </p>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
