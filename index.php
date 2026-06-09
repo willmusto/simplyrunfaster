@@ -46,8 +46,9 @@ $router->get('/plan',       [AthleteController::class, 'plan']);
 $router->get('/log',        [AthleteController::class, 'log']);
 $router->post('/log/manual',[AthleteController::class, 'manualLog']);
 $router->get('/progress',   [AthleteController::class, 'progress']);
-$router->get('/settings',   [AthleteController::class, 'settings']);
-$router->post('/settings',  [AthleteController::class, 'settingsSave']);
+$router->get('/settings',          [AthleteController::class, 'settings']);
+$router->post('/settings',         [AthleteController::class, 'settingsSave']);
+$router->post('/settings/password',[AthleteController::class, 'changePasswordSubmit']);
 
 // ── Coach dashboard ──────────────────────────────────────────
 $router->get('/coach',                    [CoachController::class, 'dashboard']);

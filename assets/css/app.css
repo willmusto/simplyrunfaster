@@ -348,6 +348,10 @@ img { max-width: 100%; display: block; }
 
     .bottom-nav { display: none; }
     .top-nav { left: var(--sidebar-width); }
+
+    /* Sidebar pages (coach): top-nav duplicates the sidebar logo — hide it */
+    body:has(.sidebar-nav) .top-nav { display: none; }
+    body:has(.sidebar-nav) .page-content { padding-top: 32px; }
 }
 
 @media (min-width: 768px) and (max-width: 1023px) {

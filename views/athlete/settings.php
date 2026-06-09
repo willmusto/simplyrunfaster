@@ -8,6 +8,10 @@
     <div class="flash flash-success"><?= h($success) ?></div>
     <?php endif; ?>
 
+    <?php if ($error): ?>
+    <div class="flash flash-error"><?= h($error) ?></div>
+    <?php endif; ?>
+
     <form method="POST" action="/settings">
         <?= Auth::csrfField() ?>
 
@@ -54,6 +58,38 @@
 
         <button type="submit" class="btn btn-primary">Save settings</button>
     </form>
+
+    <div class="divider" style="margin:24px 0;"></div>
+
+    <div class="section-label">SECURITY</div>
+    <div class="card" style="margin-bottom:16px;">
+        <form method="POST" action="/settings/password">
+            <?= Auth::csrfField() ?>
+
+            <div class="form-group">
+                <label class="form-label" for="current_password">Current password</label>
+                <input type="password" id="current_password" name="current_password" class="form-input"
+                       placeholder="Your current password" required autocomplete="current-password">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="new_password">New password</label>
+                <input type="password" id="new_password" name="new_password" class="form-input"
+                       placeholder="At least <?= PASSWORD_MIN_LENGTH ?> characters" required autocomplete="new-password"
+                       minlength="<?= PASSWORD_MIN_LENGTH ?>">
+            </div>
+
+            <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label" for="new_password_confirm">Confirm new password</label>
+                <input type="password" id="new_password_confirm" name="new_password_confirm" class="form-input"
+                       placeholder="Repeat new password" required autocomplete="new-password">
+            </div>
+
+            <button type="submit" class="btn btn-secondary btn-sm" style="margin-top:16px;">
+                Change password
+            </button>
+        </form>
+    </div>
 
     <div class="divider" style="margin:24px 0;"></div>
 

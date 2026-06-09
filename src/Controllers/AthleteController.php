@@ -196,7 +196,8 @@ class AthleteController
         $profile = $athlete ? Auth::getAthleteProfile((int)$athlete['id']) : null;
 
         $success = $_SESSION['flash_success'] ?? null;
-        unset($_SESSION['flash_success']);
+        $error   = $_SESSION['flash_error']   ?? null;
+        unset($_SESSION['flash_success'], $_SESSION['flash_error']);
 
         $pageTitle = 'Settings';
         $activeTab = 'settings';
@@ -204,6 +205,46 @@ class AthleteController
         include __DIR__ . '/../../views/layout/nav_athlete.php';
         include __DIR__ . '/../../views/athlete/settings.php';
         include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    public static function changePasswordSubmit(): void
+    {
+        Auth::requireRole('athlete');
+        Auth::verifyCsrf();
+
+        $current = $_POST['current_password']     ?? '';
+        $new     = $_POST['new_password']          ?? '';
+        $confirm = $_POST['new_password_confirm']  ?? '';
+
+        $db   = Database::get();
+        $stmt = $db->prepare('SELECT password_hash FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([Auth::userId()]);
+        $user = $stmt->fetch();
+
+        if (!$user || !password_verify($current, $user['password_hash'])) {
+            $_SESSION['flash_error'] = 'Current password is incorrect.';
+            header('Location: /settings');
+            exit;
+        }
+
+        if (strlen($new) < PASSWORD_MIN_LENGTH) {
+            $_SESSION['flash_error'] = 'New password must be at least ' . PASSWORD_MIN_LENGTH . ' characters.';
+            header('Location: /settings');
+            exit;
+        }
+
+        if ($new !== $confirm) {
+            $_SESSION['flash_error'] = 'New passwords do not match.';
+            header('Location: /settings');
+            exit;
+        }
+
+        $db->prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+           ->execute([password_hash($new, PASSWORD_DEFAULT), Auth::userId()]);
+
+        $_SESSION['flash_success'] = 'Password changed successfully.';
+        header('Location: /settings');
+        exit;
     }
 
     public static function settingsSave(): void
