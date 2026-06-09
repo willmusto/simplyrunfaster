@@ -1,0 +1,22 @@
+name: Deploy to NFSN
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.NFSN_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ssh.phx.nearlyfreespeech.net >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes \
+            gwmusto_simplyrunfaster@ssh.phx.nearlyfreespeech.net \
+            "cd /home/private/app && git pull && rsync -av --exclude='.git' --exclude='config/config.local.php' /home/private/app/ /home/public/"
