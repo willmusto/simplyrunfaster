@@ -53,7 +53,7 @@
 
         <div class="section-label">NOTIFICATIONS</div>
         <div class="card" style="margin-bottom:16px;">
-            <p class="body-text">Notification preferences are available in Milestone 2.</p>
+            <p class="body-text">Notification preferences coming soon.</p>
         </div>
 
         <button type="submit" class="btn btn-primary">Save settings</button>
