@@ -1,0 +1,79 @@
+<?php
+/**
+ * SimplyRunFaster — Front Controller
+ */
+declare(strict_types=1);
+
+// Bootstrap
+require_once __DIR__ . '/config/config.php';
+require_once __DIR__ . '/config/database.php';
+require_once __DIR__ . '/src/Router.php';
+require_once __DIR__ . '/src/Auth.php';
+require_once __DIR__ . '/src/Controllers/AuthController.php';
+require_once __DIR__ . '/src/Controllers/OnboardingController.php';
+require_once __DIR__ . '/src/Controllers/AthleteController.php';
+require_once __DIR__ . '/src/Controllers/CoachController.php';
+
+// Start session
+Auth::startSession();
+
+$router = new Router();
+
+// ── Auth ─────────────────────────────────────────────────────
+$router->get('/login',    [AuthController::class, 'loginForm']);
+$router->post('/login',   [AuthController::class, 'loginSubmit']);
+$router->get('/logout',   [AuthController::class, 'logout']);
+$router->get('/register', [AuthController::class, 'registerForm']);
+$router->post('/register',[AuthController::class, 'registerSubmit']);
+
+// Invite-link registration
+$router->get('/invite/:code',  [AuthController::class, 'inviteForm']);
+$router->post('/invite/:code', [AuthController::class, 'inviteSubmit']);
+
+// ── Onboarding ───────────────────────────────────────────────
+$router->get('/onboarding',           [OnboardingController::class, 'start']);
+$router->get('/onboarding/:step',     [OnboardingController::class, 'step']);
+$router->post('/onboarding/:step',    [OnboardingController::class, 'stepSubmit']);
+
+// ── Athlete portal ───────────────────────────────────────────
+$router->get('/',           [AthleteController::class, 'today']);
+$router->get('/plan',       [AthleteController::class, 'plan']);
+$router->get('/log',        [AthleteController::class, 'log']);
+$router->post('/log/manual',[AthleteController::class, 'manualLog']);
+$router->get('/progress',   [AthleteController::class, 'progress']);
+$router->get('/settings',   [AthleteController::class, 'settings']);
+$router->post('/settings',  [AthleteController::class, 'settingsSave']);
+
+// ── Coach dashboard ──────────────────────────────────────────
+$router->get('/coach',                    [CoachController::class, 'dashboard']);
+$router->get('/coach/athletes',           [CoachController::class, 'roster']);
+$router->get('/coach/athlete/:id',        [CoachController::class, 'athleteView']);
+$router->get('/coach/approvals',                    [CoachController::class, 'approvals']);
+$router->post('/coach/plans/:planId/approve',       [CoachController::class, 'approvePlan']);
+$router->post('/coach/plans/:planId/reject',        [CoachController::class, 'rejectPlan']);
+$router->get('/coach/flags',                        [CoachController::class, 'flags']);
+$router->post('/coach/flags/:id/dismiss',           [CoachController::class, 'dismissFlag']);
+$router->get('/coach/settings',           [CoachController::class, 'settings']);
+$router->post('/coach/settings',          [CoachController::class, 'settingsSave']);
+
+// ── Theme toggle (POST, returns to referrer) ─────────────────
+$router->post('/theme', function () {
+    Auth::requireLogin();
+    $theme = in_array($_POST['theme'] ?? '', ['light','dark','system'])
+        ? $_POST['theme']
+        : 'system';
+    $db = Database::get();
+    $stmt = $db->prepare('UPDATE users SET theme_preference = ? WHERE id = ?');
+    $stmt->execute([$theme, Auth::userId()]);
+    $_SESSION['theme'] = $theme;
+    header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? '/'));
+    exit;
+});
+
+// ── Offline fallback (cached by service worker) ──────────────
+$router->get('/offline', function () {
+    http_response_code(200);
+    include __DIR__ . '/views/offline.php';
+});
+
+$router->dispatch();

@@ -1,0 +1,288 @@
+<?php
+/**
+ * Onboarding flow — 6 steps, writes to athlete_profiles
+ *
+ * Steps:
+ *  1 - goal (race_cycle, development_plan, return_to_running)
+ *  2 - fitness (current volume, recent race, time at volume)
+ *  3 - experience (years running, injury history)
+ *  4 - availability (days/week, must-off days, scheduling preference)
+ *  5 - watch (platform, skippable)
+ *  6 - preferences (units, notifications)
+ */
+class OnboardingController
+{
+    private const TOTAL_STEPS = 6;
+
+    public static function start(): void
+    {
+        Auth::requireRole('athlete');
+        $athlete = Auth::getAthlete();
+        if ($athlete && $athlete['onboarding_completed_at']) {
+            header('Location: /');
+            exit;
+        }
+        header('Location: /onboarding/1');
+        exit;
+    }
+
+    public static function step(array $params): void
+    {
+        Auth::requireRole('athlete');
+        $step = max(1, min((int)($params['step'] ?? 1), self::TOTAL_STEPS));
+
+        // Enforce sequential completion
+        $progress = $_SESSION['onboarding_progress'] ?? 1;
+        if ($step > $progress) {
+            header('Location: /onboarding/' . $progress);
+            exit;
+        }
+
+        $error = $_SESSION['flash_error'] ?? null;
+        unset($_SESSION['flash_error']);
+
+        $data  = $_SESSION['onboarding_data'] ?? [];
+        $athlete = Auth::getAthlete();
+
+        $view = match($step) {
+            1 => 'step1_goal',
+            2 => 'step2_fitness',
+            3 => 'step3_experience',
+            4 => 'step4_availability',
+            5 => 'step5_watch',
+            6 => 'step6_preferences',
+        };
+
+        include __DIR__ . '/../../views/onboarding/' . $view . '.php';
+    }
+
+    public static function stepSubmit(array $params): void
+    {
+        Auth::requireRole('athlete');
+        Auth::verifyCsrf();
+
+        $step = max(1, min((int)($params['step'] ?? 1), self::TOTAL_STEPS));
+
+        $handler = match($step) {
+            1 => [self::class, 'saveStep1'],
+            2 => [self::class, 'saveStep2'],
+            3 => [self::class, 'saveStep3'],
+            4 => [self::class, 'saveStep4'],
+            5 => [self::class, 'saveStep5'],
+            6 => [self::class, 'saveStep6'],
+        };
+
+        $handler($step);
+    }
+
+    // ── Step handlers ──────────────────────────────────────────
+
+    private static function saveStep1(int $step): void
+    {
+        $planType = $_POST['plan_type'] ?? '';
+        if (!in_array($planType, ['race_cycle', 'development_plan', 'return_to_running'], true)) {
+            $_SESSION['flash_error'] = 'Please select your goal.';
+            header('Location: /onboarding/1');
+            exit;
+        }
+
+        $_SESSION['onboarding_data']['plan_type']      = $planType;
+        $_SESSION['onboarding_data']['goal_race_date'] = $_POST['goal_race_date'] ?? null;
+        $_SESSION['onboarding_data']['goal_race_distance'] = $_POST['goal_race_distance'] ?? null;
+        $_SESSION['onboarding_data']['goal_finish_time']   = $_POST['goal_finish_time'] ?? null;
+
+        // Return-to-running: capture time off and medical clearance on step 1
+        if ($planType === 'return_to_running') {
+            $_SESSION['onboarding_data']['return_time_off_band']       = $_POST['time_off_band'] ?? null;
+            $_SESSION['onboarding_data']['medical_clearance_confirmed'] = isset($_POST['medical_clearance_1']) && isset($_POST['medical_clearance_2']) ? 1 : 0;
+        }
+
+        self::advance($step);
+    }
+
+    private static function saveStep2(int $step): void
+    {
+        $weekly = (int)($_POST['current_weekly_minutes'] ?? 0);
+        $longest = (int)($_POST['longest_recent_run_mins'] ?? 0);
+        $months  = (int)($_POST['months_at_current_volume'] ?? 0);
+
+        if ($weekly < 1 || $longest < 1 || $months < 0) {
+            $_SESSION['flash_error'] = 'Please fill in your current training volume.';
+            header('Location: /onboarding/2');
+            exit;
+        }
+
+        $_SESSION['onboarding_data']['current_weekly_minutes']    = $weekly;
+        $_SESSION['onboarding_data']['longest_recent_run_mins']   = $longest;
+        $_SESSION['onboarding_data']['months_at_current_volume']  = $months;
+        $_SESSION['onboarding_data']['most_recent_race_distance'] = $_POST['recent_race_distance'] ?? null;
+        $_SESSION['onboarding_data']['most_recent_race_time']     = self::parseTimeToSeconds($_POST['recent_race_time'] ?? '');
+        $_SESSION['onboarding_data']['most_recent_race_date']     = $_POST['recent_race_date'] ?? null;
+
+        self::advance($step);
+    }
+
+    private static function saveStep3(int $step): void
+    {
+        $years = $_POST['years_running'] ?? '';
+        if ($years === '' || $years < 0) {
+            $_SESSION['flash_error'] = 'Please enter how long you\'ve been running.';
+            header('Location: /onboarding/3');
+            exit;
+        }
+
+        $_SESSION['onboarding_data']['years_running']       = (float)$years;
+        $_SESSION['onboarding_data']['peak_weekly_minutes'] = (int)($_POST['peak_weekly_minutes'] ?? 0);
+        $_SESSION['onboarding_data']['injury_history']      = trim($_POST['injury_history'] ?? '');
+        $_SESSION['onboarding_data']['experience_level']    = $_POST['experience_level'] ?? 'intermediate';
+
+        self::advance($step);
+    }
+
+    private static function saveStep4(int $step): void
+    {
+        $days = (int)($_POST['training_days_per_week'] ?? 0);
+        if ($days < 1 || $days > 7) {
+            $_SESSION['flash_error'] = 'Please select how many days per week you\'re running.';
+            header('Location: /onboarding/4');
+            exit;
+        }
+
+        $mustOffRaw = $_POST['must_off_days'] ?? '[]';
+        $mustOff    = json_decode($mustOffRaw, true);
+        if (!is_array($mustOff)) $mustOff = [];
+
+        $schedPref = in_array($_POST['scheduling_preference'] ?? '', ['fixed','flex'], true)
+            ? $_POST['scheduling_preference']
+            : 'flex';
+
+        $_SESSION['onboarding_data']['training_days_per_week']  = $days;
+        $_SESSION['onboarding_data']['must_off_days']           = json_encode($mustOff);
+        $_SESSION['onboarding_data']['scheduling_preference']   = $schedPref;
+        $_SESSION['onboarding_data']['long_run_day']            = isset($_POST['long_run_day']) ? (int)$_POST['long_run_day'] : null;
+        $_SESSION['onboarding_data']['primary_workout_day']     = isset($_POST['primary_workout_day']) ? (int)$_POST['primary_workout_day'] : null;
+        $_SESSION['onboarding_data']['track_access']            = in_array($_POST['track_access'] ?? '', ['yes','no','road_reps_ok'], true)
+            ? $_POST['track_access'] : 'road_reps_ok';
+
+        self::advance($step);
+    }
+
+    private static function saveStep5(int $step): void
+    {
+        // Watch step is skippable — always succeeds
+        $platform = in_array($_POST['watch_platform'] ?? '', ['garmin','polar','apple','wahoo','none'], true)
+            ? $_POST['watch_platform']
+            : 'none';
+
+        $_SESSION['onboarding_data']['watch_platform']      = $platform;
+        $_SESSION['onboarding_data']['cross_training_bike'] = in_array($_POST['cross_training_bike'] ?? '', ['none','stationary','road_gravel'], true)
+            ? $_POST['cross_training_bike'] : 'none';
+        $_SESSION['onboarding_data']['cross_training_elliptical'] = in_array($_POST['cross_training_elliptical'] ?? '', ['none','gym','home'], true)
+            ? $_POST['cross_training_elliptical'] : 'none';
+        $_SESSION['onboarding_data']['cross_training_pool'] = isset($_POST['cross_training_pool']) ? 1 : 0;
+
+        self::advance($step);
+    }
+
+    private static function saveStep6(int $step): void
+    {
+        // Final step — write everything to DB
+        $units = in_array($_POST['units'] ?? '', ['miles','km'], true) ? $_POST['units'] : 'miles';
+        $_SESSION['onboarding_data']['units'] = $units;
+
+        self::persistToDatabase();
+
+        // Clear onboarding session data
+        unset($_SESSION['onboarding_data'], $_SESSION['onboarding_progress']);
+
+        header('Location: /');
+        exit;
+    }
+
+    // ── DB write ───────────────────────────────────────────────
+
+    private static function persistToDatabase(): void
+    {
+        $db      = Database::get();
+        $userId  = Auth::userId();
+        $athlete = Auth::getAthlete($userId);
+        if (!$athlete) return;
+
+        $athleteId = (int)$athlete['id'];
+        $d         = $_SESSION['onboarding_data'] ?? [];
+
+        // Compute plan_type
+        $planType = $d['plan_type'] ?? 'development_plan';
+
+        $fields = [
+            'plan_type'                  => $planType,
+            'goal_race_date'             => $d['goal_race_date'] ?: null,
+            'goal_race_distance'         => $d['goal_race_distance'] ?: null,
+            'goal_finish_time'           => $d['goal_finish_time'] ?: null,
+            'current_weekly_minutes'     => (int)($d['current_weekly_minutes'] ?? 0) ?: null,
+            'longest_recent_run_mins'    => (int)($d['longest_recent_run_mins'] ?? 0) ?: null,
+            'months_at_current_volume'   => (int)($d['months_at_current_volume'] ?? 0),
+            'most_recent_race_distance'  => $d['most_recent_race_distance'] ?: null,
+            'most_recent_race_time'      => (int)($d['most_recent_race_time'] ?? 0) ?: null,
+            'most_recent_race_date'      => $d['most_recent_race_date'] ?: null,
+            'years_running'              => (float)($d['years_running'] ?? 0) ?: null,
+            'peak_weekly_minutes'        => (int)($d['peak_weekly_minutes'] ?? 0) ?: null,
+            'experience_level'           => $d['experience_level'] ?? 'intermediate',
+            'injury_history'             => $d['injury_history'] ?: null,
+            'training_days_per_week'     => (int)($d['training_days_per_week'] ?? 0) ?: null,
+            'must_off_days'              => $d['must_off_days'] ?: '[]',
+            'scheduling_preference'      => $d['scheduling_preference'] ?? 'flex',
+            'long_run_day'               => isset($d['long_run_day']) && $d['long_run_day'] !== '' ? (int)$d['long_run_day'] : null,
+            'primary_workout_day'        => isset($d['primary_workout_day']) && $d['primary_workout_day'] !== '' ? (int)$d['primary_workout_day'] : null,
+            'track_access'               => $d['track_access'] ?? 'road_reps_ok',
+            'watch_platform'             => $d['watch_platform'] ?? 'none',
+            'cross_training_bike'        => $d['cross_training_bike'] ?? 'none',
+            'cross_training_elliptical'  => $d['cross_training_elliptical'] ?? 'none',
+            'cross_training_pool'        => (int)($d['cross_training_pool'] ?? 0),
+            'units'                      => $d['units'] ?? 'miles',
+            'medical_clearance_confirmed' => (int)($d['medical_clearance_confirmed'] ?? 0),
+            'medical_clearance_at'       => ($d['medical_clearance_confirmed'] ?? 0) ? date('Y-m-d H:i:s') : null,
+            'return_time_off_band'       => $d['return_time_off_band'] ?: null,
+        ];
+
+        // Set peak_volume_ceiling_mins: current volume × 1.4
+        if (!empty($fields['current_weekly_minutes'])) {
+            $fields['peak_volume_ceiling_mins'] = (int)round($fields['current_weekly_minutes'] * 1.4);
+        }
+
+        $setClauses = implode(', ', array_map(fn($k) => "`$k` = ?", array_keys($fields)));
+        $stmt = $db->prepare(
+            "INSERT INTO athlete_profiles (athlete_id, $setClauses)
+             VALUES (?, " . implode(', ', array_fill(0, count($fields), '?')) . ")
+             ON DUPLICATE KEY UPDATE $setClauses"
+        );
+
+        $values = array_merge([$athleteId], array_values($fields), array_values($fields));
+        $stmt->execute($values);
+
+        // Mark onboarding complete on athletes table
+        $db->prepare('UPDATE athletes SET onboarding_completed_at = NOW() WHERE id = ?')->execute([$athleteId]);
+    }
+
+    // ── Utility ────────────────────────────────────────────────
+
+    private static function advance(int $step): void
+    {
+        $next = $step + 1;
+        $_SESSION['onboarding_progress'] = max($_SESSION['onboarding_progress'] ?? 1, $next);
+        header('Location: /onboarding/' . $next);
+        exit;
+    }
+
+    private static function parseTimeToSeconds(string $time): ?int
+    {
+        if (!$time) return null;
+        $parts = array_map('intval', explode(':', $time));
+        return match(count($parts)) {
+            3 => $parts[0] * 3600 + $parts[1] * 60 + $parts[2],
+            2 => $parts[0] * 60  + $parts[1],
+            1 => $parts[0],
+            default => null,
+        };
+    }
+}

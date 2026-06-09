@@ -1,0 +1,43 @@
+Options -Indexes
+
+# Route all requests through index.php (except real files/directories)
+RewriteEngine On
+
+# Allow direct access to assets and well-known paths
+RewriteCond %{REQUEST_URI} ^/(assets|sw\.js|manifest\.json|offline|favicon)
+RewriteRule ^ - [L]
+
+# Skip if file or directory actually exists
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Route everything else to front controller
+RewriteRule ^ index.php [L]
+
+# Security headers
+<IfModule mod_headers.c>
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set X-XSS-Protection "1; mode=block"
+    # Service worker requires HTTPS in production — NFSN handles this
+</IfModule>
+
+# Cache static assets
+<FilesMatch "\.(css|js|png|jpg|webp|svg|ico|woff2)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+</FilesMatch>
+
+# Service worker must not be cached
+<FilesMatch "sw\.js$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+</FilesMatch>
+
+# PHP settings for NFSN shared hosting
+<IfModule mod_php7.c>
+    php_value upload_max_filesize 8M
+    php_value post_max_size 8M
+    php_flag session.use_only_cookies on
+    php_flag session.cookie_httponly on
+    php_value session.cookie_samesite Strict
+</IfModule>
