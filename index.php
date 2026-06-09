@@ -4,6 +4,11 @@
  */
 declare(strict_types=1);
 
+ini_set('display_errors', 1);
+ini_set('log_errors', 1);
+ini_set('error_log', '/home/private/php_errors.log');
+error_reporting(E_ALL);
+
 // Bootstrap
 require_once __DIR__ . '/config/config.php';
 require_once __DIR__ . '/config/database.php';
