@@ -13,17 +13,17 @@ class Router
         $this->basePath = rtrim($basePath, '/');
     }
 
-    public function get(string $path, callable $handler): void
+    public function get(string $path, $handler): void
     {
         $this->add('GET', $path, $handler);
     }
 
-    public function post(string $path, callable $handler): void
+    public function post(string $path, $handler): void
     {
         $this->add('POST', $path, $handler);
     }
 
-    private function add(string $method, string $path, callable $handler): void
+    private function add(string $method, string $path, $handler): void
     {
         $this->routes[] = [
             'method'  => $method,
@@ -49,7 +49,7 @@ class Router
             }
             if (preg_match($route['pattern'], $uri, $matches)) {
                 $params = array_filter($matches, 'is_string', ARRAY_FILTER_USE_KEY);
-                ($route['handler'])($params);
+                call_user_func($route['handler'], $params);
                 return;
             }
         }
