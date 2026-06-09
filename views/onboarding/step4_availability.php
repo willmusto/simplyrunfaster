@@ -50,7 +50,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
                 <?php foreach ($days as $i => $label): ?>
                 <button type="button" class="day-btn <?= in_array((string)$i, $mustOff) ? 'selected must-off' : '' ?>"
                         data-day="<?= $i ?>"><?= $label ?></button>
-                <?php endfor; ?>
+                <?php endforeach; ?>
             </div>
             <input type="hidden" name="must_off_days" id="mustOffInput"
                    value="<?= h($d['must_off_days'] ?? '[]') ?>">
