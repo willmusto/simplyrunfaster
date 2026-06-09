@@ -6,8 +6,9 @@ class AuthController
         if (Auth::check()) {
             self::redirectByRole();
         }
-        $error = $_SESSION['flash_error'] ?? null;
-        unset($_SESSION['flash_error']);
+        $error   = $_SESSION['flash_error']   ?? null;
+        $success = $_SESSION['flash_success'] ?? null;
+        unset($_SESSION['flash_error'], $_SESSION['flash_success']);
         include __DIR__ . '/../../views/auth/login.php';
     }
 
@@ -207,6 +208,115 @@ class AuthController
         $db   = Database::get();
         $stmt = $db->prepare('SELECT id, name FROM users WHERE id = ? LIMIT 1');
         $stmt->execute([$invite['assigned_coach_id']]);
+        return $stmt->fetch() ?: null;
+    }
+
+    // ── Password reset ─────────────────────────────────────────
+
+    public static function forgotForm(): void
+    {
+        $error   = $_SESSION['flash_error']   ?? null;
+        $success = $_SESSION['flash_success'] ?? null;
+        unset($_SESSION['flash_error'], $_SESSION['flash_success']);
+        include __DIR__ . '/../../views/auth/forgot.php';
+    }
+
+    public static function forgotSubmit(): void
+    {
+        Auth::verifyCsrf();
+
+        $email = strtolower(trim($_POST['email'] ?? ''));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $_SESSION['flash_error'] = 'Please enter a valid email address.';
+            header('Location: /forgot-password');
+            exit;
+        }
+
+        $db   = Database::get();
+        $stmt = $db->prepare('SELECT id, name FROM users WHERE email = ? LIMIT 1');
+        $stmt->execute([$email]);
+        $user = $stmt->fetch();
+
+        if ($user) {
+            $token     = bin2hex(random_bytes(32));
+            $expiresAt = date('Y-m-d H:i:s', time() + 3600);
+
+            $db->prepare('DELETE FROM password_reset_tokens WHERE user_id = ?')->execute([$user['id']]);
+            $db->prepare(
+                'INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)'
+            )->execute([$user['id'], $token, $expiresAt]);
+
+            $resetUrl = APP_URL . '/reset-password?token=' . $token;
+            $body     = "Hi {$user['name']},\n\nClick the link below to reset your SimplyRunFaster password.\nThis link expires in 1 hour.\n\n{$resetUrl}\n\nIf you didn't request this, you can ignore this email.\n\nSimplyRunFaster";
+            mail($email, 'Reset your SimplyRunFaster password', $body, 'From: noreply@simplyrunfaster.com');
+        }
+
+        // Always show the same message to prevent email enumeration
+        $_SESSION['flash_success'] = "If an account exists for that email, you'll receive a reset link shortly.";
+        header('Location: /forgot-password');
+        exit;
+    }
+
+    public static function resetForm(): void
+    {
+        $token = $_GET['token'] ?? '';
+        $valid = self::getValidResetToken($token);
+        $error = $_SESSION['flash_error'] ?? null;
+        unset($_SESSION['flash_error']);
+        if (!$valid) {
+            include __DIR__ . '/../../views/auth/reset_invalid.php';
+            return;
+        }
+        include __DIR__ . '/../../views/auth/reset.php';
+    }
+
+    public static function resetSubmit(): void
+    {
+        Auth::verifyCsrf();
+
+        $token    = $_POST['token']            ?? '';
+        $password = $_POST['password']         ?? '';
+        $confirm  = $_POST['password_confirm'] ?? '';
+
+        $record = self::getValidResetToken($token);
+        if (!$record) {
+            $_SESSION['flash_error'] = 'This reset link is invalid or has expired.';
+            header('Location: /forgot-password');
+            exit;
+        }
+
+        if (strlen($password) < PASSWORD_MIN_LENGTH) {
+            $_SESSION['flash_error'] = 'Password must be at least ' . PASSWORD_MIN_LENGTH . ' characters.';
+            header('Location: /reset-password?token=' . urlencode($token));
+            exit;
+        }
+
+        if ($password !== $confirm) {
+            $_SESSION['flash_error'] = 'Passwords do not match.';
+            header('Location: /reset-password?token=' . urlencode($token));
+            exit;
+        }
+
+        $db   = Database::get();
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        $db->prepare('UPDATE users SET password_hash = ? WHERE id = ?')->execute([$hash, $record['user_id']]);
+        $db->prepare('UPDATE password_reset_tokens SET used_at = NOW() WHERE token = ?')->execute([$token]);
+
+        $_SESSION['flash_success'] = 'Password reset successfully. Please sign in with your new password.';
+        header('Location: /login');
+        exit;
+    }
+
+    private static function getValidResetToken(string $token): ?array
+    {
+        if (!$token) return null;
+        $db   = Database::get();
+        $stmt = $db->prepare(
+            'SELECT * FROM password_reset_tokens
+             WHERE token = ? AND expires_at > NOW() AND used_at IS NULL
+             LIMIT 1'
+        );
+        $stmt->execute([$token]);
         return $stmt->fetch() ?: null;
     }
 }

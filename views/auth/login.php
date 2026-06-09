@@ -14,6 +14,10 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <div class="flash flash-error"><?= h($error) ?></div>
         <?php endif; ?>
 
+        <?php if ($success): ?>
+        <div class="flash flash-success"><?= h($success) ?></div>
+        <?php endif; ?>
+
         <form method="POST" action="/login">
             <?= Auth::csrfField() ?>
 
@@ -27,6 +31,9 @@ include __DIR__ . '/../../views/layout/html_open.php';
                 <label class="form-label" for="password">Password</label>
                 <input type="password" id="password" name="password" class="form-input"
                        placeholder="Your password" required autocomplete="current-password">
+                <div style="text-align:right;margin-top:4px;">
+                    <a href="/forgot-password" style="font-size:12px;color:var(--text-muted);">Forgot password?</a>
+                </div>
             </div>
 
             <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px;">

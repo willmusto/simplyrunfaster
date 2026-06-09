@@ -75,6 +75,12 @@ $router->post('/theme', function () {
     exit;
 });
 
+// ── Password reset ───────────────────────────────────────────
+$router->get('/forgot-password',  [AuthController::class, 'forgotForm']);
+$router->post('/forgot-password', [AuthController::class, 'forgotSubmit']);
+$router->get('/reset-password',   [AuthController::class, 'resetForm']);
+$router->post('/reset-password',  [AuthController::class, 'resetSubmit']);
+
 // ── Offline fallback (cached by service worker) ──────────────
 $router->get('/offline', function () {
     http_response_code(200);

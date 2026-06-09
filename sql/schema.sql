@@ -497,6 +497,22 @@ CREATE TABLE IF NOT EXISTS `phone_verifications` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
+-- PASSWORD RESET TOKENS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `password_reset_tokens` (
+    `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id`    INT UNSIGNED NOT NULL,
+    `token`      VARCHAR(64) NOT NULL,
+    `expires_at` DATETIME NOT NULL,
+    `used_at`    DATETIME DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_reset_token` (`token`),
+    KEY `idx_reset_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+-- ============================================================
 -- SEED: WORKOUT LIBRARY (23 initial templates)
 -- ============================================================
 

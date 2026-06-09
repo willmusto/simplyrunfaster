@@ -19,4 +19,4 @@ jobs:
           ssh-keyscan -H ssh.nyc1.nearlyfreespeech.net >> ~/.ssh/known_hosts
           ssh -i ~/.ssh/deploy_key -o BatchMode=yes \
             gwmusto_simplyrunfaster@ssh.nyc1.nearlyfreespeech.net \
-            "cd /home/private/app && git pull && rsync -av --exclude='.git' --exclude='config/config.local.php' /home/private/app/ /home/public/"
+            "cd /home/private/app && git pull && rsync -av --exclude='.git' --exclude='config/config.local.php' --exclude='scripts/' /home/private/app/ /home/public/"
