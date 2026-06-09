@@ -77,4 +77,3 @@ $router->get('/offline', function () {
 });
 
 $router->dispatch();
-<!-- deploy test -->
