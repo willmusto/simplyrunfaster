@@ -78,7 +78,7 @@ $theme     = Auth::theme();
         <span class="pill pill-critical" style="margin-left:auto;"><?= (int)$openFlags ?></span>
         <?php endif; ?>
     </a>
-    <a href="#" class="sidebar-nav-item <?= $activeNav === 'library' ? 'active' : '' ?>">
+    <a href="/app/coach/library" class="sidebar-nav-item <?= $activeNav === 'library' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>

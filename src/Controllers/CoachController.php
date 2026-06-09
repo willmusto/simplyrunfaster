@@ -231,6 +231,107 @@ class CoachController
         exit;
     }
 
+    public static function library(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db      = Database::get();
+        $coachId = Auth::userId();
+
+        $athletes         = self::getRosterAthletes($coachId, $db);
+        $openFlags        = self::getOpenFlagsCount($coachId, $db);
+        $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
+
+        $success = $_SESSION['flash_success'] ?? null;
+        $error   = $_SESSION['flash_error']   ?? null;
+        unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
+        // Filter params
+        $filterType     = $_GET['type']     ?? '';
+        $filterPhase    = $_GET['phase']    ?? '';
+        $filterDistance = $_GET['distance'] ?? '';
+        $filterSearch   = trim($_GET['q']   ?? '');
+
+        $sql    = 'SELECT * FROM workout_library WHERE 1=1';
+        $params = [];
+
+        if ($filterType) {
+            $sql     .= ' AND workout_type = ?';
+            $params[] = $filterType;
+        }
+        if ($filterPhase) {
+            $sql     .= ' AND phase_tags LIKE ?';
+            $params[] = '%' . $filterPhase . '%';
+        }
+        if ($filterDistance) {
+            $sql     .= ' AND distance_tags LIKE ?';
+            $params[] = '%' . $filterDistance . '%';
+        }
+        if ($filterSearch) {
+            $sql     .= ' AND (name LIKE ? OR athlete_facing_name LIKE ? OR description LIKE ?)';
+            $like     = '%' . $filterSearch . '%';
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+        }
+        $sql .= ' ORDER BY workout_type ASC, name ASC';
+
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $templates = $stmt->fetchAll();
+
+        $pageTitle = 'Workout Library';
+        $activeNav = 'library';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_coach.php';
+        include __DIR__ . '/../../views/coach/library.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    public static function libraryAddTemplate(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $db   = Database::get();
+        $name = trim($_POST['name'] ?? '');
+
+        if (!$name) {
+            $_SESSION['flash_error'] = 'Template name is required.';
+            header('Location: /app/coach/library');
+            exit;
+        }
+
+        $validTypes = ['easy','long','tempo','interval','hill','fartlek','race_pace','recovery','rest','cross_train'];
+        $type = in_array($_POST['workout_type'] ?? '', $validTypes, true) ? $_POST['workout_type'] : 'easy';
+
+        $phaseTags    = json_encode(array_filter(array_map('trim', explode(',', $_POST['phase_tags'] ?? ''))));
+        $distanceTags = json_encode(array_filter(array_map('trim', explode(',', $_POST['distance_tags'] ?? ''))));
+
+        $prescType  = in_array($_POST['prescription_type'] ?? '', ['time','distance','count'], true) ? $_POST['prescription_type'] : 'time';
+        $trackReq   = in_array($_POST['track_required'] ?? '', ['yes','no','preferred'], true) ? $_POST['track_required'] : 'no';
+        $intensity  = max(0.0, min(1.0, (float)($_POST['intensity_factor'] ?? 0.5)));
+        $clearance  = isset($_POST['coach_clearance_required']) ? 1 : 0;
+        $desc       = trim($_POST['description'] ?? '');
+        $engineNotes = trim($_POST['engine_notes'] ?? '');
+        $athleteName = trim($_POST['athlete_facing_name'] ?? '');
+
+        $db->prepare(
+            'INSERT INTO workout_library
+             (name, athlete_facing_name, workout_type, phase_tags, distance_tags, prescription_type,
+              track_required, intensity_factor, coach_clearance_required, description, engine_notes, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $name, $athleteName ?: null, $type, $phaseTags, $distanceTags, $prescType,
+            $trackReq, $intensity, $clearance, $desc ?: null, $engineNotes ?: null, Auth::userId(),
+        ]);
+
+        $_SESSION['flash_success'] = 'Template "' . htmlspecialchars($name, ENT_QUOTES) . '" added to library.';
+        header('Location: /app/coach/library');
+        exit;
+    }
+
     public static function settings(): void
     {
         Auth::requireRole(['coach','assistant_coach','admin']);
