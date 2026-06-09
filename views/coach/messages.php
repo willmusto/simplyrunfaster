@@ -26,8 +26,8 @@
         $prevTime = null;
         foreach ($messages as $msg):
             $sentAt        = strtotime($msg['sent_at']);
-            $role          = $msg['sender_role'];
             $isSessionNote = in_array($msg['message_type'], ['session_note', 'session_note_reply'], true);
+            $rowClass      = ((int)$msg['sender_id'] === (int)Auth::userId()) ? 'athlete' : 'coach';
 
             if ($prevTime === null || ($sentAt - $prevTime) > 3600):
         ?>
@@ -35,7 +35,7 @@
         <?php endif; ?>
 
         <?php if ($isSessionNote): ?>
-        <div class="msg-row <?= h($role) ?>">
+        <div class="msg-row <?= h($rowClass) ?>">
             <div class="msg-session-card">
                 <div class="msg-session-card-header">
                     📍 <?= h(ucfirst(str_replace('_', ' ', $msg['session_type'] ?? 'workout'))) ?>
@@ -50,7 +50,7 @@
             <div class="msg-meta"><?= date('g:ia', $sentAt) ?></div>
         </div>
         <?php else: ?>
-        <div class="msg-row <?= h($role) ?>">
+        <div class="msg-row <?= h($rowClass) ?>">
             <div class="msg-bubble"><?= nl2br(h($msg['body'])) ?></div>
             <div class="msg-meta"><?= date('g:ia', $sentAt) ?></div>
         </div>
