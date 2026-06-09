@@ -163,9 +163,9 @@ class AuthController
     {
         $role = Auth::role();
         if (in_array($role, ['coach','assistant_coach','admin'], true)) {
-            header('Location: /app/coach');
+            header('Location: /app/coach/dashboard');
         } else {
-            header('Location: /app');
+            header('Location: /app/dashboard');
         }
         exit;
     }

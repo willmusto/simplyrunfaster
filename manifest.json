@@ -2,7 +2,7 @@
     "name": "SimplyRunFaster",
     "short_name": "SimplyRunFaster",
     "description": "Real running coaching, not an algorithm.",
-    "start_url": "/app",
+    "start_url": "/app/login",
     "display": "standalone",
     "orientation": "portrait-primary",
     "theme_color": "#1D9E75",

@@ -48,6 +48,7 @@ $router->get('/onboarding/:step',     [OnboardingController::class, 'step']);
 $router->post('/onboarding/:step',    [OnboardingController::class, 'stepSubmit']);
 
 // ── Athlete portal ───────────────────────────────────────────
+$router->get('/dashboard',  [AthleteController::class, 'today']);
 $router->get('/',           [AthleteController::class, 'today']);
 $router->get('/plan',       [AthleteController::class, 'plan']);
 $router->get('/log',        [AthleteController::class, 'log']);
@@ -58,6 +59,7 @@ $router->post('/settings',         [AthleteController::class, 'settingsSave']);
 $router->post('/settings/password',[AthleteController::class, 'changePasswordSubmit']);
 
 // ── Coach dashboard ──────────────────────────────────────────
+$router->get('/coach/dashboard',          [CoachController::class, 'dashboard']);
 $router->get('/coach',                    [CoachController::class, 'dashboard']);
 $router->get('/coach/athletes',           [CoachController::class, 'roster']);
 $router->get('/coach/athlete/:id',        [CoachController::class, 'athleteView']);
