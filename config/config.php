@@ -6,9 +6,12 @@
  * config.local.php is git-ignored and never committed.
  */
 
-// Local config loaded first so its values take precedence over the defaults below
+// Local config loaded first so its values take precedence over the defaults below.
+// Falls back to the web-root copy for scripts running outside /home/public (e.g. CLI tools in /home/private/app).
 if (file_exists(__DIR__ . '/config.local.php')) {
     require __DIR__ . '/config.local.php';
+} elseif (file_exists('/home/public/config/config.local.php')) {
+    require '/home/public/config/config.local.php';
 }
 
 // Database
