@@ -15,6 +15,7 @@ $unreadMessages = $unreadMessages ?? 0;
             Messages<?php if ($unreadMessages > 0): ?><span class="top-nav-unread-badge"><?= $unreadMessages > 9 ? '9+' : $unreadMessages ?></span><?php endif; ?>
         </a>
         <a href="/app/progress" class="athlete-nav-link <?= $activeTab === 'progress' ? 'active' : '' ?>">Progress</a>
+        <a href="/app/settings" class="athlete-nav-link <?= $activeTab === 'settings' ? 'active' : '' ?>">Settings</a>
     </div>
     <div class="top-nav-actions">
         <!-- Notification bell (Milestone 2) -->

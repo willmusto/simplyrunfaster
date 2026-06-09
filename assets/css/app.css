@@ -265,25 +265,25 @@ img { max-width: 100%; display: block; }
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 6px 12px;
+    padding: 6px 14px;
     color: var(--text-secondary);
     font-size: 14px;
-    font-weight: 400;
+    font-weight: 500;
     text-decoration: none;
     border-radius: var(--radius-sm);
-    transition: color 0.15s, background 0.15s;
+    transition: color 0.1s, background 0.1s;
     white-space: nowrap;
 }
 
 .athlete-nav-link:hover {
-    color: var(--text-primary);
+    color: var(--accent-mid);
     background: var(--recessed-bg);
     text-decoration: none;
 }
 
 .athlete-nav-link.active {
     color: var(--accent-mid);
-    font-weight: 500;
+    background: var(--accent-fill);
 }
 
 .top-nav-unread-badge {
@@ -409,10 +409,11 @@ img { max-width: 100%; display: block; }
 
     /* Athlete pages: center content column, clear fixed top nav */
     body:not(.coach-page) .page-content {
+        width: auto;
         margin-left: auto;
         margin-right: auto;
-        max-width: 860px;
-        padding: 60px 32px 32px;
+        max-width: var(--content-max-width);
+        padding: 68px 32px 40px;
     }
 
     /* Show athlete nav links centered between logo and actions */
