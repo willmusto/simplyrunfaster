@@ -159,6 +159,14 @@ class CoachController
             $db->prepare(
                 'UPDATE training_plans SET status="active", approved_by=?, approved_at=NOW() WHERE id=?'
             )->execute([$coachId, $planId]);
+
+            // Open initial 10-day visibility window immediately on approval
+            $horizon = date('Y-m-d', strtotime('+10 days'));
+            $db->prepare(
+                'UPDATE planned_workouts SET visible_to_athlete = 1
+                 WHERE plan_id = ? AND scheduled_date BETWEEN CURDATE() AND ?
+                   AND visible_to_athlete = 0'
+            )->execute([$planId, $horizon]);
         }
 
         header('Location: /app/coach/approvals');

@@ -17,7 +17,11 @@
         <div class="card-title" style="margin-bottom:16px;">Log a workout</div>
         <form method="POST" action="/app/log/manual">
             <?= Auth::csrfField() ?>
-            <input type="hidden" name="activity_date" value="<?= date('Y-m-d') ?>">
+            <div class="form-group">
+                <label class="form-label" for="activity_date">Date</label>
+                <input type="date" id="activity_date" name="activity_date" class="form-input"
+                       value="<?= date('Y-m-d') ?>" max="<?= date('Y-m-d') ?>">
+            </div>
 
             <div class="form-group">
                 <label class="form-label">What type of run?</label>

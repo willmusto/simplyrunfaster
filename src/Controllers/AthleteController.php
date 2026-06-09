@@ -144,13 +144,48 @@ class AthleteController
         $plannedRow     = $planned->fetch();
         $plannedId      = $plannedRow ? $plannedRow['id'] : null;
 
+        // Compliance score: actual vs target duration (capped at 1.0); 0.75 for unplanned
+        $compliance = null;
+        if ($plannedId) {
+            $tgt = $db->prepare('SELECT target_duration FROM planned_workouts WHERE id = ? LIMIT 1');
+            $tgt->execute([$plannedId]);
+            $targetRow = $tgt->fetch();
+            if ($targetRow && $targetRow['target_duration'] > 0) {
+                $compliance = min(1.0, round($duration / $targetRow['target_duration'], 3));
+            }
+        }
+        if ($compliance === null) {
+            $compliance = 0.75;
+        }
+
         $stmt = $db->prepare(
             'INSERT INTO completed_workouts
              (athlete_id, planned_workout_id, source, activity_date, workout_type,
-              actual_duration, completion_status, rpe, effort_descriptor, synced_at)
-             VALUES (?, ?, "manual", ?, ?, ?, ?, ?, ?, NOW())'
+              actual_duration, completion_status, rpe, effort_descriptor, compliance_score, synced_at)
+             VALUES (?, ?, "manual", ?, ?, ?, ?, ?, ?, ?, NOW())'
         );
-        $stmt->execute([$athleteId, $plannedId, $actDate, $type, $duration, $complStatus, $rpe, $effortDesc]);
+        $stmt->execute([$athleteId, $plannedId, $actDate, $type, $duration, $complStatus, $rpe, $effortDesc, $compliance]);
+        $cwId = (int)$db->lastInsertId();
+
+        // Save notes to session_notes + messages thread
+        if ($notes !== '' && $cwId) {
+            $db->prepare(
+                'INSERT INTO session_notes (completed_workout_id, athlete_id, author_id, author_role, body)
+                 VALUES (?, ?, ?, "athlete", ?)'
+            )->execute([$cwId, $athleteId, Auth::userId(), $notes]);
+
+            $db->prepare(
+                'INSERT INTO messages (athlete_id, sender_id, sender_role, body, message_type, completed_workout_id)
+                 VALUES (?, ?, "athlete", ?, "session_note", ?)'
+            )->execute([$athleteId, Auth::userId(), $notes, $cwId]);
+        }
+
+        // Recompute training load
+        try {
+            TrainingLoad::recompute($athleteId);
+        } catch (Throwable $e) {
+            error_log('TrainingLoad::recompute failed for athlete ' . $athleteId . ': ' . $e->getMessage());
+        }
 
         header('Location: /app/log');
         exit;

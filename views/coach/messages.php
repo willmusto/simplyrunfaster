@@ -93,6 +93,13 @@
             this.style.height = 'auto';
             this.style.height = Math.min(this.scrollHeight, 120) + 'px';
         });
+        ta.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                var form = this.closest('form');
+                if (form && this.value.trim()) form.submit();
+            }
+        });
     }
 })();
 </script>

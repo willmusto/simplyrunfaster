@@ -195,6 +195,16 @@ class OnboardingController
         // Clear onboarding session data
         unset($_SESSION['onboarding_data'], $_SESSION['onboarding_progress']);
 
+        // Trigger plan generation
+        $athlete = Auth::getAthlete();
+        if ($athlete) {
+            try {
+                PlanGenerator::generate((int)$athlete['id'], 'onboarding');
+            } catch (Throwable $e) {
+                error_log('PlanGenerator::generate failed for athlete ' . $athlete['id'] . ': ' . $e->getMessage());
+            }
+        }
+
         header('Location: /app');
         exit;
     }
@@ -261,8 +271,20 @@ class OnboardingController
         $values = array_merge([$athleteId], array_values($fields), array_values($fields));
         $stmt->execute($values);
 
-        // Mark onboarding complete on athletes table
-        $db->prepare('UPDATE athletes SET onboarding_completed_at = NOW() WHERE id = ?')->execute([$athleteId]);
+        // Mark onboarding complete on athletes table; backfill coach_id from invite_links if still NULL
+        $db->prepare(
+            'UPDATE athletes
+             SET onboarding_completed_at = NOW(),
+                 status    = \'active\',
+                 coach_id  = COALESCE(
+                     coach_id,
+                     (SELECT il.assigned_coach_id
+                      FROM invite_links il
+                      JOIN users u ON u.invite_code = il.code
+                      WHERE u.id = ?)
+                 )
+             WHERE id = ?'
+        )->execute([$userId, $athleteId]);
     }
 
     // ── Utility ────────────────────────────────────────────────
