@@ -107,7 +107,6 @@ body {
     min-height: 100vh;
     min-height: 100dvh;
     overscroll-behavior-y: none;
-    overflow-x: hidden;
 }
 
 a {
@@ -1324,6 +1323,10 @@ body.is-offline .offline-banner { display: block; }
         padding: 12px 0 0;
         border-top: var(--card-border);
         margin-top: 8px;
+    }
+    /* mobileCompose sits outside .page-content; hide it on desktop to prevent overflow */
+    .page-content ~ .msg-compose-wrap {
+        display: none;
     }
 }
 
