@@ -7,6 +7,15 @@ $unreadMessages = $unreadMessages ?? 0;
 ?>
 <nav class="top-nav">
     <div class="logo">Simply<span>Run</span>Faster</div>
+    <div class="athlete-nav-links">
+        <a href="/app" class="athlete-nav-link <?= $activeTab === 'today'    ? 'active' : '' ?>">Today</a>
+        <a href="/app/plan" class="athlete-nav-link <?= $activeTab === 'plan'  ? 'active' : '' ?>">Plan</a>
+        <a href="/app/log" class="athlete-nav-link <?= $activeTab === 'log'   ? 'active' : '' ?>">Log</a>
+        <a href="/app/messages" class="athlete-nav-link <?= $activeTab === 'messages' ? 'active' : '' ?>">
+            Messages<?php if ($unreadMessages > 0): ?><span class="top-nav-unread-badge"><?= $unreadMessages > 9 ? '9+' : $unreadMessages ?></span><?php endif; ?>
+        </a>
+        <a href="/app/progress" class="athlete-nav-link <?= $activeTab === 'progress' ? 'active' : '' ?>">Progress</a>
+    </div>
     <div class="top-nav-actions">
         <!-- Notification bell (Milestone 2) -->
         <button class="btn-icon" title="Notifications" aria-label="Notifications">

@@ -256,6 +256,51 @@ img { max-width: 100%; display: block; }
     stroke-width: 1.75;
 }
 
+/* Athlete desktop top-nav links (hidden on mobile) */
+.athlete-nav-links {
+    display: none;
+}
+
+.athlete-nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 400;
+    text-decoration: none;
+    border-radius: var(--radius-sm);
+    transition: color 0.15s, background 0.15s;
+    white-space: nowrap;
+}
+
+.athlete-nav-link:hover {
+    color: var(--text-primary);
+    background: var(--recessed-bg);
+    text-decoration: none;
+}
+
+.athlete-nav-link.active {
+    color: var(--accent-mid);
+    font-weight: 500;
+}
+
+.top-nav-unread-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--color-danger);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+}
+
 /* Desktop: left sidebar nav */
 @media (min-width: 1024px) {
     .app-container {
@@ -357,6 +402,27 @@ img { max-width: 100%; display: block; }
     /* Coach pages: hide redundant top-nav and constrain content width */
     body.coach-page .top-nav { display: none; }
     body.coach-page .page-content { padding-top: 32px; max-width: 1280px; }
+
+    /* Athlete pages: full-width top nav, no sidebar offset */
+    body:not(.coach-page) .top-nav { left: 0; }
+    body:not(.coach-page) .top-nav .logo { flex: none; }
+
+    /* Athlete pages: center content column, clear fixed top nav */
+    body:not(.coach-page) .page-content {
+        margin-left: auto;
+        margin-right: auto;
+        max-width: 860px;
+        padding: 60px 32px 32px;
+    }
+
+    /* Show athlete nav links centered between logo and actions */
+    .athlete-nav-links {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: 1;
+        gap: 2px;
+    }
 }
 
 @media (min-width: 768px) and (max-width: 1023px) {
