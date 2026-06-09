@@ -4,7 +4,7 @@
 <div class="page-content">
 
     <div class="page-heading" style="margin-bottom:4px;">Plan Approvals</div>
-    <p class="body-text" style="margin-bottom:24px;">
+    <p class="body-text" style="margin-bottom:12px;">
         Review and approve generated training plans before athletes can see them.
     </p>
 

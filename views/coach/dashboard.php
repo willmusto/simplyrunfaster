@@ -5,7 +5,7 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
 <div class="page-content">
 
     <div class="page-heading" style="margin-bottom:4px;">Dashboard</div>
-    <p class="body-text" style="margin-bottom:24px;">
+    <p class="body-text" style="margin-bottom:12px;">
         <?= date('l, F j') ?>
         <?php if ($totalFlags > 0 || $pendingApprovals > 0): ?>
         - <?php $parts = [];
@@ -66,13 +66,13 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
     <?php endif; ?>
 
     <?php if (empty($criticalFlags) && empty($warningFlags)): ?>
-    <div class="card" style="margin-bottom:24px;border-left:3px solid var(--color-success);">
+    <div class="card" style="border-left:3px solid var(--color-success);">
         <span style="font-size:13px;color:var(--text-secondary);">All athletes are on track. No open alerts.</span>
     </div>
     <?php endif; ?>
 
     <?php if (!empty($pendingPlans)): ?>
-    <div class="section-label" style="margin-top:24px;">APPROVALS PENDING</div>
+    <div class="section-label" style="margin-top:16px;">APPROVALS PENDING</div>
     <?php foreach ($pendingPlans as $plan): ?>
     <div class="card" style="margin-bottom:8px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
@@ -90,7 +90,7 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
     <?php endif; ?>
 
     <?php if (!empty($upcomingRaces)): ?>
-    <div class="section-label" style="margin-top:24px;">UPCOMING RACES (14 days)</div>
+    <div class="section-label" style="margin-top:16px;">UPCOMING RACES (14 days)</div>
     <?php foreach ($upcomingRaces as $race): ?>
     <div class="card" style="margin-bottom:8px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
@@ -113,7 +113,7 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
     <?php endif; ?>
 
     <?php if (!empty($unreadMessages)): ?>
-    <div class="section-label" style="margin-top:24px;">MESSAGES</div>
+    <div class="section-label" style="margin-top:16px;">MESSAGES</div>
     <?php foreach ($unreadMessages as $msg): ?>
     <div class="card" style="margin-bottom:8px;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">

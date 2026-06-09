@@ -4,7 +4,7 @@ $sort = $_GET['sort'] ?? 'alerts';
 ?>
 <div class="page-content">
 
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
         <div class="page-heading">Athletes
             <span style="font-size:14px;font-weight:400;color:var(--text-muted);margin-left:6px;">
                 (<?= count($athletes) ?>)
@@ -13,7 +13,7 @@ $sort = $_GET['sort'] ?? 'alerts';
     </div>
 
     <!-- Sort bar -->
-    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
         <?php foreach ([
             'alerts'     => 'Alerts',
             'compliance' => 'Compliance',
