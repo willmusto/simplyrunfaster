@@ -11,7 +11,7 @@ define('DB_HOST', getenv('SRF_DB_HOST') ?: 'localhost');
 define('DB_NAME', getenv('SRF_DB_NAME') ?: 'simplyrunfaster');
 define('DB_USER', getenv('SRF_DB_USER') ?: 'root');
 define('DB_PASS', getenv('SRF_DB_PASS') ?: '');
-define('DB_CHARSET', 'utf8mb4');
+define('DB_CHARSET', 'utf8');
 
 // Application
 define('APP_NAME',    'SimplyRunFaster');

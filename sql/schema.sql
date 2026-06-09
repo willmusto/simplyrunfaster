@@ -1,9 +1,9 @@
 -- SimplyRunFaster Database Schema
 -- Milestone 1 — Core Data Foundation
--- MySQL 5.7+ / MariaDB 10.3+
--- Character set: utf8mb4 throughout
+-- MariaDB 5.3+ / MySQL 5.5+ compatible
+-- Character set: utf8 (utf8 not available on MariaDB 5.3)
 
-SET NAMES utf8mb4;
+SET NAMES utf8;
 SET time_zone = '+00:00';
 
 -- ============================================================
@@ -23,11 +23,11 @@ CREATE TABLE IF NOT EXISTS `users` (
     `invite_code`       VARCHAR(64) DEFAULT NULL,
     `ad_campaign_id`    VARCHAR(255) DEFAULT NULL COMMENT 'UTM campaign tag',
     `ad_source`         VARCHAR(100) DEFAULT NULL COMMENT 'UTM source e.g. instagram',
-    `created_at`        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `created_at`        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_users_email` (`email`),
     KEY `idx_users_role` (`role`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- INVITE LINKS
@@ -45,12 +45,12 @@ CREATE TABLE IF NOT EXISTS `invite_links` (
     `max_uses`          INT NOT NULL DEFAULT 1,
     `use_count`         INT NOT NULL DEFAULT 0,
     `notes`             VARCHAR(500) DEFAULT NULL COMMENT 'coach-facing label',
-    `created_at`        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `created_at`        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_invite_code` (`code`),
     KEY `idx_invite_created_by` (`created_by`),
     KEY `idx_invite_coach` (`assigned_coach_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- ATHLETES
@@ -69,12 +69,12 @@ CREATE TABLE IF NOT EXISTS `athletes` (
     `billing_notes`             TEXT DEFAULT NULL COMMENT 'Coach-facing note',
     `trial_ends_at`             DATETIME DEFAULT NULL,
     `comp_reason`               ENUM('founding_athlete','coach_relationship','promotional','referral','other') DEFAULT NULL,
-    `created_at`                DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `created_at`                TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_athletes_user` (`user_id`),
     KEY `idx_athletes_coach` (`coach_id`),
     KEY `idx_athletes_status` (`status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- ATHLETE PROFILES (onboarding data — engine reads this)
@@ -110,8 +110,8 @@ CREATE TABLE IF NOT EXISTS `athlete_profiles` (
     `watch_platform`            ENUM('garmin','polar','apple','wahoo','none') NOT NULL DEFAULT 'none',
     `watch_connected`           TINYINT(1) NOT NULL DEFAULT 0,
     -- Zones (populated after race result or coach entry)
-    `hr_zones`                  JSON DEFAULT NULL,
-    `pace_zones`                JSON DEFAULT NULL,
+    `hr_zones`                  LONGTEXT DEFAULT NULL,
+    `pace_zones`                LONGTEXT DEFAULT NULL,
     `pace_zones_visible`        TINYINT(1) NOT NULL DEFAULT 1,
     `pace_zones_hidden_reason`  TEXT DEFAULT NULL COMMENT 'internal coach note',
     -- Peak volume ceiling (engine uses this — never exceeds)
@@ -129,9 +129,9 @@ CREATE TABLE IF NOT EXISTS `athlete_profiles` (
     `cross_training_other`      TEXT DEFAULT NULL,
     -- Preferences
     `units`                     ENUM('miles','km') NOT NULL DEFAULT 'miles',
-    `updated_at`                DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `updated_at`                TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`athlete_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- PERSONAL BESTS
@@ -147,11 +147,11 @@ CREATE TABLE IF NOT EXISTS `personal_bests` (
     `race_id`           INT UNSIGNED DEFAULT NULL,
     `race_date`         DATE DEFAULT NULL,
     `notes`             TEXT DEFAULT NULL,
-    `created_at`        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `created_at`        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_pb_athlete_distance` (`athlete_id`, `distance`),
     KEY `idx_pb_athlete` (`athlete_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- RACES
@@ -173,13 +173,13 @@ CREATE TABLE IF NOT EXISTS `races` (
     `recalibration_approved`        TINYINT(1) DEFAULT NULL,
     `recalibration_approved_by`     INT UNSIGNED DEFAULT NULL,
     `recalibration_approved_at`     DATETIME DEFAULT NULL,
-    `proposed_pace_zones`           JSON DEFAULT NULL,
+    `proposed_pace_zones`           LONGTEXT DEFAULT NULL,
     `notes`                         TEXT DEFAULT NULL,
-    `created_at`                    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `created_at`                    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_races_athlete` (`athlete_id`),
     KEY `idx_races_date` (`race_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- WATCH CONNECTIONS
@@ -195,7 +195,7 @@ CREATE TABLE IF NOT EXISTS `watch_connections` (
     `sync_status`       ENUM('active','error','disconnected') NOT NULL DEFAULT 'active',
     `error_message`     TEXT DEFAULT NULL,
     PRIMARY KEY (`athlete_id`, `platform`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- WORKOUT LIBRARY
@@ -207,8 +207,8 @@ CREATE TABLE IF NOT EXISTS `workout_library` (
     `name`                      VARCHAR(255) NOT NULL,
     `athlete_facing_name`       VARCHAR(255) DEFAULT NULL,
     `workout_type`              ENUM('easy','long','tempo','interval','hill','fartlek','race_pace','recovery','rest','cross_train') NOT NULL,
-    `phase_tags`                JSON DEFAULT NULL COMMENT 'array: base, build, peak, taper',
-    `distance_tags`             JSON DEFAULT NULL COMMENT 'array: 5K, 10K, half, marathon',
+    `phase_tags`                LONGTEXT DEFAULT NULL COMMENT 'array: base, build, peak, taper',
+    `distance_tags`             LONGTEXT DEFAULT NULL COMMENT 'array: 5K, 10K, half, marathon',
     `prescription_type`         ENUM('time','distance','count') NOT NULL DEFAULT 'time',
     `track_required`            ENUM('yes','no','preferred') NOT NULL DEFAULT 'no',
     `secondary_stimulus`        TINYINT(1) NOT NULL DEFAULT 0,
@@ -216,16 +216,16 @@ CREATE TABLE IF NOT EXISTS `workout_library` (
     `coach_clearance_required`  TINYINT(1) NOT NULL DEFAULT 0,
     `min_base_classification`   ENUM('workable','well_trained') NOT NULL DEFAULT 'workable',
     `intensity_factor`          FLOAT NOT NULL DEFAULT 0.5 COMMENT 'for training stress calculation',
-    `structure`                 JSON DEFAULT NULL COMMENT 'warmup, main set, cooldown with targets',
+    `structure`                 LONGTEXT DEFAULT NULL COMMENT 'warmup, main set, cooldown with targets',
     `description`               TEXT COMMENT 'athlete-facing instructions',
     `engine_notes`              TEXT DEFAULT NULL COMMENT 'internal engine usage notes',
-    `tags`                      JSON DEFAULT NULL,
+    `tags`                      LONGTEXT DEFAULT NULL,
     `created_by`                INT UNSIGNED DEFAULT NULL COMMENT 'coach user_id, null = system',
-    `created_at`                DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `created_at`                TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_wl_type` (`workout_type`),
     KEY `idx_wl_code` (`library_code`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- TRAINING PLANS
@@ -241,13 +241,13 @@ CREATE TABLE IF NOT EXISTS `training_plans` (
     `plan_start_date`       DATE DEFAULT NULL,
     `plan_end_date`         DATE DEFAULT NULL,
     `goal_race_date`        DATE DEFAULT NULL COMMENT 'snapshot at generation time',
-    `generated_at`          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `generated_at`          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `generation_trigger`    ENUM('onboarding','block_end','coach_manual','engine_rebuild') NOT NULL DEFAULT 'onboarding',
     `notes`                 TEXT DEFAULT NULL COMMENT 'coach notes on this plan',
     PRIMARY KEY (`id`),
     KEY `idx_plans_athlete` (`athlete_id`),
     KEY `idx_plans_status` (`status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- PLANNED WORKOUTS
@@ -285,7 +285,7 @@ CREATE TABLE IF NOT EXISTS `planned_workouts` (
     KEY `idx_pw_plan` (`plan_id`),
     KEY `idx_pw_athlete_date` (`athlete_id`, `scheduled_date`),
     KEY `idx_pw_visible` (`athlete_id`, `visible_to_athlete`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- COMPLETED WORKOUTS
@@ -304,7 +304,7 @@ CREATE TABLE IF NOT EXISTS `completed_workouts` (
     `avg_pace`              FLOAT DEFAULT NULL COMMENT 'min/mile',
     `avg_hr`                INT DEFAULT NULL COMMENT 'bpm',
     `max_hr`                INT DEFAULT NULL COMMENT 'bpm',
-    `hr_zones_breakdown`    JSON DEFAULT NULL COMMENT 'time in each zone',
+    `hr_zones_breakdown`    LONGTEXT DEFAULT NULL COMMENT 'time in each zone',
     `elevation_gain`        FLOAT DEFAULT NULL,
     `power_avg`             INT DEFAULT NULL COMMENT 'watts',
     -- Manual logging fields
@@ -313,13 +313,13 @@ CREATE TABLE IF NOT EXISTS `completed_workouts` (
     `rpe_discomfort`        TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'return-to-running pain flag',
     `effort_descriptor`     ENUM('easy','moderate','hard','very_hard','discomfort') DEFAULT NULL,
     -- Raw data for future use
-    `raw_data`              JSON DEFAULT NULL COMMENT 'full platform payload',
+    `raw_data`              LONGTEXT DEFAULT NULL COMMENT 'full platform payload',
     `compliance_score`      FLOAT DEFAULT NULL COMMENT '0-1 vs planned workout',
-    `synced_at`             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `synced_at`             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_cw_athlete_date` (`athlete_id`, `activity_date`),
     KEY `idx_cw_planned` (`planned_workout_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- TRAINING LOAD (ATL/CTL/TSB — computed daily)
@@ -332,9 +332,9 @@ CREATE TABLE IF NOT EXISTS `training_load` (
     `ctl`           FLOAT NOT NULL DEFAULT 0 COMMENT 'chronic training load (42-day)',
     `tsb`           FLOAT NOT NULL DEFAULT 0 COMMENT 'training stress balance (CTL - ATL)',
     `daily_stress`  FLOAT NOT NULL DEFAULT 0 COMMENT 'training stress score for this day',
-    `computed_at`   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `computed_at`   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`athlete_id`, `date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- ENGINE FLAGS
@@ -351,17 +351,17 @@ CREATE TABLE IF NOT EXISTS `engine_flags` (
                     ) NOT NULL,
     `severity`      ENUM('info','warning','critical') NOT NULL DEFAULT 'info',
     `flag_date`     DATE NOT NULL,
-    `details`       JSON DEFAULT NULL COMMENT 'machine-readable context',
+    `details`       LONGTEXT DEFAULT NULL COMMENT 'machine-readable context',
     `message`       TEXT NOT NULL COMMENT 'human-readable summary for coach',
     `status`        ENUM('open','dismissed','acted_on') NOT NULL DEFAULT 'open',
     `reviewed_by`   INT UNSIGNED DEFAULT NULL,
     `reviewed_at`   DATETIME DEFAULT NULL,
     `dismiss_reason` TEXT DEFAULT NULL COMMENT 'required for critical flags',
-    `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `created_at`    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_flags_athlete` (`athlete_id`),
     KEY `idx_flags_status` (`status`, `severity`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- PLAN APPROVAL QUEUE
@@ -371,7 +371,7 @@ CREATE TABLE IF NOT EXISTS `plan_approval_queue` (
     `id`                INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `plan_id`           INT UNSIGNED NOT NULL,
     `athlete_id`        INT UNSIGNED NOT NULL,
-    `requested_at`      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `requested_at`      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `request_reason`    ENUM('onboarding','block_end','coach_manual','engine_rebuild') NOT NULL,
     `status`            ENUM('pending','approved','rejected','modified_and_approved') NOT NULL DEFAULT 'pending',
     `reviewed_by`       INT UNSIGNED DEFAULT NULL,
@@ -380,7 +380,7 @@ CREATE TABLE IF NOT EXISTS `plan_approval_queue` (
     PRIMARY KEY (`id`),
     KEY `idx_paq_status` (`status`),
     KEY `idx_paq_athlete` (`athlete_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- PLAN TEMPLATES (Section 30)
@@ -394,15 +394,15 @@ CREATE TABLE IF NOT EXISTS `plan_templates` (
     `plan_type`             ENUM('race_cycle','development_plan','maintenance_plan','recovery_block','return_to_running') NOT NULL,
     `target_distance`       ENUM('5K','10K','15K','half','marathon','ultra') DEFAULT NULL,
     `cycle_length_weeks`    INT NOT NULL,
-    `phase_proportions`     JSON DEFAULT NULL COMMENT 'base/build/peak/taper percentages',
-    `week_structures`       JSON DEFAULT NULL COMMENT 'array of week templates',
+    `phase_proportions`     LONGTEXT DEFAULT NULL COMMENT 'base/build/peak/taper percentages',
+    `week_structures`       LONGTEXT DEFAULT NULL COMMENT 'array of week templates',
     `notes`                 TEXT DEFAULT NULL COMMENT 'coach-facing usage notes',
     `use_count`             INT NOT NULL DEFAULT 0,
-    `created_at`            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `created_at`            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`            DATETIME DEFAULT NULL,
     PRIMARY KEY (`id`),
     KEY `idx_pt_created_by` (`created_by`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- MESSAGES (Section 13)
@@ -414,7 +414,7 @@ CREATE TABLE IF NOT EXISTS `messages` (
     `sender_id`             INT UNSIGNED NOT NULL,
     `sender_role`           ENUM('athlete','coach','assistant_coach') NOT NULL,
     `body`                  TEXT NOT NULL,
-    `sent_at`               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `sent_at`               TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `read_at`               DATETIME DEFAULT NULL,
     `push_sent`             TINYINT(1) NOT NULL DEFAULT 0,
     `message_type`          ENUM('message','session_note','session_note_reply') NOT NULL DEFAULT 'message',
@@ -423,7 +423,7 @@ CREATE TABLE IF NOT EXISTS `messages` (
     PRIMARY KEY (`id`),
     KEY `idx_msg_athlete` (`athlete_id`, `sent_at`),
     KEY `idx_msg_unread` (`athlete_id`, `read_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- SESSION NOTES (Section 13)
@@ -438,11 +438,11 @@ CREATE TABLE IF NOT EXISTS `session_notes` (
     `body`                  TEXT NOT NULL,
     `soft_limit_chars`      INT NOT NULL DEFAULT 500,
     `hard_limit_chars`      INT NOT NULL DEFAULT 1000,
-    `created_at`            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `created_at`            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_sn_workout` (`completed_workout_id`),
     KEY `idx_sn_athlete` (`athlete_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- NOTIFICATION PREFERENCES (Section 28)
@@ -459,9 +459,9 @@ CREATE TABLE IF NOT EXISTS `notification_preferences` (
     `quiet_hours_end`   TIME NOT NULL DEFAULT '07:00:00',
     `preferred_time`    TIME DEFAULT NULL COMMENT 'for scheduled notifications',
     `preferred_day`     TINYINT DEFAULT NULL COMMENT '0-6 for weekly notifications',
-    `updated_at`        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `updated_at`        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`user_id`, `notification_type`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- PUSH NOTIFICATION SUBSCRIPTIONS (Web Push API)
@@ -474,11 +474,11 @@ CREATE TABLE IF NOT EXISTS `push_subscriptions` (
     `p256dh`        TEXT NOT NULL COMMENT 'client public key',
     `auth`          TEXT NOT NULL COMMENT 'auth secret',
     `user_agent`    VARCHAR(255) DEFAULT NULL,
-    `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `created_at`    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `last_used_at`  DATETIME DEFAULT NULL,
     PRIMARY KEY (`id`),
     KEY `idx_push_user` (`user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- PHONE VERIFICATION (SMS flow)
@@ -491,10 +491,10 @@ CREATE TABLE IF NOT EXISTS `phone_verifications` (
     `code`          VARCHAR(10) NOT NULL,
     `expires_at`    DATETIME NOT NULL,
     `verified_at`   DATETIME DEFAULT NULL,
-    `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `created_at`    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_pv_user` (`user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
 -- SEED: WORKOUT LIBRARY (23 initial templates)
