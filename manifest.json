@@ -1,6 +1,6 @@
 {
     "name": "SimplyRunFaster",
-    "short_name": "SRF",
+    "short_name": "SimplyRunFaster",
     "description": "Real running coaching — not an algorithm.",
     "start_url": "/app",
     "display": "standalone",

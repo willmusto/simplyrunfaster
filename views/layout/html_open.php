@@ -11,7 +11,9 @@
     <title><?= h($pageTitle ?? 'SimplyRunFaster') ?> — SimplyRunFaster</title>
 
     <link rel="manifest" href="/manifest.json">
-    <link rel="icon" href="/assets/icons/icon-192.png" type="image/png">
+    <link rel="shortcut icon" href="/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/icon-32.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/assets/icons/icon-192.png">
     <link rel="apple-touch-icon" href="/assets/icons/icon-192.png">
     <link rel="stylesheet" href="/assets/css/app.css">
 
