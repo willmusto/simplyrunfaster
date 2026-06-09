@@ -1272,6 +1272,20 @@ body.is-offline .offline-banner { display: block; }
 [data-theme="dark"] .msg-row.coach  .msg-bubble { background: #2A2A2A; color: #F0F0F0; }
 [data-theme="dark"] .msg-row.athlete .msg-bubble { background: #0F6E56; }
 
+[data-theme="dark"] .pill-choice:has(input:checked),
+[data-theme="dark"] .pill-choice.selected {
+    background: var(--accent-mid);
+    color: #FFFFFF;
+}
+
+@media (prefers-color-scheme: dark) {
+    [data-theme="system"] .pill-choice:has(input:checked),
+    [data-theme="system"] .pill-choice.selected {
+        background: var(--accent-mid);
+        color: #FFFFFF;
+    }
+}
+
 .msg-meta {
     font-size: 11px;
     color: var(--text-muted);
