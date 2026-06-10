@@ -76,6 +76,7 @@ $router->post('/coach/plans/:planId/approve',       [CoachController::class, 'ap
 $router->post('/coach/plans/:planId/reject',        [CoachController::class, 'rejectPlan']);
 $router->get('/coach/flags',                        [CoachController::class, 'flags']);
 $router->post('/coach/flags/:id/dismiss',           [CoachController::class, 'dismissFlag']);
+$router->post('/coach/workouts/:id/edit',             [CoachController::class, 'editPlannedWorkout']);
 $router->get('/coach/library',            [CoachController::class, 'library']);
 $router->post('/coach/library',           [CoachController::class, 'libraryAddTemplate']);
 $router->get('/coach/settings',           [CoachController::class, 'settings']);

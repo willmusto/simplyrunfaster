@@ -163,12 +163,77 @@ class CoachController
             $planWorkouts[(int)$plan['plan_id']] = self::getPlanWorkouts((int)$plan['plan_id'], $db);
         }
 
+        // Workout library templates for the edit modal template-swap dropdown
+        $libraryTemplates = $db->query(
+            'SELECT id, library_code, name, athlete_facing_name, workout_type, description
+             FROM workout_library WHERE library_code IS NOT NULL ORDER BY workout_type, name'
+        )->fetchAll();
+
         $pageTitle = 'Plan Approvals';
         $activeNav = 'approvals';
         include __DIR__ . '/../../views/layout/html_open.php';
         include __DIR__ . '/../../views/layout/nav_coach.php';
         include __DIR__ . '/../../views/coach/approvals.php';
         include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    public static function editPlannedWorkout(array $params): void
+    {
+        Auth::requireRole(['coach', 'admin']);
+        Auth::verifyCsrf();
+
+        $workoutId = (int)($params['id'] ?? 0);
+        $coachId   = Auth::userId();
+        $db        = Database::get();
+
+        // Verify workout belongs to one of this coach's athletes
+        $check = $db->prepare(
+            'SELECT pw.id FROM planned_workouts pw
+             JOIN athletes a ON a.id = pw.athlete_id AND a.coach_id = ?
+             WHERE pw.id = ? LIMIT 1'
+        );
+        $check->execute([$coachId, $workoutId]);
+        if (!$check->fetch()) {
+            http_response_code(403);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'Not found or not authorized']);
+            exit;
+        }
+
+        $validTypes = ['easy','long','interval','hill','fartlek','tempo','race','recovery','cross_train'];
+        $type       = in_array($_POST['workout_type'] ?? '', $validTypes, true) ? $_POST['workout_type'] : null;
+        $duration   = isset($_POST['target_duration']) && (int)$_POST['target_duration'] > 0
+            ? (int)$_POST['target_duration'] : null;
+        $tplId      = array_key_exists('workout_template_id', $_POST)
+            ? ((int)$_POST['workout_template_id'] ?: null) : false;
+        $desc       = array_key_exists('description', $_POST)
+            ? (trim($_POST['description']) ?: null) : false;
+
+        $sets = [];
+        $vals = [];
+        if ($type !== null)   { $sets[] = 'workout_type = ?';        $vals[] = $type; }
+        if ($duration !== null){ $sets[] = 'target_duration = ?';     $vals[] = $duration; }
+        if ($tplId !== false) { $sets[] = 'workout_template_id = ?'; $vals[] = $tplId; }
+        if ($desc !== false)  { $sets[] = 'description = ?';         $vals[] = $desc; }
+
+        if (!empty($sets)) {
+            $vals[] = $workoutId;
+            $db->prepare('UPDATE planned_workouts SET ' . implode(', ', $sets) . ' WHERE id = ?')
+               ->execute($vals);
+        }
+
+        $stmt = $db->prepare(
+            'SELECT pw.*, wl.name AS template_name, wl.athlete_facing_name
+             FROM planned_workouts pw
+             LEFT JOIN workout_library wl ON wl.id = pw.workout_template_id
+             WHERE pw.id = ? LIMIT 1'
+        );
+        $stmt->execute([$workoutId]);
+        $updated = $stmt->fetch();
+
+        header('Content-Type: application/json');
+        echo json_encode(['ok' => true, 'workout' => $updated]);
+        exit;
     }
 
     public static function approvePlan(array $params): void
