@@ -8,10 +8,11 @@ define('SCRIPT_ROOT', dirname(__DIR__));
 foreach ([SCRIPT_ROOT . '/config/config.local.php', '/home/public/config/config.local.php'] as $cfg) {
     if (file_exists($cfg)) { require $cfg; break; }
 }
-defined('DB_HOST') || define('DB_HOST', 'localhost');
-defined('DB_NAME') || define('DB_NAME', 'simplyrunfaster');
-defined('DB_USER') || define('DB_USER', 'root');
-defined('DB_PASS') || define('DB_PASS', '');
+defined('DB_HOST')    || define('DB_HOST',    'localhost');
+defined('DB_NAME')    || define('DB_NAME',    'simplyrunfaster');
+defined('DB_USER')    || define('DB_USER',    'root');
+defined('DB_PASS')    || define('DB_PASS',    '');
+defined('DB_CHARSET') || define('DB_CHARSET', 'utf8');
 
 $db = new PDO(
     'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8',
