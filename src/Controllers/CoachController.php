@@ -157,6 +157,12 @@ class CoachController
         $openFlags        = self::getOpenFlagsCount($coachId, $db);
         $pendingApprovals = count($pendingPlans);
 
+        // Fetch workouts for each pending plan, keyed by plan_id
+        $planWorkouts = [];
+        foreach ($pendingPlans as $plan) {
+            $planWorkouts[(int)$plan['plan_id']] = self::getPlanWorkouts((int)$plan['plan_id'], $db);
+        }
+
         $pageTitle = 'Plan Approvals';
         $activeNav = 'approvals';
         include __DIR__ . '/../../views/layout/html_open.php';
