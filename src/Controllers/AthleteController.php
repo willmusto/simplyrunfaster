@@ -454,7 +454,11 @@ class AthleteController
             'SELECT * FROM training_plans WHERE athlete_id = ? AND status = "active" ORDER BY id DESC LIMIT 1'
         );
         $stmt->execute([$athleteId]);
-        return $stmt->fetch() ?: null;
+        $plan = $stmt->fetch() ?: null;
+        if ($plan && isset($plan['plan_type'])) {
+            $plan['plan_type'] = str_replace('_', ' ', $plan['plan_type']);
+        }
+        return $plan;
     }
 
     private static function getVisibleWorkouts(int $athleteId, string $start, string $end, PDO $db): array
@@ -466,9 +470,14 @@ class AthleteController
              WHERE pw.athlete_id = ?
                AND pw.scheduled_date BETWEEN ? AND ?
                AND pw.visible_to_athlete = 1
+               AND pw.plan_id = (
+                   SELECT id FROM training_plans
+                   WHERE athlete_id = ? AND status = "active"
+                   ORDER BY id DESC LIMIT 1
+               )
              ORDER BY pw.scheduled_date ASC'
         );
-        $stmt->execute([$athleteId, $start, $end]);
+        $stmt->execute([$athleteId, $start, $end, $athleteId]);
         return $stmt->fetchAll();
     }
 }
