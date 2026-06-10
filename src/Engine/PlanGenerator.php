@@ -474,13 +474,38 @@ class PlanGenerator
             }
         }
 
-        // Fill remaining running days
-        $used       = array_filter([$longDay, $workoutDay], fn($v) => $v !== null);
-        $remaining  = array_diff($available, $used);
+        // Fill remaining running days — greedy max-gap to avoid consecutive training days.
+        // Each new day is chosen to maximise its minimum circular distance to any day
+        // already selected, so the schedule stays as evenly spread as possible.
+        $anchors    = array_values(array_filter([$longDay, $workoutDay], fn($v) => $v !== null));
+        $remaining  = array_values(array_diff($available, $anchors));
         sort($remaining);
-        $addlNeeded = $numDays - count($used);
-        $addlDays   = array_slice(array_values($remaining), 0, max(0, $addlNeeded));
-        $runDays    = array_unique(array_merge(array_values($used), $addlDays));
+        $addlNeeded = $numDays - count($anchors);
+        $addlDays   = [];
+        $trainSoFar = $anchors;
+
+        for ($i = 0; $i < $addlNeeded && !empty($remaining); $i++) {
+            $bestDay = null;
+            $bestGap = -1;
+            foreach ($remaining as $candidate) {
+                $minGap = 7;
+                foreach ($trainSoFar as $t) {
+                    $g      = min(abs($candidate - $t), 7 - abs($candidate - $t));
+                    $minGap = min($minGap, $g);
+                }
+                if ($minGap > $bestGap) {
+                    $bestGap = $minGap;
+                    $bestDay = $candidate;
+                }
+            }
+            if ($bestDay !== null) {
+                $addlDays[]   = $bestDay;
+                $trainSoFar[] = $bestDay;
+                $remaining    = array_values(array_diff($remaining, [$bestDay]));
+            }
+        }
+
+        $runDays = array_unique(array_merge($anchors, $addlDays));
         sort($runDays);
 
         // Can we have a secondary quality session?
@@ -604,7 +629,9 @@ class PlanGenerator
             $date = date('Y-m-d', strtotime($weekStart . " +{$d} days"));
             if ($date > $planEnd) continue;
 
-            $type = $schedule[$d] ?? 'rest';
+            // $schedule is keyed by day-of-week (0=Sun…6=Sat); look up by actual dow
+            $dow  = (int)date('w', strtotime($date));
+            $type = $schedule[$dow] ?? 'rest';
             if ($type === 'rest') continue; // don't insert rest rows (handled as gap in calendar)
 
             [$templateId, $desc, $factor, $dur] = self::resolveWorkoutTemplate(

@@ -40,49 +40,14 @@
 
         <div class="divider" style="margin:0 0 12px;"></div>
 
-        <!-- Workout list -->
+        <!-- Calendar preview -->
         <?php
-        $workouts = $planWorkouts[(int)$plan['plan_id']] ?? [];
-        if (!empty($workouts)):
-            $byWeek = [];
-            foreach ($workouts as $w) {
-                $mon = date('Y-m-d', strtotime('monday this week', strtotime($w['scheduled_date'])));
-                $byWeek[$mon][] = $w;
-            }
-            ksort($byWeek);
-            $weekNum = 0;
+        $calWorkouts = $planWorkouts[(int)$plan['plan_id']] ?? [];
+        $calMode     = 'preview';
+        if (!empty($calWorkouts)):
         ?>
         <div style="margin-bottom:16px;">
-            <?php foreach ($byWeek as $weekStart => $wkWorkouts):
-                $weekNum++;
-            ?>
-            <div style="margin-bottom:10px;">
-                <div style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
-                            color:var(--text-muted);margin-bottom:5px;">
-                    Week <?= $weekNum ?> &nbsp;·&nbsp; <?= date('M j', strtotime($weekStart)) ?>
-                </div>
-                <?php foreach ($wkWorkouts as $w): ?>
-                <div style="display:flex;align-items:center;gap:8px;padding:4px 0;
-                            border-bottom:1px solid var(--divider);font-size:12px;">
-                    <span style="color:var(--text-muted);min-width:52px;">
-                        <?= date('D M j', strtotime($w['scheduled_date'])) ?>
-                    </span>
-                    <span class="pill <?= pill_class($w['workout_type']) ?>" style="font-size:10px;">
-                        <?= pill_label($w['workout_type']) ?>
-                    </span>
-                    <span style="flex:1;color:var(--text-secondary);white-space:nowrap;
-                                 overflow:hidden;text-overflow:ellipsis;">
-                        <?= h($w['template_name'] ?? ucfirst(str_replace('_', ' ', $w['workout_type']))) ?>
-                    </span>
-                    <?php if ($w['target_duration']): ?>
-                    <span style="color:var(--text-muted);white-space:nowrap;">
-                        <?= format_duration((int)$w['target_duration']) ?>
-                    </span>
-                    <?php endif; ?>
-                </div>
-                <?php endforeach; ?>
-            </div>
-            <?php endforeach; ?>
+            <?php include __DIR__ . '/../partials/calendar_week.php'; ?>
         </div>
         <?php endif; ?>
 
