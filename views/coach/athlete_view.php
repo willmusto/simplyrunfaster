@@ -27,7 +27,7 @@ $today = date('Y-m-d');
         </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 280px;gap:16px;align-items:start;">
+    <div class="av-grid">
 
     <!-- Left: Plan + workouts -->
     <div>
