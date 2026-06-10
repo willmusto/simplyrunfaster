@@ -193,7 +193,7 @@ class PlanGenerator
             $prevWeeklyMins = $weeklyMins;
 
             $weekStart = date('Y-m-d', strtotime($startDate . ' +' . (($week - 1) * 7) . ' days'));
-            $schedule  = self::buildDaySchedule($profile, $phase, $weeklyMins, $isRaceWeek, $isPreRaceWeek);
+            $schedule  = self::buildDaySchedule($profile, $phase, $weeklyMins, $isRaceWeek, $isPreRaceWeek, $athleteId, $db);
             $maxLongRun = self::insertWeekWorkouts(
                 $planId, $athleteId, $weekStart, $endDate,
                 $schedule, $phase, $distance, $weekInPhase,
@@ -231,7 +231,7 @@ class PlanGenerator
             $prevWeeklyMins = $weeklyMins;
 
             $weekStart = date('Y-m-d', strtotime($startDate . ' +' . (($week - 1) * 7) . ' days'));
-            $schedule  = self::buildDaySchedule($profile, 'base', $weeklyMins, false, false);
+            $schedule  = self::buildDaySchedule($profile, 'base', $weeklyMins, false, false, $athleteId, $db);
             $maxLongRun = self::insertWeekWorkouts(
                 $planId, $athleteId, $weekStart, $endDate,
                 $schedule, 'base', '5K', $week,
@@ -345,7 +345,7 @@ class PlanGenerator
 
         for ($week = 1; $week <= $totalWeeks; $week++) {
             $weekStart = date('Y-m-d', strtotime($startDate . ' +' . (($week - 1) * 7) . ' days'));
-            $schedule  = self::buildDaySchedule($profile, 'build', $weeklyMins, false, false);
+            $schedule  = self::buildDaySchedule($profile, 'build', $weeklyMins, false, false, $athleteId, $db);
             $maxLongRun = self::insertWeekWorkouts(
                 $planId, $athleteId, $weekStart, $endDate,
                 $schedule, 'build', 'marathon', $week,
@@ -423,7 +423,9 @@ class PlanGenerator
         string $phase,
         int $weeklyMins,
         bool $isRaceWeek,
-        bool $isPreRaceWeek
+        bool $isPreRaceWeek,
+        int $athleteId,
+        PDO $db
     ): array {
         $schedule = array_fill(0, 7, 'rest');
         $mustOff  = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
@@ -445,8 +447,18 @@ class PlanGenerator
         $longDay = null;
         if ($longPref !== null && in_array($longPref, $available)) {
             $longDay = $longPref;
+        } elseif ($longPref !== null) {
+            // Preference set but day unavailable — use nearest available day (circular distance)
+            $nearestDay = null; $nearestGap = 8;
+            foreach ($available as $d) {
+                $g = min(abs($d - $longPref), 7 - abs($d - $longPref));
+                if ($g < $nearestGap) { $nearestGap = $g; $nearestDay = $d; }
+            }
+            $longDay = $nearestDay ?? (reset($available) ?: 0);
+            self::raiseFlag($athleteId, 'long_run_day_conflict', 'info',
+                "Preferred long run day (day {$longPref}) conflicts with availability. Long run placed on nearest available day (day {$longDay}).", $db);
         } else {
-            // Prefer Saturday (6) then Sunday (0), then last available
+            // No preference set — default to Saturday (6) then Sunday (0)
             foreach ([6, 0] as $candidate) {
                 if (in_array($candidate, $available)) { $longDay = $candidate; break; }
             }
@@ -599,22 +611,32 @@ class PlanGenerator
         $longCount = count($longDays);
         $easyCount = count($easyDays);
 
-        // Long run duration (max 35% of weekly, max 15% growth)
+        // Long run: target ~33% of weekly volume; cap at 15% growth and 35% guardrail
         $longMins = 0;
         if ($longCount > 0) {
-            $target  = (int)round($weeklyMins * 0.28);
-            $ceiling = (int)round($maxLongRun * 1.15);
+            $target    = (int)round($weeklyMins * 0.33);
+            $ceiling   = (int)round($maxLongRun * 1.15);
             $guardrail = (int)round($weeklyMins * 0.35);
-            $longMins = max(30, min($target, $ceiling, $guardrail));
+            $longMins  = max(30, min($target, $ceiling, $guardrail));
             $maxLongRun = max($maxLongRun, $longMins);
         }
 
-        // Quality duration
-        $qualMins = $qualCount > 0 ? max(45, min(80, (int)round($weeklyMins * 0.20))) : 0;
+        // Quality sessions: ~18% of weekly, hard-capped below the long run
+        $qualMins = 0;
+        if ($qualCount > 0) {
+            $qualTarget = (int)round($weeklyMins * 0.18);
+            $qualCap    = $longCount > 0 ? max(20, $longMins - 5) : 80;
+            $qualMins   = max(20, min($qualTarget, $qualCap));
+        }
 
-        // Easy run duration
+        // Easy runs: remaining volume divided equally, each capped below the long run
         $easyRemaining = max(0, $weeklyMins - $longMins - ($qualMins * $qualCount));
-        $easyMins = $easyCount > 0 ? max(20, (int)round($easyRemaining / $easyCount)) : 30;
+        if ($easyCount > 0) {
+            $easyCap  = $longCount > 0 ? max(20, $longMins - 10) : PHP_INT_MAX;
+            $easyMins = max(20, min((int)round($easyRemaining / $easyCount), $easyCap));
+        } else {
+            $easyMins = 20;
+        }
 
         $insert = $db->prepare(
             'INSERT INTO planned_workouts
