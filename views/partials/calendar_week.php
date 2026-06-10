@@ -494,7 +494,7 @@ document.addEventListener('keydown', function(e) {
                 // Data for modal
                 $_wjson = null;
                 if ($_slot && isset($_slot['id'])) {
-                    $_wjson = json_encode([
+                    $_wjson = htmlspecialchars(json_encode([
                         'id'                  => (int)$_slot['id'],
                         'workout_type'        => (string)($_slot['workout_type'] ?? ''),
                         'target_duration'     => (int)($_slot[$_durKey] ?? 0),
@@ -502,7 +502,7 @@ document.addEventListener('keydown', function(e) {
                         'description'         => (string)($_slot['description'] ?? ''),
                         'workout_template_id' => (int)($_slot['workout_template_id'] ?? 0),
                         'scheduled_date'      => (string)($_slot['scheduled_date'] ?? ''),
-                    ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+                    ]), ENT_QUOTES, 'UTF-8');
                 }
             ?>
             <div class="cal-day-col">
