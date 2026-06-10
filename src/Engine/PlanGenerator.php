@@ -431,8 +431,9 @@ class PlanGenerator
         $mustOff  = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
         $numDays  = max(2, min(7, (int)($profile['training_days_per_week'] ?? 4)));
 
-        $longPref    = (isset($profile['long_run_day']) && $profile['long_run_day'] !== '')
-            ? (int)$profile['long_run_day'] : null;
+        // Treat null and 0 as "no explicit preference" — Sunday (0) is the default
+        $longPrefRaw = isset($profile['long_run_day']) ? (int)$profile['long_run_day'] : 0;
+        $longPref    = $longPrefRaw > 0 ? $longPrefRaw : null;
         $workoutPref = (isset($profile['primary_workout_day']) && $profile['primary_workout_day'] !== '')
             ? (int)$profile['primary_workout_day'] : null;
 
@@ -448,18 +449,16 @@ class PlanGenerator
         if ($longPref !== null && in_array($longPref, $available)) {
             $longDay = $longPref;
         } elseif ($longPref !== null) {
-            // Preference set but day unavailable — use nearest available day (circular distance)
-            $nearestDay = null; $nearestGap = 8;
-            foreach ($available as $d) {
-                $g = min(abs($d - $longPref), 7 - abs($d - $longPref));
-                if ($g < $nearestGap) { $nearestGap = $g; $nearestDay = $d; }
+            // Preference set but unavailable — Sunday first, Saturday fallback
+            foreach ([0, 6] as $candidate) {
+                if (in_array($candidate, $available)) { $longDay = $candidate; break; }
             }
-            $longDay = $nearestDay ?? (reset($available) ?: 0);
+            if ($longDay === null) $longDay = reset($available) ?: 0;
             self::raiseFlag($athleteId, 'long_run_day_conflict', 'info',
-                "Preferred long run day (day {$longPref}) conflicts with availability. Long run placed on nearest available day (day {$longDay}).", $db);
+                "Preferred long run day (day {$longPref}) conflicts with availability. Long run placed on day {$longDay}.", $db);
         } else {
-            // No preference set — default to Saturday (6) then Sunday (0)
-            foreach ([6, 0] as $candidate) {
+            // No preference (null or 0) — Sunday default, Saturday fallback
+            foreach ([0, 6] as $candidate) {
                 if (in_array($candidate, $available)) { $longDay = $candidate; break; }
             }
             if ($longDay === null) $longDay = end($available);
@@ -611,31 +610,30 @@ class PlanGenerator
         $longCount = count($longDays);
         $easyCount = count($easyDays);
 
-        // Long run: target ~33% of weekly volume; cap at 15% growth and 35% guardrail
+        // Long run: target ~28% of weekly volume (25–30%); cap at 15% growth and 35% guardrail
         $longMins = 0;
         if ($longCount > 0) {
-            $target    = (int)round($weeklyMins * 0.33);
+            $target    = (int)round($weeklyMins * 0.28);
             $ceiling   = (int)round($maxLongRun * 1.15);
             $guardrail = (int)round($weeklyMins * 0.35);
             $longMins  = max(30, min($target, $ceiling, $guardrail));
             $maxLongRun = max($maxLongRun, $longMins);
         }
 
-        // Quality sessions: ~18% of weekly, hard-capped below the long run
+        // Quality sessions: ~13.5% of weekly (12–15%), hard-capped below the long run
         $qualMins = 0;
         if ($qualCount > 0) {
-            $qualTarget = (int)round($weeklyMins * 0.18);
+            $qualTarget = (int)round($weeklyMins * 0.135);
             $qualCap    = $longCount > 0 ? max(20, $longMins - 5) : 80;
             $qualMins   = max(20, min($qualTarget, $qualCap));
         }
 
-        // Easy runs: remaining volume divided equally, each capped below the long run
-        $easyRemaining = max(0, $weeklyMins - $longMins - ($qualMins * $qualCount));
+        // Easy runs: ~17.5% of weekly each (15–20%), hard-capped below the long run
+        $easyMins = 20;
         if ($easyCount > 0) {
-            $easyCap  = $longCount > 0 ? max(20, $longMins - 10) : PHP_INT_MAX;
-            $easyMins = max(20, min((int)round($easyRemaining / $easyCount), $easyCap));
-        } else {
-            $easyMins = 20;
+            $easyTarget = (int)round($weeklyMins * 0.175);
+            $easyCap    = $longCount > 0 ? max(20, $longMins - 10) : PHP_INT_MAX;
+            $easyMins   = max(20, min($easyTarget, $easyCap));
         }
 
         $insert = $db->prepare(
