@@ -29,13 +29,25 @@ class PlanGenerator
         'insufficient' => ['base' => 0.40, 'build' => 0.25, 'peak' => 0.20, 'taper' => 0.15],
     ];
 
-    // Classification thresholds [min_months_at_volume, min_weekly_minutes]
+    // Classification thresholds per distance.
+    // All three criteria (runs_per_week, weekly_minutes, long_run_minutes) must be met simultaneously.
     const CLASSIFICATION = [
-        '5K'       => ['well_trained' => [6,  250], 'workable' => [3,  150]],
-        '10K'      => ['well_trained' => [9,  300], 'workable' => [6,  200]],
-        'half'     => ['well_trained' => [12, 350], 'workable' => [9,  250]],
-        'HM'       => ['well_trained' => [12, 350], 'workable' => [9,  250]],
-        'marathon' => ['well_trained' => [18, 450], 'workable' => [12, 350]],
+        '5K' => [
+            'well_trained' => ['runs_per_week' => 4, 'weekly_minutes' => 180, 'long_run_minutes' => 60],
+            'workable'     => ['runs_per_week' => 3, 'weekly_minutes' => 120, 'long_run_minutes' => 45],
+        ],
+        '10K' => [
+            'well_trained' => ['runs_per_week' => 4, 'weekly_minutes' => 210, 'long_run_minutes' => 70],
+            'workable'     => ['runs_per_week' => 3, 'weekly_minutes' => 150, 'long_run_minutes' => 50],
+        ],
+        'half' => [
+            'well_trained' => ['runs_per_week' => 5, 'weekly_minutes' => 270, 'long_run_minutes' => 90],
+            'workable'     => ['runs_per_week' => 4, 'weekly_minutes' => 180, 'long_run_minutes' => 60],
+        ],
+        'marathon' => [
+            'well_trained' => ['runs_per_week' => 5, 'weekly_minutes' => 360, 'long_run_minutes' => 105],
+            'workable'     => ['runs_per_week' => 4, 'weekly_minutes' => 240, 'long_run_minutes' => 75],
+        ],
     ];
 
     // Maps schedule slot types to the workout_type column value stored in planned_workouts
@@ -48,6 +60,44 @@ class PlanGenerator
         'recovery'          => 'recovery',
         'race'              => 'race',
     ];
+
+    /** @var array|null Cached engine settings from config/engine_settings.php. */
+    private static ?array $settings = null;
+
+    /** Load and cache engine settings. */
+    private static function settings(): array
+    {
+        if (self::$settings === null) {
+            $path = __DIR__ . '/../../config/engine_settings.php';
+            self::$settings = file_exists($path) ? (require $path) : [];
+        }
+        return self::$settings;
+    }
+
+    /**
+     * Return the number of quality slots (0–2) allowed in a week.
+     *
+     * development_plan alternates 1/2 every two weeks (average 1.5/week, 3 per 2 weeks).
+     * Cutback weeks always get 1 quality slot regardless of plan type or phase.
+     */
+    private static function getQualitySlotCount(
+        string $planType, string $phase, int $daysPerWeek, int $weekNumber, bool $isCutback
+    ): int {
+        if ($planType === 'maintenance_plan') return 1;
+
+        if ($planType === 'development_plan') {
+            if ($isCutback) return 1;
+            return $weekNumber % 2 === 0 ? 2 : 1;
+        }
+
+        // race_cycle
+        return match($phase) {
+            'base'          => 1,
+            'build', 'peak' => $daysPerWeek >= 5 ? 2 : 1,
+            'taper'         => 1,
+            default         => 1,
+        };
+    }
 
     // ── Public API ───────────────────────────────────────────────────────────
 
@@ -62,6 +112,14 @@ class PlanGenerator
         if (!$profile) return null;
 
         $planType = $profile['plan_type'] ?? 'development_plan';
+
+        // Raise limited development flag for 3-day-per-week athletes (info, not blocking).
+        if (!in_array($planType, ['recovery_block', 'return_to_running'])) {
+            if ((int)($profile['training_days_per_week'] ?? 0) === 3) {
+                self::raiseFlag($athleteId, 'limited_development_opportunity', 'info',
+                    '3 days per week can support consistency, but it limits improvement and development potential.', $db);
+            }
+        }
 
         self::archivePreviousPlans($athleteId, $db);
 
@@ -147,7 +205,7 @@ class PlanGenerator
             $prevWeeklyMins = $weeklyMins;
 
             $weekStart  = date('Y-m-d', strtotime($startDate . ' +' . (($week - 1) * 7) . ' days'));
-            $schedule   = self::buildDaySchedule($profile, $phase, $weeklyMins, $isRaceWeek, $isPreRaceWeek, $athleteId, $db);
+            $schedule   = self::buildDaySchedule($profile, $phase, $weeklyMins, $isRaceWeek, $isPreRaceWeek, $athleteId, $db, 'race_cycle', $week, $isCutback);
             $maxLongRun = self::insertWeekWorkouts(
                 $planId, $athleteId, $weekStart, $endDate,
                 $schedule, $phase, $distance, $classification, 'race_cycle',
@@ -183,7 +241,7 @@ class PlanGenerator
             $prevWeeklyMins = $weeklyMins;
 
             $weekStart  = date('Y-m-d', strtotime($startDate . ' +' . (($week - 1) * 7) . ' days'));
-            $schedule   = self::buildDaySchedule($profile, 'base', $weeklyMins, false, false, $athleteId, $db);
+            $schedule   = self::buildDaySchedule($profile, 'base', $weeklyMins, false, false, $athleteId, $db, 'development_plan', $week, $isCutback);
             $maxLongRun = self::insertWeekWorkouts(
                 $planId, $athleteId, $weekStart, $endDate,
                 $schedule, 'base', $goalDist, $classification, 'development_plan',
@@ -212,7 +270,7 @@ class PlanGenerator
 
         for ($week = 1; $week <= $totalWeeks; $week++) {
             $weekStart  = date('Y-m-d', strtotime($startDate . ' +' . (($week - 1) * 7) . ' days'));
-            $schedule   = self::buildDaySchedule($profile, 'build', $weeklyMins, false, false, $athleteId, $db);
+            $schedule   = self::buildDaySchedule($profile, 'build', $weeklyMins, false, false, $athleteId, $db, 'maintenance_plan', $week, false);
             $maxLongRun = self::insertWeekWorkouts(
                 $planId, $athleteId, $weekStart, $endDate,
                 $schedule, 'build', $goalDist, $classification, 'maintenance_plan',
@@ -352,7 +410,8 @@ class PlanGenerator
      */
     private static function buildDaySchedule(
         array $profile, string $phase, int $weeklyMins,
-        bool $isRaceWeek, bool $isPreRaceWeek, int $athleteId, PDO $db
+        bool $isRaceWeek, bool $isPreRaceWeek, int $athleteId, PDO $db,
+        string $planType = 'development_plan', int $weekNumber = 1, bool $isCutback = false
     ): array {
         $schedule = array_fill(0, 7, 'rest');
         $mustOff  = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
@@ -432,8 +491,9 @@ class PlanGenerator
         $runDays = array_unique(array_merge($anchors, $addlDays));
         sort($runDays);
 
-        // Secondary quality: only with ≥5 training days, separated from primary and long
-        $hasSecondary = $numDays >= 5 && count($runDays) >= 4 && !$isRaceWeek;
+        // Secondary quality: driven by plan type / phase / days-per-week slot allocation
+        $allowedQualSlots = self::getQualitySlotCount($planType, $phase, $numDays, $weekNumber, $isCutback);
+        $hasSecondary     = $allowedQualSlots >= 2 && count($runDays) >= 4 && !$isRaceWeek;
         $secondaryDay = null;
         if ($hasSecondary && $workoutDay !== null) {
             foreach ($runDays as $d) {
@@ -486,10 +546,11 @@ class PlanGenerator
             }
         }
 
-        // Strides placement: mark day-before quality/race as easy_strides (up to 2/week)
+        // Strides placement: mark day-before quality/race as easy_strides
         // Skip if prev is the day after another quality (avoid day-after-workout rule)
+        $stridesMax   = self::settings()['strides_sessions_per_week_max'] ?? 2;
         $stridesCount = 0;
-        for ($d = 0; $d < 7 && $stridesCount < 2; $d++) {
+        for ($d = 0; $d < 7 && $stridesCount < $stridesMax; $d++) {
             if (!in_array($schedule[$d], ['quality_primary', 'quality_secondary', 'race'])) continue;
             $prev     = ($d - 1 + 7) % 7;
             $prevPrev = ($d - 2 + 7) % 7;
@@ -519,24 +580,29 @@ class PlanGenerator
         $qualCount = count(array_filter($schedule, fn($t) => in_array($t, ['quality_primary', 'quality_secondary'])));
         $easyCount = count(array_filter($schedule, fn($t) => in_array($t, ['easy', 'easy_strides'])));
 
+        $s = self::settings();
+
         // Volume allocation
-        $longMins = 0;
+        $longMins  = 0;
+        $longFloor = $s['long_run_absolute_floor_minutes'] ?? 60;
         if ($longCount > 0) {
-            $longTarget = max(60, (int)floor($weeklyMins * 0.28));
+            $longTarget = max($longFloor, (int)floor($weeklyMins * 0.28));
             $ceiling    = (int)round($maxLongRun * 1.15);
             $guardrail  = (int)round($weeklyMins * 0.35);
-            $longMins   = max(60, min($longTarget, $ceiling, $guardrail));
+            $longMins   = max($longFloor, min($longTarget, $ceiling, $guardrail));
             $maxLongRun = max($maxLongRun, $longMins);
         }
 
         // Quality: 20% of weekly, hard-capped at 30–40 min
         $qualMins = $qualCount > 0 ? max(30, min(40, (int)round($weeklyMins * 0.20))) : 0;
 
-        // Easy: distribute remainder across easy days
-        $easyMins = 30;
+        // Easy: distribute remainder, bounded by engine settings
+        $easyFloor = $s['easy_run_min_minutes'] ?? 20;
+        $easyCap   = $s['easy_run_max_minutes'] ?? 70;
+        $easyMins  = $easyFloor;
         if ($easyCount > 0) {
             $used     = $longMins * $longCount + $qualMins * $qualCount;
-            $easyMins = max(20, (int)floor(($weeklyMins - $used) / $easyCount));
+            $easyMins = max($easyFloor, min($easyCap, (int)floor(($weeklyMins - $used) / $easyCount)));
         }
 
         $insert = $db->prepare(
@@ -622,7 +688,7 @@ class PlanGenerator
 
     /**
      * Select, resolve, and return an archetype instance for a plan slot.
-     * Enforces 28-day hard-block and 10-day soft penalty anti-repeat rules.
+     * Enforces hard-block and soft-penalty windows from engine_settings.
      * Falls back to continuous_easy if all candidates are blocked.
      * Updates $antiRepeatHistory in place.
      */
@@ -640,12 +706,16 @@ class PlanGenerator
             );
         }
 
-        // Soft penalty: codes used within past 10 days
-        $cutoff10   = date('Y-m-d', strtotime($scheduledDate . ' -10 days'));
+        $s        = self::settings();
+        $hardDays = $s['same_instance_hard_block_days']    ?? 28;
+        $softDays = $s['same_archetype_soft_penalty_days'] ?? 10;
+
+        // Soft penalty: codes used within the soft-penalty window
+        $cutoffSoft = date('Y-m-d', strtotime($scheduledDate . " -{$softDays} days"));
         $penalized  = [];
         foreach ($antiRepeatHistory['codes'] as $code => $dates) {
             foreach ($dates as $dt) {
-                if ($dt >= $cutoff10) { $penalized[] = $code; break; }
+                if ($dt >= $cutoffSoft) { $penalized[] = $code; break; }
             }
         }
 
@@ -654,7 +724,7 @@ class PlanGenerator
 
         $excludeCodes = [];
         $result       = null;
-        $cutoff28     = date('Y-m-d', strtotime($scheduledDate . ' -28 days'));
+        $cutoffHard   = date('Y-m-d', strtotime($scheduledDate . " -{$hardDays} days"));
 
         for ($attempt = 0; $attempt < 4; $attempt++) {
             $candidate = $selector->selectForSlot(
@@ -667,11 +737,11 @@ class PlanGenerator
             // Pick variant and resolve derived parameters
             $candidate = self::addDerivedParams($candidate, $targetMinutes, $phase, $goalDistance, $classification);
 
-            // Check 28-day hard block on instance signature
-            $sig          = self::computeInstanceSignature($candidate);
-            $hardBlocked  = false;
+            // Check hard-block window on instance signature
+            $sig         = self::computeInstanceSignature($candidate);
+            $hardBlocked = false;
             foreach ($antiRepeatHistory['signatures'][$sig] ?? [] as $dt) {
-                if ($dt >= $cutoff28) { $hardBlocked = true; break; }
+                if ($dt >= $cutoffHard) { $hardBlocked = true; break; }
             }
 
             if (!$hardBlocked) {
@@ -906,13 +976,15 @@ class PlanGenerator
     }
 
     /**
-     * Pre-load the last 28 days of planned workout archetypes for anti-repeat checks.
+     * Pre-load the hard-block window of planned workout archetypes for anti-repeat checks.
+     * Window length comes from engine_settings same_instance_hard_block_days (default 28).
      * Returns: ['signatures' => [sig => [dates]], 'codes' => [code => [dates]]]
      */
     private static function loadAntiRepeatHistory(int $athleteId, PDO $db): array
     {
-        $history = ['signatures' => [], 'codes' => []];
-        $cutoff  = date('Y-m-d', strtotime('-28 days'));
+        $history  = ['signatures' => [], 'codes' => []];
+        $hardDays = self::settings()['same_instance_hard_block_days'] ?? 28;
+        $cutoff   = date('Y-m-d', strtotime("-{$hardDays} days"));
 
         try {
             $stmt = $db->prepare(
@@ -941,16 +1013,19 @@ class PlanGenerator
 
     private static function classifyAthlete(array $profile, string $distance): string
     {
-        $months = (int)($profile['months_at_current_volume'] ?? 0);
-        $weekly = (int)($profile['current_weekly_minutes'] ?? 0);
-        $dist   = self::normalizeDistance($distance);
+        $runsPerWeek = (int)($profile['training_days_per_week'] ?? 0);
+        $weekly      = (int)($profile['current_weekly_minutes'] ?? 0);
+        $longRun     = (int)($profile['longest_recent_run_mins'] ?? 0);
+        $dist        = self::normalizeDistance($distance);
 
         $thresholds = self::CLASSIFICATION[$dist] ?? self::CLASSIFICATION['5K'];
 
-        if ($months >= $thresholds['well_trained'][0] && $weekly >= $thresholds['well_trained'][1]) {
+        $wt = $thresholds['well_trained'];
+        if ($runsPerWeek >= $wt['runs_per_week'] && $weekly >= $wt['weekly_minutes'] && $longRun >= $wt['long_run_minutes']) {
             return 'well_trained';
         }
-        if ($months >= $thresholds['workable'][0] && $weekly >= $thresholds['workable'][1]) {
+        $wb = $thresholds['workable'];
+        if ($runsPerWeek >= $wb['runs_per_week'] && $weekly >= $wb['weekly_minutes'] && $longRun >= $wb['long_run_minutes']) {
             return 'workable';
         }
         return 'insufficient';
