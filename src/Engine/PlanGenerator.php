@@ -661,7 +661,13 @@ class PlanGenerator
             $params      = $instance['resolved_params'] ?? [];
             $structure   = self::resolveStructure($instance);
 
-            $workoutType     = self::SLOT_WORKOUT_TYPE[$slotType] ?? 'easy';
+            // Prefer the resolved variant's workout_type when it's more specific than the
+            // slot default — specifically, recovery_easy variant must store as 'recovery'
+            // even when it is selected as a fallback for a quality or easy slot.
+            $variantWorkoutType = $instance['resolved_variant']['workout_type'] ?? null;
+            $workoutType = ($variantWorkoutType === 'recovery')
+                ? 'recovery'
+                : (self::SLOT_WORKOUT_TYPE[$slotType] ?? 'easy');
             $intensityFactor = (float)($instance['generation']['intensity_factor'] ?? 0.5);
             $load            = round($targetMinutes * $intensityFactor, 2);
 
