@@ -824,15 +824,38 @@ class PlanGenerator
             );
         }
 
+        // Derive rep_distance_meters from quality_volume_meters/rep_count when not directly
+        // resolvable (e.g. equal_distance_repeats stores rep_distance as allowed_values only)
+        if (empty($params['rep_distance_meters']) && !empty($params['rep_count']) && !empty($params['quality_volume_meters'])) {
+            $params['rep_distance_meters'] = (int)round($params['quality_volume_meters'] / $params['rep_count'] / 10) * 10;
+        }
+
         // total_distance: quality volume in miles for distance-based workouts
         if (!isset($params['total_distance'])) {
             if (!empty($params['rep_count']) && !empty($params['rep_distance_meters'])) {
+                // Meter-based repeats (equal_distance_repeats)
                 $params['total_distance'] = round(
                     (int)$params['rep_count'] * (int)$params['rep_distance_meters'] / 1609.34, 1
                 );
+            } elseif (!empty($params['rep_count']) && !empty($params['rep_distance_miles'])) {
+                // Mile-based repeats (tempo_intervals)
+                $params['total_distance'] = round(
+                    (int)$params['rep_count'] * (float)$params['rep_distance_miles'], 1
+                );
             } elseif (!empty($params['quality_volume_meters'])) {
+                // Generic quality volume in meters (mixed_distance, short_speed, etc.)
                 $params['total_distance'] = round(
                     (int)$params['quality_volume_meters'] / 1609.34, 1
+                );
+            } elseif (!empty($params['continuous_work_minutes'])) {
+                // Continuous quality work time (continuous_progression_tempo)
+                $params['total_distance'] = self::estimateDistanceMiles(
+                    (int)$params['continuous_work_minutes'], $goalDistance, $classification
+                );
+            } elseif (!empty($display['show_time_range'])) {
+                // Last resort: estimate total distance from full workout duration
+                $params['total_distance'] = self::estimateDistanceMiles(
+                    $targetMinutes, $goalDistance, $classification
                 );
             }
         }
@@ -893,6 +916,34 @@ class PlanGenerator
         $upper = round($durationMinutes / $fastPace, 1);
 
         return "{$lower}–{$upper} miles";
+    }
+
+    /**
+     * Estimate total distance (miles) from a duration using the midpoint of the
+     * classification-based easy pace range. Used as a fallback when no explicit
+     * quality volume parameter is available.
+     */
+    private static function estimateDistanceMiles(
+        int $durationMinutes, string $goalDistance, string $classification
+    ): float {
+        $paceRanges = [
+            'well_trained' => [
+                '5K'      => [7.5,  10.5],
+                '10K'     => [8.0,  11.0],
+                'half'    => [8.5,  11.5],
+                'marathon'=> [9.0,  12.0],
+            ],
+            'workable' => [
+                '5K'      => [9.5,  13.5],
+                '10K'     => [10.0, 14.0],
+                'half'    => [10.5, 14.0],
+                'marathon'=> [11.0, 14.5],
+            ],
+        ];
+        $cls     = array_key_exists($classification, $paceRanges) ? $classification : 'workable';
+        $paces   = $paceRanges[$cls][$goalDistance] ?? $paceRanges[$cls]['5K'];
+        $avgPace = ($paces[0] + $paces[1]) / 2;
+        return round($durationMinutes / $avgPace, 1);
     }
 
     /**
