@@ -50,11 +50,12 @@ class PlanGenerator
         ],
     ];
 
-    // Maps schedule slot types to the workout_type column value stored in planned_workouts
+    // Fallback workout_type for slots that have no archetype (or whose metadata lacks workout_type).
+    // For archetype-based workouts, metadata.workout_type takes precedence.
     const SLOT_WORKOUT_TYPE = [
         'long_run'          => 'long',
-        'quality_primary'   => 'quality',
-        'quality_secondary' => 'quality',
+        'quality_primary'   => 'interval',
+        'quality_secondary' => 'interval',
         'easy'              => 'easy',
         'easy_strides'      => 'easy',
         'recovery'          => 'recovery',
@@ -660,7 +661,8 @@ class PlanGenerator
             $params      = $instance['resolved_params'] ?? [];
             $structure   = self::resolveStructure($instance);
 
-            $workoutType     = self::SLOT_WORKOUT_TYPE[$slotType] ?? 'easy';
+            $slotFallback    = self::SLOT_WORKOUT_TYPE[$slotType] ?? 'easy';
+            $workoutType     = $instance['metadata']['workout_type'] ?? $slotFallback;
             $intensityFactor = (float)($instance['generation']['intensity_factor'] ?? 0.5);
             $load            = round($targetMinutes * $intensityFactor, 2);
 

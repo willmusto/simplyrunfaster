@@ -236,7 +236,7 @@ class ArchetypeSelector
     private function decode(array $row): array
     {
         $jsonFields = [
-            'mapped_templates', 'selection', 'weights', 'generation',
+            'metadata', 'mapped_templates', 'selection', 'weights', 'generation',
             'variants', 'parameters', 'structure_template',
             'display', 'instance_signature', 'coach_notes',
         ];
