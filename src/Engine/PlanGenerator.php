@@ -668,7 +668,8 @@ class PlanGenerator
             $workoutType = ($variantWorkoutType === 'recovery')
                 ? 'recovery'
                 : (self::SLOT_WORKOUT_TYPE[$slotType] ?? 'easy');
-            $intensityFactor = (float)($instance['generation']['intensity_factor'] ?? 0.5);
+            $variantIF       = $instance['resolved_variant']['intensity_factor'] ?? null;
+            $intensityFactor = (float)($variantIF ?? $instance['generation']['intensity_factor'] ?? 0.5);
             $load            = round($targetMinutes * $intensityFactor, 2);
 
             $insert->execute([
@@ -729,14 +730,14 @@ class PlanGenerator
         // Effective slot type for selector (recovery maps to easy archetype slot)
         $selectorSlot = $slotType === 'recovery' ? 'easy' : $slotType;
 
-        $excludeCodes = [];
-        $result       = null;
-        $cutoffHard   = date('Y-m-d', strtotime($scheduledDate . " -{$hardDays} days"));
+        $excludeSigs = [];
+        $result      = null;
+        $cutoffHard  = date('Y-m-d', strtotime($scheduledDate . " -{$hardDays} days"));
 
         for ($attempt = 0; $attempt < 4; $attempt++) {
             $candidate = $selector->selectForSlot(
                 $selectorSlot, $phase, $goalDistance, $classification, $planType,
-                $constraints, $excludeCodes, array_unique($penalized)
+                $constraints, [], array_unique($penalized)
             );
 
             if ($candidate === null) break;
@@ -744,11 +745,14 @@ class PlanGenerator
             // Pick variant and resolve derived parameters
             $candidate = self::addDerivedParams($candidate, $targetMinutes, $phase, $goalDistance, $classification);
 
-            // Check hard-block window on instance signature
+            // Block by signature only — not by archetype code — so that other
+            // variants of the same archetype remain eligible in subsequent attempts.
             $sig         = self::computeInstanceSignature($candidate);
-            $hardBlocked = false;
-            foreach ($antiRepeatHistory['signatures'][$sig] ?? [] as $dt) {
-                if ($dt >= $cutoffHard) { $hardBlocked = true; break; }
+            $hardBlocked = in_array($sig, $excludeSigs, true);
+            if (!$hardBlocked) {
+                foreach ($antiRepeatHistory['signatures'][$sig] ?? [] as $dt) {
+                    if ($dt >= $cutoffHard) { $hardBlocked = true; break; }
+                }
             }
 
             if (!$hardBlocked) {
@@ -756,7 +760,7 @@ class PlanGenerator
                 break;
             }
 
-            $excludeCodes[] = $candidate['code'];
+            $excludeSigs[] = $sig;
         }
 
         // Final fallback: continuous_easy
@@ -1162,9 +1166,12 @@ class PlanGenerator
 
         try {
             $stmt = $db->prepare(
-                'SELECT archetype_code, instance_signature, scheduled_date
-                 FROM planned_workouts
-                 WHERE athlete_id = ? AND scheduled_date >= ? AND archetype_code IS NOT NULL'
+                'SELECT pw.archetype_code, pw.instance_signature, pw.scheduled_date
+                 FROM planned_workouts pw
+                 JOIN training_plans tp ON tp.id = pw.plan_id
+                 WHERE pw.athlete_id = ? AND pw.scheduled_date >= ?
+                   AND pw.archetype_code IS NOT NULL
+                   AND tp.status IN (\'pending_approval\', \'active\')'
             );
             $stmt->execute([$athleteId, $cutoff]);
 
