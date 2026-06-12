@@ -1,9 +1,4 @@
 <?php
-
-namespace SimplyRunFaster\Engine;
-
-use PDO;
-
 /**
  * Selects and resolves workout archetypes for plan generation.
  *
@@ -25,29 +20,24 @@ class ArchetypeSelector
 
     public function __construct(?PDO $db = null)
     {
-        $this->db = $db ?? \Database::get();
+        $this->db = $db ?? Database::get();
     }
 
-    // ----------------------------------------------------------------
-    // Public API
-    // ----------------------------------------------------------------
+    // ── Public API ────────────────────────────────────────────────────────────
 
     /**
      * Return a single archetype by its stable code slug, or null if not found.
-     *
-     * @return array|null Archetype row with all LONGTEXT fields decoded to PHP arrays.
+     * Returns both active and inactive archetypes (status check is caller's responsibility).
      */
     public function getByCode(string $code): ?array
     {
         if (!isset($this->cache[$code])) {
             $stmt = $this->db->prepare(
-                'SELECT * FROM workout_archetypes WHERE code = :code AND status = :status LIMIT 1'
+                'SELECT * FROM workout_archetypes WHERE code = :code LIMIT 1'
             );
-            $stmt->execute([':code' => $code, ':status' => 'active']);
+            $stmt->execute([':code' => $code]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$row) {
-                return null;
-            }
+            if (!$row) return null;
             $this->cache[$code] = $this->decode($row);
         }
         return $this->cache[$code];
@@ -62,10 +52,10 @@ class ArchetypeSelector
      * @param string $classification One of: well_trained, workable, insufficient
      * @param string $planType       One of: race_cycle, development_plan, maintenance_plan,
      *                               recovery_block, return_to_running
-     * @param array  $constraints    Keys used: track_access (yes|no|road_reps_ok),
-     *                               hill_access (bool), plyometric_clearance (bool),
-     *                               track_field_background (bool), excludes (string[])
-     * @return array|null            Resolved archetype, or null if nothing eligible.
+     * @param array  $constraints    Keys: track_access, hill_access, plyometric_clearance,
+     *                               track_field_background, excludes (string[])
+     * @param array  $excludeCodes   Archetype codes to hard-exclude (anti-repeat hard block)
+     * @param array  $penalizedCodes Archetype codes to soft-penalize (anti-repeat soft penalty, -5 pts)
      */
     public function selectForSlot(
         string $slotType,
@@ -73,71 +63,92 @@ class ArchetypeSelector
         string $goalDistance,
         string $classification,
         string $planType,
-        array  $constraints = []
+        array  $constraints    = [],
+        array  $excludeCodes   = [],
+        array  $penalizedCodes = []
     ): ?array {
-        $all      = $this->loadAll();
-        $eligible = [];
+        $eligible = $this->getEligible($slotType, $phase, $goalDistance, $classification, $planType, $constraints, $excludeCodes);
 
-        foreach ($all as $archetype) {
-            if ($this->isEligible($archetype, $slotType, $phase, $goalDistance, $classification, $planType, $constraints)) {
-                $eligible[] = $archetype;
-            }
-        }
+        if (empty($eligible)) return null;
 
-        if (empty($eligible)) {
-            return null;
-        }
-
-        $picked = $this->pickWeighted($eligible, $phase, $goalDistance, $classification, $planType);
-        if ($picked === null) {
-            return null;
-        }
+        $picked = $this->pickWeighted($eligible, $phase, $goalDistance, $classification, $planType, $penalizedCodes);
+        if ($picked === null) return null;
 
         return $this->resolveParameters($picked, $classification);
     }
 
     /**
-     * Weighted random pick from a set of eligible archetypes.
+     * Return all eligible archetypes for a slot context without picking one.
+     * Applies all eligibility rules + hard-exclude list.
+     */
+    public function getEligible(
+        string $slotType,
+        string $phase,
+        string $goalDistance,
+        string $classification,
+        string $planType,
+        array  $constraints  = [],
+        array  $excludeCodes = []
+    ): array {
+        $all      = $this->loadAll();
+        $eligible = [];
+
+        foreach ($all as $archetype) {
+            if (!empty($excludeCodes) && in_array($archetype['code'], $excludeCodes, true)) {
+                continue;
+            }
+            if ($archetype['status'] !== 'active') {
+                continue;
+            }
+            if ($this->isEligible($archetype, $slotType, $phase, $goalDistance, $classification, $planType, $constraints)) {
+                $eligible[] = $archetype;
+            }
+        }
+
+        return $eligible;
+    }
+
+    /**
+     * Weighted random pick from eligible archetypes.
      *
-     * Weights are drawn from each archetype's `weights` map for the given
-     * dimensions and summed.  Zero-weight archetypes are excluded.
+     * Weights are summed across phase, goal_distance, classification, and plan_type
+     * dimensions. Zero-weight and penalized-to-zero archetypes are excluded.
      *
-     * @param array  $eligible       Decoded archetype rows.
-     * @param string $phase
-     * @param string $goalDistance
-     * @param string $classification
-     * @param string $planType
-     * @return array|null
+     * @param array  $penalizedCodes Codes that receive a -5 point deduction before pick.
      */
     public function pickWeighted(
         array  $eligible,
         string $phase          = '',
         string $goalDistance   = '',
         string $classification = '',
-        string $planType       = ''
+        string $planType       = '',
+        array  $penalizedCodes = []
     ): ?array {
         $scored = [];
         $total  = 0;
 
         foreach ($eligible as $archetype) {
-            $w = $archetype['weights'] ?? [];
+            $w     = $archetype['weights'] ?? [];
             $score = 0;
-            $score += (int) ($w['phase'][$phase] ?? 0);
-            $score += (int) ($w['goal_distance'][$goalDistance] ?? 0);
-            $score += (int) ($w['classification'][$classification] ?? 0);
-            $score += (int) ($w['plan_type'][$planType] ?? 0);
+            $score += (int)($w['phase'][$phase] ?? 0);
+            $score += (int)($w['goal_distance'][$goalDistance] ?? 0);
+            $score += (int)($w['classification'][$classification] ?? 0);
+            $score += (int)($w['plan_type'][$planType] ?? 0);
+
+            // Soft penalty: same archetype used recently
+            if (in_array($archetype['code'], $penalizedCodes, true)) {
+                $score = max(0, $score - 5);
+            }
 
             if ($score > 0) {
-                $scored[]  = ['archetype' => $archetype, 'score' => $score];
-                $total    += $score;
+                $scored[] = ['archetype' => $archetype, 'score' => $score];
+                $total   += $score;
             }
         }
 
-        if (empty($scored) || $total === 0) {
-            return null;
-        }
+        if (empty($scored) || $total === 0) return null;
 
-        $rand = mt_rand(1, $total);
+        $rand       = mt_rand(1, $total);
         $cumulative = 0;
         foreach ($scored as $entry) {
             $cumulative += $entry['score'];
@@ -145,20 +156,14 @@ class ArchetypeSelector
                 return $entry['archetype'];
             }
         }
-
         return $scored[array_key_last($scored)]['archetype'];
     }
 
     /**
-     * Resolve the `parameters` spec into concrete values for a given classification.
+     * Resolve the `parameters` spec into concrete values for a classification.
      *
-     * Returns the archetype array with a `resolved_params` key added, containing
-     * one concrete value per parameter (picked from the midpoint of the applicable
-     * classification range, or the default if no range is defined).
-     *
-     * @param array  $archetype     Decoded archetype row (from getByCode / selectForSlot).
-     * @param string $classification well_trained | workable | insufficient
-     * @return array Archetype with `resolved_params` key populated.
+     * Adds `resolved_params` key with one concrete value per parameter,
+     * taken from the midpoint of the classification range.
      */
     public function resolveParameters(array $archetype, string $classification): array
     {
@@ -173,18 +178,27 @@ class ArchetypeSelector
 
             $type = $spec['type'] ?? 'integer';
 
-            // If a classification-keyed range exists, use the midpoint.
             if (isset($spec[$classification]) && is_array($spec[$classification])) {
                 $range = $spec[$classification];
                 if (isset($range['min'], $range['max'])) {
                     $resolved[$key] = $type === 'float'
                         ? round(($range['min'] + $range['max']) / 2, 2)
-                        : (int) round(($range['min'] + $range['max']) / 2);
+                        : (int)round(($range['min'] + $range['max']) / 2);
                     continue;
                 }
             }
 
-            // Fall back to 'default', then 'min', then null.
+            // Fall back to 'well_trained' range (for archetypes that only define well_trained)
+            if (isset($spec['well_trained']) && is_array($spec['well_trained'])) {
+                $range = $spec['well_trained'];
+                if (isset($range['min'], $range['max'])) {
+                    $resolved[$key] = $type === 'float'
+                        ? round(($range['min'] + $range['max']) / 2, 2)
+                        : (int)round(($range['min'] + $range['max']) / 2);
+                    continue;
+                }
+            }
+
             if (isset($spec['default'])) {
                 $resolved[$key] = $spec['default'];
             } elseif (isset($spec['min'])) {
@@ -198,18 +212,16 @@ class ArchetypeSelector
         return $archetype;
     }
 
-    // ----------------------------------------------------------------
-    // Private helpers
-    // ----------------------------------------------------------------
+    // ── Private helpers ───────────────────────────────────────────────────────
 
-    /** Load all active archetypes, decoding LONGTEXT fields. */
+    /** Load all archetypes into code-keyed cache. */
     private function loadAll(): array
     {
         if (!empty($this->cache)) {
             return array_values($this->cache);
         }
 
-        $stmt = $this->db->query('SELECT * FROM workout_archetypes WHERE status = \'active\'');
+        $stmt = $this->db->query('SELECT * FROM workout_archetypes');
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($rows as $row) {
@@ -238,10 +250,6 @@ class ArchetypeSelector
 
     /**
      * Test whether an archetype is eligible for the given slot context.
-     *
-     * Checks selection.slot_types, phases, plan_types, goal_distances,
-     * min_classification, track_requirement, coach_clearance_required,
-     * and the requires/excludes arrays against $constraints.
      */
     private function isEligible(
         array  $archetype,
@@ -254,56 +262,34 @@ class ArchetypeSelector
     ): bool {
         $s = $archetype['selection'] ?? [];
 
-        // Slot type must be listed.
-        if (!in_array($slotType, $s['slot_types'] ?? [], true)) {
-            return false;
-        }
-        // Phase must be listed.
-        if (!in_array($phase, $s['phases'] ?? [], true)) {
-            return false;
-        }
-        // Plan type must be listed.
-        if (!in_array($planType, $s['plan_types'] ?? [], true)) {
-            return false;
-        }
-        // Goal distance must be listed.
-        if (!in_array($goalDistance, $s['goal_distances'] ?? [], true)) {
-            return false;
-        }
+        if (!in_array($slotType,    $s['slot_types']     ?? [], true)) return false;
+        if (!in_array($phase,       $s['phases']         ?? [], true)) return false;
+        if (!in_array($planType,    $s['plan_types']     ?? [], true)) return false;
+        if (!in_array($goalDistance,$s['goal_distances'] ?? [], true)) return false;
 
-        // Classification floor.
+        // Classification floor
         $classRank = ['insufficient' => 0, 'workable' => 1, 'well_trained' => 2];
         $minRank   = $classRank[$s['min_classification'] ?? 'workable'] ?? 1;
         $curRank   = $classRank[$classification] ?? 0;
-        if ($curRank < $minRank) {
-            return false;
-        }
+        if ($curRank < $minRank) return false;
 
-        // Coach clearance.
-        if (!empty($s['coach_clearance_required'])) {
-            return false; // engine never auto-selects clearance-required archetypes
-        }
+        // Coach clearance — never auto-selected by engine
+        if (!empty($s['coach_clearance_required'])) return false;
 
-        // Track requirement.
+        // Track requirement
         $trackReq    = $s['track_requirement'] ?? 'none';
         $trackAccess = $constraints['track_access'] ?? 'no';
-        if ($trackReq === 'required' && $trackAccess === 'no') {
-            return false;
-        }
+        if ($trackReq === 'required' && $trackAccess === 'no') return false;
 
-        // requires[] — each entry is a flag key that must be truthy in $constraints.
+        // requires[] — flags that must be truthy in $constraints
         foreach ($s['requires'] ?? [] as $req) {
-            if (empty($constraints[$req])) {
-                return false;
-            }
+            if (empty($constraints[$req])) return false;
         }
 
-        // excludes[] — each entry is a context tag that disqualifies the archetype.
+        // excludes[] — context tags that disqualify the archetype
         $contextTags = $constraints['excludes'] ?? [];
         foreach ($s['excludes'] ?? [] as $excl) {
-            if (in_array($excl, $contextTags, true)) {
-                return false;
-            }
+            if (in_array($excl, $contextTags, true)) return false;
         }
 
         return true;

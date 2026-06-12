@@ -19,6 +19,9 @@ require_once __DIR__ . '/src/Controllers/OnboardingController.php';
 require_once __DIR__ . '/src/Controllers/AthleteController.php';
 require_once __DIR__ . '/src/Controllers/CoachController.php';
 require_once __DIR__ . '/src/Engine/TrainingLoad.php';
+require_once __DIR__ . '/src/Engine/RecoveryModel.php';
+require_once __DIR__ . '/src/Engine/EffortMapper.php';
+require_once __DIR__ . '/src/Engine/ArchetypeSelector.php';
 require_once __DIR__ . '/src/Engine/PlanGenerator.php';
 
 // Start session
