@@ -1,5 +1,5 @@
-/**
- * SimplyRunFaster — Service Worker
+﻿/**
+ * SimplyRunFaster â€” Service Worker
  *
  * Cache strategy:
  *   - App shell (CSS, JS, icons): cache-first
@@ -7,7 +7,7 @@
  *   - Everything else: network-first, fallback to offline page
  */
 
-// ── IMPORTANT: bump CACHE_NAME on every deploy ───────────────
+// â”€â”€ IMPORTANT: bump CACHE_NAME on every deploy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // The activate event deletes all caches whose name differs from
 // CACHE_NAME. If this string never changes, stale CSS/HTML stays
 // cached indefinitely. Update to today's date (YYYYMMDD) before
@@ -25,7 +25,7 @@ const PRECACHE = [
     '/manifest.json',
 ];
 
-// ── Install ───────────────────────────────────────────────────
+// â”€â”€ Install â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 self.addEventListener('install', function (event) {
     event.waitUntil(
         caches.open(CACHE_NAME).then(function (cache) {
@@ -36,7 +36,7 @@ self.addEventListener('install', function (event) {
     );
 });
 
-// ── Activate ──────────────────────────────────────────────────
+// â”€â”€ Activate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 self.addEventListener('activate', function (event) {
     event.waitUntil(
         caches.keys().then(function (keys) {
@@ -50,7 +50,7 @@ self.addEventListener('activate', function (event) {
     );
 });
 
-// ── Fetch ─────────────────────────────────────────────────────
+// â”€â”€ Fetch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 self.addEventListener('fetch', function (event) {
     const req = event.request;
 
@@ -73,7 +73,7 @@ self.addEventListener('fetch', function (event) {
     event.respondWith(networkFirst(req, OFFLINE_URL));
 });
 
-// ── Push Notifications ────────────────────────────────────────
+// â”€â”€ Push Notifications â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 self.addEventListener('push', function (event) {
     if (!event.data) return;
 
@@ -114,7 +114,7 @@ self.addEventListener('notificationclick', function (event) {
     );
 });
 
-// ── Helpers ───────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function isStaticAsset(url) {
     return url.includes('/assets/') || url.endsWith('.css') || url.endsWith('.js')
         || url.endsWith('.png') || url.endsWith('.svg') || url.endsWith('.ico')
@@ -159,3 +159,4 @@ async function networkFirst(req, fallbackUrl) {
         return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
     }
 }
+

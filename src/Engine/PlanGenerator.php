@@ -791,18 +791,20 @@ class PlanGenerator
 
     /**
      * Post-resolution: override duration with volume target, pick a variant,
-     * and add derived parameters (mapped_effort, main_run_duration_minutes, etc.).
+     * and add derived parameters (mapped_effort, main_run_duration_minutes,
+     * distance_range, total_distance, distance, time_range, etc.).
      */
     private static function addDerivedParams(
         array $archetype, int $targetMinutes,
         string $phase, string $goalDistance, string $classification
     ): array {
-        $params = $archetype['resolved_params'] ?? [];
+        $params  = $archetype['resolved_params'] ?? [];
+        $display = $archetype['display'] ?? [];
 
         // Volume-derived duration always overrides the archetype midpoint
         $params['duration_minutes'] = $targetMinutes;
 
-        // Derived params for specific archetypes
+        // easy_with_strides: main run duration excludes the stride window
         if ($archetype['code'] === 'easy_with_strides') {
             $strideWindow = (int)($params['stride_window_minutes'] ?? 10);
             $params['main_run_duration_minutes'] = max(15, $targetMinutes - $strideWindow);
@@ -814,6 +816,42 @@ class PlanGenerator
             $params['mapped_effort'] = $mapped;
         }
 
+        // distance_range: "X.X–X.X miles" estimate for time-based workouts
+        if (!empty($display['show_distance_range'])) {
+            $params['distance_range'] = self::computeDistanceRange(
+                $targetMinutes, $goalDistance, $classification
+            );
+        }
+
+        // total_distance: quality volume in miles for distance-based workouts
+        if (!isset($params['total_distance'])) {
+            if (!empty($params['rep_count']) && !empty($params['rep_distance_meters'])) {
+                $params['total_distance'] = round(
+                    (int)$params['rep_count'] * (int)$params['rep_distance_meters'] / 1609.34, 1
+                );
+            } elseif (!empty($params['quality_volume_meters'])) {
+                $params['total_distance'] = round(
+                    (int)$params['quality_volume_meters'] / 1609.34, 1
+                );
+            }
+        }
+
+        // distance: single distance value used by goal_pace and similar archetypes
+        if (!isset($params['distance'])) {
+            if (isset($params['total_distance'])) {
+                $params['distance'] = $params['total_distance'];
+            } elseif (!empty($params['quality_volume_meters'])) {
+                $params['distance'] = round((int)$params['quality_volume_meters'] / 1609.34, 1);
+            }
+        }
+
+        // time_range: "X–X min" estimate for the quality volume segment
+        if (!empty($display['show_time_range']) && isset($params['total_distance'])) {
+            $params['time_range'] = self::computeTimeRange(
+                (float)$params['total_distance'], $goalDistance, $classification
+            );
+        }
+
         // Pick a variant if not already set
         if (!isset($archetype['resolved_variant'])) {
             $archetype['resolved_variant'] = self::pickVariant($archetype);
@@ -821,6 +859,72 @@ class PlanGenerator
 
         $archetype['resolved_params'] = $params;
         return $archetype;
+    }
+
+    /**
+     * Compute a "X.X–X.X miles" estimate for a time-based workout.
+     * Uses classification- and goal-distance-based easy pace ranges.
+     */
+    private static function computeDistanceRange(
+        int $durationMinutes, string $goalDistance, string $classification
+    ): string {
+        // [fast_pace_min_per_mile, slow_pace_min_per_mile]
+        $paceRanges = [
+            'well_trained' => [
+                '5K'      => [7.5,  10.5],
+                '10K'     => [8.0,  11.0],
+                'half'    => [8.5,  11.5],
+                'marathon'=> [9.0,  12.0],
+            ],
+            'workable' => [
+                '5K'      => [9.5,  13.5],
+                '10K'     => [10.0, 14.0],
+                'half'    => [10.5, 14.0],
+                'marathon'=> [11.0, 14.5],
+            ],
+        ];
+
+        $cls   = array_key_exists($classification, $paceRanges) ? $classification : 'workable';
+        $paces = $paceRanges[$cls][$goalDistance] ?? $paceRanges[$cls]['5K'];
+
+        [$fastPace, $slowPace] = $paces;
+        $lower = round($durationMinutes / $slowPace, 1);
+        $upper = round($durationMinutes / $fastPace, 1);
+
+        return "{$lower}–{$upper} miles";
+    }
+
+    /**
+     * Compute an "X–X min" estimate for a given quality volume in miles.
+     * Uses classification- and goal-distance-based interval effort pace ranges.
+     */
+    private static function computeTimeRange(
+        float $totalDistanceMiles, string $goalDistance, string $classification
+    ): string {
+        // [fast_pace_min_per_mile, slow_pace_min_per_mile] for interval/threshold efforts
+        $paceRanges = [
+            'well_trained' => [
+                '5K'      => [5.5,  7.5],
+                '10K'     => [6.0,  8.0],
+                'half'    => [6.5,  8.5],
+                'marathon'=> [7.0,  9.0],
+            ],
+            'workable' => [
+                '5K'      => [7.5,  10.5],
+                '10K'     => [8.0,  11.0],
+                'half'    => [8.5,  12.0],
+                'marathon'=> [9.5,  13.0],
+            ],
+        ];
+
+        $cls   = array_key_exists($classification, $paceRanges) ? $classification : 'workable';
+        $paces = $paceRanges[$cls][$goalDistance] ?? $paceRanges[$cls]['5K'];
+
+        [$fastPace, $slowPace] = $paces;
+        $lower = (int)round($totalDistanceMiles * $fastPace);
+        $upper = (int)round($totalDistanceMiles * $slowPace);
+
+        return "{$lower}–{$upper} min";
     }
 
     /** Pick a random variant from the archetype's variants array. */
@@ -877,7 +981,7 @@ class PlanGenerator
 
         return preg_replace_callback('/\{\{(\w+)\}\}/', function ($m) use ($tokens) {
             $key = $m[1];
-            if (!array_key_exists($key, $tokens)) return '{{' . $key . '}}';
+            if (!array_key_exists($key, $tokens)) return '';
             $v = $tokens[$key];
             return is_array($v) ? implode(', ', $v) : (string)$v;
         }, $template);
