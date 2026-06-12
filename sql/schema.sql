@@ -1,5 +1,5 @@
 -- SimplyRunFaster Database Schema
--- Milestone 1 — Core Data Foundation
+-- Milestone 1 + Migration 002 (Archetype Engine)
 -- MariaDB 5.3+ / MySQL 5.5+ compatible
 -- Character set: utf8 (utf8 not available on MariaDB 5.3)
 
@@ -116,8 +116,12 @@ CREATE TABLE IF NOT EXISTS `athlete_profiles` (
     `pace_zones_hidden_reason`  TEXT DEFAULT NULL COMMENT 'internal coach note',
     -- Peak volume ceiling (engine uses this — never exceeds)
     `peak_volume_ceiling_mins`  INT DEFAULT NULL COMMENT 'max weekly minutes; engine-derived, coach-adjustable',
+    -- Terrain access and classification (engine reads these)
+    `track_field_background`    TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Has track or field athletics background; auto-grants plyometric_clearance',
+    `hill_access`               TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'Has access to hilly terrain; required for hill archetypes',
+    `base_classification`       ENUM('well_trained','workable','insufficient') DEFAULT NULL COMMENT 'Cached engine classification (recomputed on profile update or coach override)',
     -- Coach clearances
-    `coach_clearance_bounding`  TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'cleared for WL-013 hill bounding',
+    `plyometric_clearance`      TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Cleared for plyometric/bounding workouts; auto-set if track_field_background=1',
     `medical_clearance_confirmed` TINYINT(1) NOT NULL DEFAULT 0,
     `medical_clearance_at`      DATETIME DEFAULT NULL,
     -- Return-to-running
@@ -206,7 +210,7 @@ CREATE TABLE IF NOT EXISTS `workout_library` (
     `library_code`              VARCHAR(10) DEFAULT NULL COMMENT 'e.g. WL-001',
     `name`                      VARCHAR(255) NOT NULL,
     `athlete_facing_name`       VARCHAR(255) DEFAULT NULL,
-    `workout_type`              ENUM('easy','long','tempo','interval','hill','fartlek','race_pace','recovery','rest','cross_train') NOT NULL,
+    `workout_type`              ENUM('easy','long','tempo','interval','hill','fartlek','race_pace','recovery','rest','cross_train','speed','plyometric') NOT NULL,
     `phase_tags`                LONGTEXT DEFAULT NULL COMMENT 'array: base, build, peak, taper',
     `distance_tags`             LONGTEXT DEFAULT NULL COMMENT 'array: 5K, 10K, half, marathon',
     `prescription_type`         ENUM('time','distance','count') NOT NULL DEFAULT 'time',
@@ -258,8 +262,10 @@ CREATE TABLE IF NOT EXISTS `planned_workouts` (
     `plan_id`                   INT UNSIGNED NOT NULL,
     `athlete_id`                INT UNSIGNED NOT NULL COMMENT 'denormalized for query speed',
     `scheduled_date`            DATE NOT NULL,
-    `workout_type`              ENUM('easy','long','tempo','interval','hill','fartlek','race_pace','recovery','rest','cross_train') NOT NULL,
-    `workout_template_id`       INT UNSIGNED DEFAULT NULL COMMENT 'links to workout_library',
+    `workout_type`              ENUM('easy','long','tempo','interval','hill','fartlek','race_pace','recovery','rest','cross_train','speed','plyometric') NOT NULL,
+    `archetype_code`            VARCHAR(60) DEFAULT NULL COMMENT 'References workout_archetypes.code',
+    `archetype_variant`         VARCHAR(60) DEFAULT NULL COMMENT 'Variant code selected at generation time',
+    `archetype_params`          LONGTEXT    DEFAULT NULL COMMENT 'JSON: resolved parameters (rep_count, duration, effort, etc.)',
     `description`               TEXT COMMENT 'human-readable instructions',
     `target_distance`           FLOAT DEFAULT NULL COMMENT 'miles or km',
     `target_duration`           INT DEFAULT NULL COMMENT 'minutes',
@@ -284,7 +290,8 @@ CREATE TABLE IF NOT EXISTS `planned_workouts` (
     PRIMARY KEY (`id`),
     KEY `idx_pw_plan` (`plan_id`),
     KEY `idx_pw_athlete_date` (`athlete_id`, `scheduled_date`),
-    KEY `idx_pw_visible` (`athlete_id`, `visible_to_athlete`)
+    KEY `idx_pw_visible` (`athlete_id`, `visible_to_athlete`),
+    KEY `idx_pw_archetype` (`archetype_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
@@ -511,6 +518,55 @@ CREATE TABLE IF NOT EXISTS `password_reset_tokens` (
     UNIQUE KEY `uq_reset_token` (`token`),
     KEY `idx_reset_user` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+-- ============================================================
+-- WORKOUT ARCHETYPES (Migration 002)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `workout_archetypes` (
+    `id`                 INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `code`               VARCHAR(60)  NOT NULL COMMENT 'stable slug, e.g. continuous_easy',
+    `version`            TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    `status`             ENUM('active','inactive','draft') NOT NULL DEFAULT 'active',
+
+    -- Core identity
+    `name`               VARCHAR(255) NOT NULL,
+    `workout_type`       ENUM(
+                             'easy','long','tempo','interval','hill','fartlek',
+                             'race_pace','recovery','rest','cross_train',
+                             'speed','plyometric'
+                         ) NOT NULL,
+    `mapped_templates`   LONGTEXT DEFAULT NULL COMMENT 'JSON array of WL-xxx codes',
+    `description`        TEXT DEFAULT NULL,
+
+    -- Engine selection (all stored as JSON objects)
+    `selection`          LONGTEXT NOT NULL COMMENT 'JSON: slot_types, phases, plan_types, goal_distances, min_classification, track_requirement, coach_clearance_required, requires, excludes',
+    `weights`            LONGTEXT NOT NULL COMMENT 'JSON: phase/goal_distance/classification/plan_type weight maps (0-10)',
+    `generation`         LONGTEXT NOT NULL COMMENT 'JSON: prescription_model, duration_source, progression_model, recovery_model, intensity_factor',
+
+    -- Template definition (JSON objects)
+    `variants`           LONGTEXT DEFAULT NULL COMMENT 'JSON array of {code, name, ...} variant objects',
+    `parameters`         LONGTEXT DEFAULT NULL COMMENT 'JSON: parameter definitions with workable/well_trained ranges',
+    `structure_template` LONGTEXT DEFAULT NULL COMMENT 'JSON: segment structure template with {{token}} placeholders',
+    `display`            LONGTEXT DEFAULT NULL COMMENT 'JSON: lead_with, title_template, summary_template, description_template',
+    `instance_signature` LONGTEXT DEFAULT NULL COMMENT 'JSON: field list used to identify a unique generated instance',
+    `coach_notes`        LONGTEXT DEFAULT NULL COMMENT 'JSON: intended_use string, special_rules array',
+
+    -- Ownership / visibility
+    `created_by`         INT UNSIGNED DEFAULT NULL COMMENT 'coach user_id; NULL = system archetype',
+    `platform_wide`      TINYINT(1)   NOT NULL DEFAULT 1 COMMENT 'system archetypes always platform-wide; coach-created default 0',
+    `created_at`         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`         DATETIME  DEFAULT NULL,
+
+    PRIMARY KEY (`id`),
+    UNIQUE KEY  `uq_archetype_code`       (`code`),
+    KEY         `idx_archetype_status`    (`status`),
+    KEY         `idx_archetype_type`      (`workout_type`),
+    KEY         `idx_archetype_created_by`(`created_by`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+-- After fresh install, seed archetypes with:
+--   php scripts/seed_archetypes.php
 
 -- ============================================================
 -- SEED: WORKOUT LIBRARY (23 initial templates)
