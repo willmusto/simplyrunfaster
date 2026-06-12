@@ -39,8 +39,8 @@ foreach ($flags as $f) {
                         <?= h($flag['flag_type']) ?>
                     </span>
                 </div>
-                <?php if ($flag['flag_message']): ?>
-                <p class="body-text" style="margin:0 0 8px;"><?= h($flag['flag_message']) ?></p>
+                <?php if ($flag['message']): ?>
+                <p class="body-text" style="margin:0 0 8px;"><?= h($flag['message']) ?></p>
                 <?php endif; ?>
                 <div style="font-size:11px;color:var(--text-muted);">
                     Raised <?= date('M j, Y', strtotime($flag['created_at'])) ?>

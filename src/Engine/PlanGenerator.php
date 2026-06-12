@@ -1283,6 +1283,12 @@ class PlanGenerator
     private static function raiseFlag(
         int $athleteId, string $flagType, string $severity, string $message, PDO $db
     ): void {
+        $check = $db->prepare(
+            'SELECT id FROM engine_flags WHERE athlete_id = ? AND flag_type = ? AND status = "open" LIMIT 1'
+        );
+        $check->execute([$athleteId, $flagType]);
+        if ($check->fetch()) return;
+
         $db->prepare(
             'INSERT INTO engine_flags
              (athlete_id, flag_type, severity, flag_date, message, status, created_at)

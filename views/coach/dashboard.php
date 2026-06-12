@@ -25,8 +25,8 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
         </div>
         <div class="roster-row-body">
             <span style="font-size:13px;color:var(--text-secondary);"><?= h($flag['flag_type']) ?></span>
-            <?php if ($flag['flag_message']): ?>
-            <p class="body-text" style="margin:4px 0 0;"><?= h($flag['flag_message']) ?></p>
+            <?php if ($flag['message']): ?>
+            <p class="body-text" style="margin:4px 0 0;"><?= h($flag['message']) ?></p>
             <?php endif; ?>
         </div>
         <div style="display:flex;gap:8px;margin-top:10px;">
@@ -50,8 +50,8 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
         </div>
         <div class="roster-row-body">
             <span style="font-size:13px;color:var(--text-secondary);"><?= h($flag['flag_type']) ?></span>
-            <?php if ($flag['flag_message']): ?>
-            <p class="body-text" style="margin:4px 0 0;"><?= h($flag['flag_message']) ?></p>
+            <?php if ($flag['message']): ?>
+            <p class="body-text" style="margin:4px 0 0;"><?= h($flag['message']) ?></p>
             <?php endif; ?>
         </div>
         <div style="display:flex;gap:8px;margin-top:10px;">
