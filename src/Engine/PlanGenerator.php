@@ -670,7 +670,11 @@ class PlanGenerator
                 : (self::SLOT_WORKOUT_TYPE[$slotType] ?? 'easy');
             $variantIF       = $instance['resolved_variant']['intensity_factor'] ?? null;
             $intensityFactor = (float)($variantIF ?? $instance['generation']['intensity_factor'] ?? 0.5);
-            $load            = round($targetMinutes * $intensityFactor, 2);
+            // Use actual sum-of-parts (warmup + main + cooldown) as the stored duration so
+            // target_duration always matches the described session structure. Falls back to
+            // the slot allocation for continuous archetypes where no breakdown exists.
+            $storedDuration  = self::computeActualDuration($instance) ?? $targetMinutes;
+            $load            = round($storedDuration * $intensityFactor, 2);
 
             $insert->execute([
                 $planId, $athleteId, $date, $workoutType,
@@ -678,7 +682,7 @@ class PlanGenerator
                 $variantCode,
                 json_encode($params),
                 $instructions ?: null,
-                $targetMinutes, $load,
+                $storedDuration, $load,
                 $instance['id'] ?? null,
                 $instance['version'] ?? null,
                 $sig ?: null,
@@ -804,6 +808,9 @@ class PlanGenerator
      * Post-resolution: override duration with volume target, pick a variant,
      * and add derived parameters (mapped_effort, main_run_duration_minutes,
      * distance_range, total_distance, distance, time_range, etc.).
+     *
+     * Order of operations matters: fit-to-slot capping must run before total_distance
+     * and distance_range so those values reflect capped rep counts.
      */
     private static function addDerivedParams(
         array $archetype, int $targetMinutes,
@@ -827,23 +834,85 @@ class PlanGenerator
             $params['mapped_effort'] = $mapped;
         }
 
-        // distance_range: "X.X–X.X miles" estimate for time-based workouts.
-        // For structured archetypes with warmup/cooldown, hill and plyometric main sets
-        // cover less distance per minute than flat easy running — scale accordingly.
-        if (!empty($display['show_distance_range'])) {
-            $warmup   = (int)($params['warmup_minutes'] ?? 0);
-            $cooldown = (int)($params['cooldown_minutes'] ?? 0);
-            if ($warmup + $cooldown > 0) {
-                $mainMins   = max(0, $targetMinutes - $warmup - $cooldown);
-                $hillCodes  = ['sustained_hill_repeats', 'hill_sprints', 'plyometric_hill_circuits'];
-                $mainFactor = in_array($archetype['code'], $hillCodes, true) ? 0.6 : 1.0;
-                $effectiveMins = $warmup + $cooldown + (int)round($mainMins * $mainFactor);
-            } else {
-                $effectiveMins = $targetMinutes;
+        // structured_fartlek_ladder: pick variant early to derive the correct work-interval
+        // pattern, then format it as a human-readable sequence for description templates.
+        if ($archetype['code'] === 'structured_fartlek_ladder' && empty($params['work_intervals_seconds'])) {
+            if (!isset($archetype['resolved_variant'])) {
+                $archetype['resolved_variant'] = self::pickVariant($archetype);
             }
-            $params['distance_range'] = self::computeDistanceRange(
-                $effectiveMins, $goalDistance, $classification
-            );
+            $variantCode = $archetype['resolved_variant']['code'] ?? 'descending';
+            $patternMap  = [
+                'descending'       => [90, 60, 30],
+                'ascending'        => [60, 120, 180, 240],
+                'symmetric'        => [60, 120, 180, 120, 60],
+                'sharp_descending' => [60, 30, 15],
+            ];
+            $pattern = $patternMap[$variantCode] ?? [90, 60, 30];
+            $params['work_intervals_seconds'] = $pattern;
+            $allWholeMin = max($pattern) >= 60
+                && array_sum(array_map(fn($s) => $s % 60, $pattern)) === 0;
+            $params['fartlek_ladder_sequence'] = $allWholeMin
+                ? implode('–', array_map(fn($s) => $s / 60, $pattern)) . ' min'
+                : implode('–', $pattern) . ' sec';
+            // Cap round_count so warmup + (rounds × 2 × interval-sum) + cooldown ≤ targetMinutes
+            $warmupMins   = (int)($params['warmup_minutes']   ?? 0);
+            $cooldownMins = (int)($params['cooldown_minutes'] ?? 0);
+            $avail        = max(0, $targetMinutes - $warmupMins - $cooldownMins);
+            $roundSec     = 2 * array_sum($pattern); // work + equal recovery
+            if ($roundSec > 0) {
+                $maxRounds = max(1, (int)floor($avail * 60 / $roundSec));
+                $params['round_count'] = min((int)($params['round_count'] ?? 1), $maxRounds);
+            }
+        }
+
+        // Pick a variant if not already set (must happen before fit-to-slot capping
+        // so the variant is available, though capping below is param-driven not variant-driven)
+        if (!isset($archetype['resolved_variant'])) {
+            $archetype['resolved_variant'] = self::pickVariant($archetype);
+        }
+
+        // Fit-to-slot: cap the scalable dimension so warmup + main + cooldown ≤ targetMinutes.
+        // Prevents classification midpoints from producing sessions that far exceed the
+        // quality slot's volume allocation. Must run before total_distance and distance_range.
+        $warmupMins   = (int)($params['warmup_minutes']   ?? 0);
+        $cooldownMins = (int)($params['cooldown_minutes'] ?? 0);
+        $available    = max(0, $targetMinutes - $warmupMins - $cooldownMins);
+
+        switch ($archetype['code']) {
+            case 'tempo_intervals':
+                if (!empty($params['rep_duration_minutes']) && (float)$params['rep_duration_minutes'] > 0) {
+                    $maxReps = max(1, (int)floor($available / (float)$params['rep_duration_minutes']));
+                    $params['rep_count'] = min((int)($params['rep_count'] ?? 1), $maxReps);
+                }
+                break;
+            case 'high_volume_time_intervals':
+                $repSec = (int)($params['work_duration_seconds'] ?? 0) + (int)($params['recovery_duration_seconds'] ?? 0);
+                if ($repSec > 0) {
+                    $maxReps = max(1, (int)floor($available * 60 / $repSec));
+                    $params['rep_count'] = min((int)($params['rep_count'] ?? 1), $maxReps);
+                }
+                break;
+            case 'sustained_hill_repeats':
+                $repSec = (int)($params['rep_duration_seconds'] ?? 0);
+                if ($repSec > 0) {
+                    // Each rep cycle: hill time + equal jog-back ≈ 2× rep_duration
+                    $maxReps = max(1, (int)floor($available * 60 / ($repSec * 2)));
+                    $params['rep_count'] = min((int)($params['rep_count'] ?? 1), $maxReps);
+                }
+                break;
+            case 'hill_sprints':
+                $sprintSec = (int)($params['sprint_duration_seconds'] ?? 0);
+                if ($sprintSec > 0) {
+                    // Each sprint cycle: sprint_duration + ~90 sec walk-back recovery
+                    $maxReps = max(1, (int)floor($available * 60 / ($sprintSec + 90)));
+                    $params['sprint_count'] = min((int)($params['sprint_count'] ?? 1), $maxReps);
+                }
+                break;
+            case 'continuous_progression_tempo':
+                if (!empty($params['continuous_work_minutes']) && (int)$params['continuous_work_minutes'] > $available) {
+                    $params['continuous_work_minutes'] = max(10, $available);
+                }
+                break;
         }
 
         // Derive rep_distance_meters from quality_volume_meters/rep_count when not directly
@@ -852,7 +921,8 @@ class PlanGenerator
             $params['rep_distance_meters'] = (int)round($params['quality_volume_meters'] / $params['rep_count'] / 10) * 10;
         }
 
-        // total_distance: quality volume in miles for distance-based workouts
+        // total_distance: quality volume in miles for distance-based workouts.
+        // Computed after fit-to-slot capping so rep_count reflects the capped value.
         if (!isset($params['total_distance'])) {
             if (!empty($params['rep_count']) && !empty($params['rep_distance_meters'])) {
                 // Meter-based repeats (equal_distance_repeats)
@@ -891,39 +961,33 @@ class PlanGenerator
             }
         }
 
+        // distance_range: "X.X–X.X miles" estimate for time-based workouts.
+        // Computed after fit-to-slot capping using the actual main-set duration so the
+        // displayed range matches the described session structure.
+        if (!empty($display['show_distance_range'])) {
+            $warmup   = (int)($params['warmup_minutes'] ?? 0);
+            $cooldown = (int)($params['cooldown_minutes'] ?? 0);
+            if ($warmup + $cooldown > 0) {
+                $mainMins   = self::computeMainSetMinutes($archetype['code'], $params);
+                if ($mainMins === null) {
+                    $mainMins = max(0, $targetMinutes - $warmup - $cooldown);
+                }
+                $hillCodes  = ['sustained_hill_repeats', 'hill_sprints', 'plyometric_hill_circuits'];
+                $mainFactor = in_array($archetype['code'], $hillCodes, true) ? 0.6 : 1.0;
+                $effectiveMins = (int)round($warmup + $cooldown + $mainMins * $mainFactor);
+            } else {
+                $effectiveMins = $targetMinutes;
+            }
+            $params['distance_range'] = self::computeDistanceRange(
+                $effectiveMins, $goalDistance, $classification
+            );
+        }
+
         // time_range: "X–X min" estimate for the quality volume segment
         if (!empty($display['show_time_range']) && isset($params['total_distance'])) {
             $params['time_range'] = self::computeTimeRange(
                 (float)$params['total_distance'], $goalDistance, $classification
             );
-        }
-
-        // structured_fartlek_ladder: pick variant early to derive the correct work-interval
-        // pattern, then format it as a human-readable sequence for description templates.
-        if ($archetype['code'] === 'structured_fartlek_ladder' && empty($params['work_intervals_seconds'])) {
-            if (!isset($archetype['resolved_variant'])) {
-                $archetype['resolved_variant'] = self::pickVariant($archetype);
-            }
-            $variantCode = $archetype['resolved_variant']['code'] ?? 'descending';
-            $patternMap  = [
-                'descending'       => [90, 60, 30],
-                'ascending'        => [60, 120, 180, 240],
-                'symmetric'        => [60, 120, 180, 120, 60],
-                'sharp_descending' => [60, 30, 15],
-            ];
-            $pattern = $patternMap[$variantCode] ?? [90, 60, 30];
-            $params['work_intervals_seconds'] = $pattern;
-            // Format as "X–Y–Z sec" or "1–2–3 min" depending on values
-            $allWholeMin = max($pattern) >= 60
-                && array_sum(array_map(fn($s) => $s % 60, $pattern)) === 0;
-            $params['fartlek_ladder_sequence'] = $allWholeMin
-                ? implode('–', array_map(fn($s) => $s / 60, $pattern)) . ' min'
-                : implode('–', $pattern) . ' sec';
-        }
-
-        // Pick a variant if not already set
-        if (!isset($archetype['resolved_variant'])) {
-            $archetype['resolved_variant'] = self::pickVariant($archetype);
         }
 
         $archetype['resolved_params'] = $params;
@@ -1030,6 +1094,55 @@ class PlanGenerator
         $variants = $archetype['variants'] ?? [];
         if (empty($variants)) return ['code' => 'standard', 'name' => 'Standard'];
         return $variants[array_rand($variants)];
+    }
+
+    /**
+     * Compute the main-set duration in minutes from resolved (and capped) parameters.
+     * Returns null for archetypes where main-set time can't be derived from params alone
+     * (e.g. distance-based archetypes without pace, or plyometric circuits).
+     */
+    private static function computeMainSetMinutes(string $code, array $params): ?float
+    {
+        return match ($code) {
+            'tempo_intervals' =>
+                (int)($params['rep_count'] ?? 0) * (float)($params['rep_duration_minutes'] ?? 0),
+            'high_volume_time_intervals' =>
+                (int)($params['rep_count'] ?? 0)
+                    * ((int)($params['work_duration_seconds'] ?? 0) + (int)($params['recovery_duration_seconds'] ?? 0))
+                    / 60.0,
+            // Hill time + equal jog-back recovery per rep cycle ≈ 2× rep_duration
+            'sustained_hill_repeats' =>
+                (int)($params['rep_count'] ?? 0) * (int)($params['rep_duration_seconds'] ?? 0) * 2 / 60.0,
+            // Sprint + ~90 sec walk-back recovery per sprint
+            'hill_sprints' =>
+                (int)($params['sprint_count'] ?? 0) * ((int)($params['sprint_duration_seconds'] ?? 0) + 90) / 60.0,
+            'structured_fartlek_ladder' =>
+                !empty($params['work_intervals_seconds'])
+                    ? (int)($params['round_count'] ?? 1) * 2 * array_sum((array)$params['work_intervals_seconds']) / 60.0
+                    : null,
+            'continuous_progression_tempo' =>
+                (float)($params['continuous_work_minutes'] ?? 0),
+            default => null,
+        };
+    }
+
+    /**
+     * Compute the actual session duration as warmup + main_set + cooldown from resolved params.
+     * Returns null for continuous archetypes (no warmup/cooldown) or where main-set
+     * time can't be derived — callers fall back to the slot allocation in those cases.
+     */
+    private static function computeActualDuration(array $archetype): ?int
+    {
+        $params   = $archetype['resolved_params'] ?? [];
+        $warmup   = (int)($params['warmup_minutes']   ?? 0);
+        $cooldown = (int)($params['cooldown_minutes'] ?? 0);
+
+        if ($warmup === 0 && $cooldown === 0) return null;
+
+        $main = self::computeMainSetMinutes($archetype['code'], $params);
+        if ($main === null) return null;
+
+        return (int)round($warmup + $main + $cooldown);
     }
 
     /**
