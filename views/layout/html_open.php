@@ -15,7 +15,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/icon-32.png">
     <link rel="icon" type="image/png" sizes="192x192" href="/assets/icons/icon-192.png">
     <link rel="apple-touch-icon" href="/assets/icons/icon-192.png">
-    <link rel="stylesheet" href="/assets/css/app.css">
+    <link rel="stylesheet" href="/assets/css/app.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/assets/css/app.css') ?>">
 
     <?php if (!empty($extraCss)): ?>
         <?= $extraCss ?>

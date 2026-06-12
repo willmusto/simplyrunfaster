@@ -12,16 +12,19 @@
 // CACHE_NAME. If this string never changes, stale CSS/HTML stays
 // cached indefinitely. Update to today's date (YYYYMMDD) before
 // committing, or automate: sed -i "s/srf-[0-9]*/srf-$(date +%Y%m%d)/" sw.js
-const CACHE_NAME    = 'srf-20260614';
+const CACHE_NAME    = 'srf-20260615';
 const OFFLINE_URL   = '/app/offline';
 
-// Resources to pre-cache on install
+// Resources to pre-cache on install.
+// CSS/JS are NOT listed here because they are now served with ?v=<filemtime>
+// query strings. SW cache matching does not ignore query strings by default,
+// so pre-caching the un-versioned URL would be useless (the versioned request
+// would miss and fall through to network anyway). They are instead cached
+// lazily by the cacheFirst handler on the first fetch, keyed by versioned URL.
 const PRECACHE = [
     '/app',
     '/app/plan',
     '/app/offline',
-    '/assets/css/app.css',
-    '/assets/js/app.js',
     '/manifest.json',
 ];
 
