@@ -817,10 +817,22 @@ class PlanGenerator
             $params['mapped_effort'] = $mapped;
         }
 
-        // distance_range: "X.X–X.X miles" estimate for time-based workouts
+        // distance_range: "X.X–X.X miles" estimate for time-based workouts.
+        // For structured archetypes with warmup/cooldown, hill and plyometric main sets
+        // cover less distance per minute than flat easy running — scale accordingly.
         if (!empty($display['show_distance_range'])) {
+            $warmup   = (int)($params['warmup_minutes'] ?? 0);
+            $cooldown = (int)($params['cooldown_minutes'] ?? 0);
+            if ($warmup + $cooldown > 0) {
+                $mainMins   = max(0, $targetMinutes - $warmup - $cooldown);
+                $hillCodes  = ['sustained_hill_repeats', 'hill_sprints', 'plyometric_hill_circuits'];
+                $mainFactor = in_array($archetype['code'], $hillCodes, true) ? 0.6 : 1.0;
+                $effectiveMins = $warmup + $cooldown + (int)round($mainMins * $mainFactor);
+            } else {
+                $effectiveMins = $targetMinutes;
+            }
             $params['distance_range'] = self::computeDistanceRange(
-                $targetMinutes, $goalDistance, $classification
+                $effectiveMins, $goalDistance, $classification
             );
         }
 

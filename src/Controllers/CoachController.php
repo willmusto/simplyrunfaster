@@ -163,12 +163,6 @@ class CoachController
             $planWorkouts[(int)$plan['plan_id']] = self::getPlanWorkouts((int)$plan['plan_id'], $db);
         }
 
-        // Workout library templates for the edit modal template-swap dropdown
-        $libraryTemplates = $db->query(
-            'SELECT id, library_code, name, athlete_facing_name, workout_type, description
-             FROM workout_library WHERE library_code IS NOT NULL ORDER BY workout_type, name'
-        )->fetchAll();
-
         $pageTitle = 'Plan Approvals';
         $activeNav = 'approvals';
         include __DIR__ . '/../../views/layout/html_open.php';
@@ -200,21 +194,18 @@ class CoachController
             exit;
         }
 
-        $validTypes = ['easy','long','interval','hill','fartlek','tempo','race','recovery','cross_train'];
-        $type       = in_array($_POST['workout_type'] ?? '', $validTypes, true) ? $_POST['workout_type'] : null;
-        $duration   = isset($_POST['target_duration']) && (int)$_POST['target_duration'] > 0
+        $validTypes   = ['easy','long','interval','hill','fartlek','tempo','race','recovery','cross_train'];
+        $type         = in_array($_POST['workout_type'] ?? '', $validTypes, true) ? $_POST['workout_type'] : null;
+        $duration     = isset($_POST['target_duration']) && (int)$_POST['target_duration'] > 0
             ? (int)$_POST['target_duration'] : null;
-        $tplId      = array_key_exists('workout_template_id', $_POST)
-            ? ((int)$_POST['workout_template_id'] ?: null) : false;
-        $desc       = array_key_exists('description', $_POST)
-            ? (trim($_POST['description']) ?: null) : false;
+        $instructions = array_key_exists('athlete_instructions', $_POST)
+            ? (trim($_POST['athlete_instructions']) ?: null) : false;
 
         $sets = [];
         $vals = [];
-        if ($type !== null)   { $sets[] = 'workout_type = ?';        $vals[] = $type; }
-        if ($duration !== null){ $sets[] = 'target_duration = ?';     $vals[] = $duration; }
-        if ($tplId !== false) { $sets[] = 'workout_template_id = ?'; $vals[] = $tplId; }
-        if ($desc !== false)  { $sets[] = 'description = ?';         $vals[] = $desc; }
+        if ($type !== null)        { $sets[] = 'workout_type = ?';        $vals[] = $type; }
+        if ($duration !== null)    { $sets[] = 'target_duration = ?';     $vals[] = $duration; }
+        if ($instructions !== false) { $sets[] = 'athlete_instructions = ?'; $vals[] = $instructions; }
 
         if (!empty($sets)) {
             $vals[] = $workoutId;
@@ -223,10 +214,12 @@ class CoachController
         }
 
         $stmt = $db->prepare(
-            'SELECT pw.*, wl.name AS template_name, wl.athlete_facing_name
-             FROM planned_workouts pw
-             LEFT JOIN workout_library wl ON wl.id = pw.workout_template_id
-             WHERE pw.id = ? LIMIT 1'
+            'SELECT id, workout_type, target_duration, scheduled_date,
+                    display_title, display_summary, athlete_instructions,
+                    display_title                                           AS template_name,
+                    COALESCE(athlete_instructions, display_summary, \'\')   AS description
+             FROM planned_workouts
+             WHERE id = ? LIMIT 1'
         );
         $stmt->execute([$workoutId]);
         $updated = $stmt->fetch();
@@ -716,8 +709,8 @@ class CoachController
         $stmt = $db->prepare(
             'SELECT id, plan_id, athlete_id, scheduled_date, workout_type,
                     archetype_code, display_title, display_summary, athlete_instructions,
-                    display_title                        AS template_name,
-                    COALESCE(display_summary, \'\')      AS description,
+                    display_title                                          AS template_name,
+                    COALESCE(athlete_instructions, display_summary, \'\')  AS description,
                     structure, target_duration, intensity_load, visible_to_athlete
              FROM planned_workouts
              WHERE plan_id = ?

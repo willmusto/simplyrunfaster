@@ -5,11 +5,9 @@
  * Caller sets in scope before including:
  *   $calWorkouts  — flat array of workout rows (planned_workouts or completed_workouts)
  *   $calMode      — 'preview' (uses target_duration) | 'log' (uses actual_duration)
- *   $calLibrary   — (optional) workout_library rows for template swap in edit modal
  */
 
-$_durKey  = ($calMode === 'log') ? 'actual_duration' : 'target_duration';
-$_library = $calLibrary ?? [];
+$_durKey = ($calMode === 'log') ? 'actual_duration' : 'target_duration';
 
 // Group by ISO week (Mon=1…Sun=7), slot by day-of-week
 $_weekMap = [];
@@ -162,12 +160,6 @@ $_bubSize = function(int $m): int {
                        min="1" max="600" style="max-width:110px;">
             </div>
 
-            <div class="form-group" id="calWD-e-tpl-grp">
-                <label class="form-label" for="calWD-e-tpl">Swap to library template</label>
-                <select id="calWD-e-tpl" class="form-input"></select>
-                <div class="form-hint">Selecting a template will update the description below.</div>
-            </div>
-
             <div class="form-group">
                 <label class="form-label" for="calWD-e-desc">Description</label>
                 <textarea id="calWD-e-desc" class="form-textarea" rows="5"
@@ -186,11 +178,6 @@ $_bubSize = function(int $m): int {
 
 <script>
 (function () {
-
-/* Library data from PHP — set once; preserved across re-includes */
-if (!window._calLib) {
-    window._calLib = <?= json_encode(array_values($_library), JSON_HEX_TAG | JSON_HEX_AMP) ?>;
-}
 
 var _activeBubble = null;
 var _activeData   = null;
@@ -262,8 +249,8 @@ function openModal(bubble) {
     $id('calWD-date').textContent      = data.scheduled_date
         ? new Date(data.scheduled_date + 'T00:00:00').toLocaleDateString('en-US', {weekday:'short',month:'short',day:'numeric'})
         : '';
-    $id('calWD-name').textContent      = data.template_name || TYPE_LABEL[data.workout_type] || '';
-    $id('calWD-desc').textContent      = data.description || '';
+    $id('calWD-name').textContent      = data.display_title || data.template_name || TYPE_LABEL[data.workout_type] || '';
+    $id('calWD-desc').textContent      = data.athlete_instructions || data.description || '';
     $id('calWD-dur').textContent       = fmtDur(data.target_duration);
     $id('calWD-btn-edit').style.display = (mode === 'preview') ? '' : 'none';
 
@@ -302,38 +289,8 @@ function showEdit() {
     /* Duration */
     $id('calWD-e-dur').value = data.target_duration || '';
 
-    /* Template dropdown */
-    var sel  = $id('calWD-e-tpl');
-    var grp  = $id('calWD-e-tpl-grp');
-    var lib  = window._calLib || [];
-
-    sel.innerHTML = '<option value="">— keep current template —</option>';
-    if (lib.length > 0) {
-        var groups = {};
-        lib.forEach(function(t) {
-            var k = t.workout_type;
-            if (!groups[k]) groups[k] = [];
-            groups[k].push(t);
-        });
-        Object.keys(groups).sort().forEach(function(type) {
-            var og = document.createElement('optgroup');
-            og.label = TYPE_LABEL[type] || type;
-            groups[type].forEach(function(t) {
-                var opt = document.createElement('option');
-                opt.value = t.id;
-                opt.textContent = t.athlete_facing_name || t.name;
-                if (String(t.id) === String(data.workout_template_id)) opt.selected = true;
-                og.appendChild(opt);
-            });
-            sel.appendChild(og);
-        });
-        grp.style.display = '';
-    } else {
-        grp.style.display = 'none';
-    }
-
-    /* Description */
-    $id('calWD-e-desc').value = data.description || '';
+    /* Description — populated from athlete_instructions (archetype-generated) */
+    $id('calWD-e-desc').value = data.athlete_instructions || data.description || '';
 
     $id('calWD-err').style.display  = 'none';
     $id('calWD-view').style.display = 'none';
@@ -348,7 +305,6 @@ function saveEdit() {
     var checkedType = $id('calWD-e-types').querySelector('input[name="calWD_type"]:checked');
     var type = checkedType ? checkedType.value : data.workout_type;
     var dur  = parseInt($id('calWD-e-dur').value, 10) || data.target_duration;
-    var tpl  = $id('calWD-e-tpl').value;
     var desc = $id('calWD-e-desc').value.trim();
 
     var csrf = '';
@@ -356,11 +312,10 @@ function saveEdit() {
     if (tokenEl) csrf = tokenEl.value;
 
     var body = new URLSearchParams();
-    body.set('_token',             csrf);
-    body.set('workout_type',       type);
-    body.set('target_duration',    dur);
-    body.set('workout_template_id',tpl);
-    body.set('description',        desc);
+    body.set('_token',              csrf);
+    body.set('workout_type',        type);
+    body.set('target_duration',     dur);
+    body.set('athlete_instructions', desc);
 
     var btn = $id('calWD-btn-save');
     btn.disabled = true;
@@ -383,11 +338,12 @@ function saveEdit() {
         }
         /* Update in-memory snapshot */
         var w = res.workout;
-        _activeData.workout_type       = w.workout_type;
-        _activeData.target_duration    = parseInt(w.target_duration, 10);
-        _activeData.workout_template_id= w.workout_template_id;
-        _activeData.description        = w.description || '';
-        _activeData.template_name      = w.template_name || _activeData.template_name;
+        _activeData.workout_type        = w.workout_type;
+        _activeData.target_duration     = parseInt(w.target_duration, 10);
+        _activeData.athlete_instructions= w.athlete_instructions || '';
+        _activeData.description         = w.description || '';
+        _activeData.display_title       = w.display_title || '';
+        _activeData.template_name       = w.template_name || _activeData.template_name;
 
         /* Update bubble DOM */
         if (_activeBubble) {
@@ -408,17 +364,6 @@ function saveEdit() {
         $id('calWD-err').style.display = '';
     });
 }
-
-/* ── Template change → auto-fill ── */
-$id('calWD-e-tpl').addEventListener('change', function() {
-    var tplId = this.value;
-    if (!tplId || !window._calLib) return;
-    var tpl = window._calLib.find(function(t) { return String(t.id) === tplId; });
-    if (!tpl) return;
-    var radio = $id('calWD-e-types').querySelector('input[value="' + tpl.workout_type + '"]');
-    if (radio) radio.checked = true;
-    if (tpl.description) $id('calWD-e-desc').value = tpl.description;
-});
 
 /* ── Event delegation ── */
 document.addEventListener('click', function(e) {
@@ -495,13 +440,14 @@ document.addEventListener('keydown', function(e) {
                 $_wjson = null;
                 if ($_slot && isset($_slot['id'])) {
                     $_wjson = htmlspecialchars(json_encode([
-                        'id'                  => (int)$_slot['id'],
-                        'workout_type'        => (string)($_slot['workout_type'] ?? ''),
-                        'target_duration'     => (int)($_slot[$_durKey] ?? 0),
-                        'template_name'       => (string)($_slot['template_name'] ?? ''),
-                        'description'         => (string)($_slot['description'] ?? ''),
-                        'workout_template_id' => (int)($_slot['workout_template_id'] ?? 0),
-                        'scheduled_date'      => (string)($_slot['scheduled_date'] ?? ''),
+                        'id'                   => (int)$_slot['id'],
+                        'workout_type'         => (string)($_slot['workout_type'] ?? ''),
+                        'target_duration'      => (int)($_slot[$_durKey] ?? 0),
+                        'display_title'        => (string)($_slot['display_title'] ?? ''),
+                        'template_name'        => (string)($_slot['template_name'] ?? ''),
+                        'description'          => (string)($_slot['description'] ?? ''),
+                        'athlete_instructions' => (string)($_slot['athlete_instructions'] ?? ''),
+                        'scheduled_date'       => (string)($_slot['scheduled_date'] ?? ''),
                     ]), ENT_QUOTES, 'UTF-8');
                 }
             ?>
@@ -511,7 +457,7 @@ document.addEventListener('keydown', function(e) {
                      style="width:min(<?= $_sz ?>px,100%);aspect-ratio:1;
                             background:<?= $_clr[0] ?>;color:<?= $_clr[1] ?>;"
                      <?= $_wjson !== null ? 'data-workout="' . $_wjson . '"' : '' ?>
-                     title="<?= h(($_slot['template_name'] ?? ucfirst(str_replace('_', ' ', $_type ?? ''))) . ($_dur > 0 ? ' · ' . $_dur . ' min' : '')) ?>">
+                     title="<?= h(($_slot['display_title'] ?? $_slot['template_name'] ?? ucfirst(str_replace('_', ' ', $_type ?? ''))) . ($_dur > 0 ? ' · ' . $_dur . ' min' : '')) ?>">
                     <span class="cal-bub-lbl"><?= $_bubLabel($_dur) ?></span>
                 </div>
                 <?php else: ?>

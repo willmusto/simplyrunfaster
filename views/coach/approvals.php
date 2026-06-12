@@ -1,6 +1,5 @@
 <?php
-// $pendingPlans, $planWorkouts (keyed by plan_id), $libraryTemplates
-$calLibrary = $libraryTemplates ?? [];
+// $pendingPlans, $planWorkouts (keyed by plan_id)
 ?>
 <div class="page-content">
 

@@ -181,9 +181,10 @@ class ArchetypeSelector
             if (isset($spec[$classification]) && is_array($spec[$classification])) {
                 $range = $spec[$classification];
                 if (isset($range['min'], $range['max'])) {
-                    $resolved[$key] = $type === 'float'
+                    $mid = $type === 'float'
                         ? round(($range['min'] + $range['max']) / 2, 2)
                         : (int)round(($range['min'] + $range['max']) / 2);
+                    $resolved[$key] = $type !== 'float' ? self::roundSeconds($key, $mid) : $mid;
                     continue;
                 }
             }
@@ -192,9 +193,10 @@ class ArchetypeSelector
             if (isset($spec['well_trained']) && is_array($spec['well_trained'])) {
                 $range = $spec['well_trained'];
                 if (isset($range['min'], $range['max'])) {
-                    $resolved[$key] = $type === 'float'
+                    $mid = $type === 'float'
                         ? round(($range['min'] + $range['max']) / 2, 2)
                         : (int)round(($range['min'] + $range['max']) / 2);
+                    $resolved[$key] = $type !== 'float' ? self::roundSeconds($key, $mid) : $mid;
                     continue;
                 }
             }
@@ -293,5 +295,19 @@ class ArchetypeSelector
         }
 
         return true;
+    }
+
+    /**
+     * Round _seconds parameter midpoints to coach-friendly increments:
+     *   < 30 s  → nearest 5 s
+     *   30–90 s → nearest 15 s
+     *   > 90 s  → nearest 30 s
+     */
+    private static function roundSeconds(string $key, int $value): int
+    {
+        if (substr($key, -8) !== '_seconds') return $value;
+        if ($value < 30)  return (int)round($value / 5) * 5;
+        if ($value <= 90) return (int)round($value / 15) * 15;
+        return (int)round($value / 30) * 30;
     }
 }

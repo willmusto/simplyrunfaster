@@ -464,9 +464,9 @@ class AthleteController
     private static function getVisibleWorkouts(int $athleteId, string $start, string $end, PDO $db): array
     {
         $stmt = $db->prepare(
-            'SELECT pw.*, wl.name as template_name
+            'SELECT pw.*,
+                    COALESCE(pw.athlete_instructions, pw.description) AS description
              FROM planned_workouts pw
-             LEFT JOIN workout_library wl ON wl.id = pw.workout_template_id
              WHERE pw.athlete_id = ?
                AND pw.scheduled_date BETWEEN ? AND ?
                AND pw.visible_to_athlete = 1

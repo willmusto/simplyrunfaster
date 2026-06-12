@@ -35,13 +35,19 @@ class TrainingLoad
     {
         $db = Database::get();
 
-        // Pull all completed workouts in the last 60 days (covers the 42-day CTL window)
+        // Pull all completed workouts in the last 60 days (covers the 42-day CTL window).
+        // For archetype-generated workouts intensity_load is pre-computed on planned_workouts;
+        // derive intensity_factor from it. Fall back to workout_library for legacy workouts.
         $stmt = $db->prepare(
             'SELECT cw.activity_date, cw.workout_type, cw.actual_duration, cw.rpe,
-                    wl.intensity_factor
+                    CASE
+                        WHEN pw.intensity_load IS NOT NULL AND pw.target_duration > 0
+                            THEN pw.intensity_load / pw.target_duration
+                        ELSE wl.intensity_factor
+                    END AS intensity_factor
              FROM completed_workouts cw
-             LEFT JOIN planned_workouts pw  ON pw.id  = cw.planned_workout_id
-             LEFT JOIN workout_library  wl  ON wl.id  = pw.workout_template_id
+             LEFT JOIN planned_workouts pw ON pw.id = cw.planned_workout_id
+             LEFT JOIN workout_library  wl ON wl.id = pw.workout_template_id
              WHERE cw.athlete_id = ?
                AND cw.activity_date >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)
              ORDER BY cw.activity_date ASC'
