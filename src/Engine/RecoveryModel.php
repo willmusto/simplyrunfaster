@@ -158,7 +158,7 @@ class RecoveryModel
             ],
 
             default => [],
-        ];
+        };
     }
 
     /** Athlete-facing description only. */
