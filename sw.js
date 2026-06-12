@@ -11,8 +11,8 @@
 // The activate event deletes all caches whose name differs from
 // CACHE_NAME. If this string never changes, stale CSS/HTML stays
 // cached indefinitely. Update to today's date (YYYYMMDD) before
-// committing, or automate: sed -i "s/srf-[0-9]*/srf-$(date +%Y%m%d)/" sw.js
-const CACHE_NAME    = 'srf-20260615';
+// committing, or automate: sed -i "s/srf-20260612[0-9]*/srf-$(date +%Y%m%d)/" sw.js
+const CACHE_NAME    = 'srf-20260612';
 const OFFLINE_URL   = '/app/offline';
 
 // Resources to pre-cache on install.
