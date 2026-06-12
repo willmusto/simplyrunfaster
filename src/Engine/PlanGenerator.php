@@ -898,6 +898,29 @@ class PlanGenerator
             );
         }
 
+        // structured_fartlek_ladder: pick variant early to derive the correct work-interval
+        // pattern, then format it as a human-readable sequence for description templates.
+        if ($archetype['code'] === 'structured_fartlek_ladder' && empty($params['work_intervals_seconds'])) {
+            if (!isset($archetype['resolved_variant'])) {
+                $archetype['resolved_variant'] = self::pickVariant($archetype);
+            }
+            $variantCode = $archetype['resolved_variant']['code'] ?? 'descending';
+            $patternMap  = [
+                'descending'       => [90, 60, 30],
+                'ascending'        => [60, 120, 180, 240],
+                'symmetric'        => [60, 120, 180, 120, 60],
+                'sharp_descending' => [60, 30, 15],
+            ];
+            $pattern = $patternMap[$variantCode] ?? [90, 60, 30];
+            $params['work_intervals_seconds'] = $pattern;
+            // Format as "X–Y–Z sec" or "1–2–3 min" depending on values
+            $allWholeMin = max($pattern) >= 60
+                && array_sum(array_map(fn($s) => $s % 60, $pattern)) === 0;
+            $params['fartlek_ladder_sequence'] = $allWholeMin
+                ? implode('–', array_map(fn($s) => $s / 60, $pattern)) . ' min'
+                : implode('–', $pattern) . ' sec';
+        }
+
         // Pick a variant if not already set
         if (!isset($archetype['resolved_variant'])) {
             $archetype['resolved_variant'] = self::pickVariant($archetype);
