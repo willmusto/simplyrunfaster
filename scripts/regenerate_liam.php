@@ -59,6 +59,7 @@ if (empty($plans)) {
 // Load engine classes and regenerate
 require_once SCRIPT_ROOT . '/config/database.php';
 require_once SCRIPT_ROOT . '/src/Engine/TrainingLoad.php';
+require_once SCRIPT_ROOT . '/src/Engine/ArchetypeSelector.php';
 require_once SCRIPT_ROOT . '/src/Engine/PlanGenerator.php';
 
 echo "Regenerating plan...\n";
@@ -86,6 +87,29 @@ if ($planId) {
         echo '  ' . date('D M j', strtotime($row['scheduled_date'])) . '  ' . $row['workout_type'] . "\n";
     }
     echo "\nPlan is in approval queue with status=pending.\n";
+
+    // Spot-check display output for a sample of structured workouts
+    $displaySample = $db->prepare(
+        "SELECT archetype_code, display_title,
+                LEFT(athlete_instructions, 120) AS instr_preview,
+                display_summary
+         FROM planned_workouts
+         WHERE plan_id = ?
+           AND archetype_code IS NOT NULL
+           AND archetype_code NOT IN ('continuous_easy','continuous_long')
+         ORDER BY scheduled_date
+         LIMIT 10"
+    );
+    $displaySample->execute([$planId]);
+    echo "\nSample structured workout display output:\n";
+    foreach ($displaySample->fetchAll() as $w) {
+        printf("  %-32s | %-28s\n  instr: %s\n",
+            $w['display_title'] ?? '—',
+            $w['display_summary'] ?? '—',
+            $w['instr_preview'] ?? '—'
+        );
+        echo "\n";
+    }
 } else {
     echo "PlanGenerator returned null — check athlete profile data.\n";
     exit(1);

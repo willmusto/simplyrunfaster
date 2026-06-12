@@ -1,6 +1,7 @@
 <?php
 /**
- * Spot-check: resolve and render all 17 archetypes, report title + distance/time range.
+ * Systematic audit: resolve and render all 17 archetypes.
+ * Reports: code, display_title, athlete_instructions (100-char preview), range present (Y/N).
  * Run from server: php scripts/test_archetype_render.php
  */
 
@@ -34,25 +35,54 @@ $phase          = 'build';
 $goalDistance   = '10K';
 $targetMinutes  = 45;
 
-printf("%-35s | %-38s | %-20s\n", 'archetype', 'display_title', 'range');
-printf("%-35s-+-%-38s-+-%-20s\n", str_repeat('-', 35), str_repeat('-', 38), str_repeat('-', 20));
+$divider = str_repeat('─', 120);
 
+printf("\nAll-17 archetype render audit — context: %s / %s / %s / %d min\n\n",
+    $classification, $goalDistance, $phase, $targetMinutes);
+
+$rows = [];
 foreach ($codes as $code) {
     $arch = $selector->getByCode($code);
     if (!$arch) {
-        printf("%-35s | NOT FOUND\n", $code);
+        $rows[] = [$code, 'NOT FOUND', '—', 'N/A'];
         continue;
     }
 
     $arch = $selector->resolveParameters($arch, $classification);
     $arch = $addDerived->invoke(null, $arch, $targetMinutes, $phase, $goalDistance, $classification);
 
-    $display = $arch['display'] ?? [];
-    $title   = $renderTpl->invoke(null, $display['title_template']   ?? '', $arch);
-    $summary = $renderTpl->invoke(null, $display['summary_template'] ?? '', $arch);
+    $display  = $arch['display'] ?? [];
+    $title    = $renderTpl->invoke(null, $display['title_template']       ?? '', $arch);
+    $summary  = $renderTpl->invoke(null, $display['summary_template']     ?? '', $arch);
+    $instruct = $renderTpl->invoke(null, $display['description_template'] ?? '', $arch);
 
-    // Pull just the range portion (after ·) or use full summary if no ·
-    $range = str_contains($summary, '·') ? trim(substr($summary, strpos($summary, '·') + 2)) : $summary;
+    // Range is the part after · in the summary (distance_range or time_range token)
+    $range = '';
+    if (str_contains($summary, '·')) {
+        $range = trim(substr($summary, strpos($summary, '·') + 2));
+    } elseif ($summary !== '') {
+        $range = $summary;
+    }
 
-    printf("%-35s | %-38s | %-20s\n", $code, mb_substr($title, 0, 38), $range);
+    // Y if the range token resolved to a non-empty, non-placeholder value
+    $rangeOk = ($range !== '' && !str_contains($range, '{{')) ? 'Y' : 'N';
+
+    $rows[] = [
+        $code,
+        mb_substr($title, 0, 36),
+        mb_substr($instruct, 0, 100),
+        $rangeOk,
+    ];
 }
+
+// Print table
+echo $divider . "\n";
+printf("%-33s | %-36s | %-100s | %s\n", 'code', 'display_title', 'athlete_instructions (~100 chars)', 'range');
+echo $divider . "\n";
+foreach ($rows as [$code, $title, $instr, $rangeOk]) {
+    printf("%-33s | %-36s | %-100s | %s\n", $code, $title, $instr, $rangeOk);
+}
+echo $divider . "\n";
+echo "\nY = distance_range or time_range token rendered with a value.\n";
+echo "Archetypes with lead_with=duration display distance_range; distance-based display time_range.\n";
+echo "continuous_long/progression_long/goal_pace_long/fast_finish_long are time-based; range Y = distance_range present.\n";
