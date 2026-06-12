@@ -12,7 +12,7 @@
 // CACHE_NAME. If this string never changes, stale CSS/HTML stays
 // cached indefinitely. Update to today's date (YYYYMMDD) before
 // committing, or automate: sed -i "s/srf-[0-9]*/srf-$(date +%Y%m%d)/" sw.js
-const CACHE_NAME    = 'srf-20260613';
+const CACHE_NAME    = 'srf-20260614';
 const OFFLINE_URL   = '/app/offline';
 
 // Resources to pre-cache on install
@@ -29,7 +29,14 @@ const PRECACHE = [
 self.addEventListener('install', function (event) {
     event.waitUntil(
         caches.open(CACHE_NAME).then(function (cache) {
-            return cache.addAll(PRECACHE);
+            // Use {cache: 'reload'} so each request bypasses the browser's HTTP
+            // cache — without this, immutable-cached CSS/JS can be pre-cached
+            // stale even after a CACHE_NAME bump.
+            return Promise.all(
+                PRECACHE.map(function (url) {
+                    return cache.add(new Request(url, { cache: 'reload' }));
+                })
+            );
         }).then(function () {
             return self.skipWaiting();
         })
@@ -48,6 +55,13 @@ self.addEventListener('activate', function (event) {
             return self.clients.claim();
         })
     );
+});
+
+// â”€â”€ Message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+self.addEventListener('message', function (event) {
+    if (event.data && event.data.type === 'SKIP_WAITING') {
+        self.skipWaiting();
+    }
 });
 
 // â”€â”€ Fetch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
