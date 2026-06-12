@@ -754,9 +754,9 @@ $archetypes = [
             'lead_with'            => 'distance',
             'show_distance_range'  => false,
             'show_time_range'      => true,
-            'title_template'       => '{{generated_workout_title}}',
+            'title_template'       => '{{variant_name}}',
             'summary_template'     => '{{total_distance}} miles · {{time_range}}',
-            'description_template' => 'A mixed-distance interval session that combines different repeat lengths and speeds. Stay controlled early and maintain quality throughout.',
+            'description_template' => '{{quality_volume_meters}}m of mixed-distance intervals combining different repeat lengths and speeds. Stay controlled early and maintain quality throughout.',
         ],
         'instance_signature' => ['fields' => ['code', 'variant', 'interval_distances', 'effort_zones']],
         'coach_notes' => [
@@ -894,7 +894,7 @@ $archetypes = [
         'parameters' => [
             'warmup_minutes'        => ['type' => 'integer', 'min' => 15, 'max' => 20],
             'cooldown_minutes'      => ['type' => 'integer', 'min' => 10, 'max' => 15],
-            'rep_distance_meters'   => ['type' => 'integer', 'allowed_values' => [60, 80, 100, 150, 200, 300, 400]],
+            'rep_distance_meters'   => ['type' => 'integer', 'allowed_values' => [60, 80, 100, 150, 200, 300, 400], 'default' => 200],
             'rep_count'             => ['type' => 'integer', 'workable' => ['min' => 4, 'max' => 10],  'well_trained' => ['min' => 6, 'max' => 16]],
             'effort_zone'           => ['type' => 'enum',    'allowed_values' => ['repetition', 'mile', '800']],
             'quality_volume_meters' => ['type' => 'integer', 'workable' => ['min' => 800, 'max' => 2400], 'well_trained' => ['min' => 1200, 'max' => 4000]],
@@ -911,9 +911,9 @@ $archetypes = [
             'lead_with'            => 'distance',
             'show_distance_range'  => false,
             'show_time_range'      => true,
-            'title_template'       => '{{generated_workout_title}}',
+            'title_template'       => '{{rep_count}} × {{rep_distance_meters}}m',
             'summary_template'     => '{{total_distance}} miles · {{time_range}}',
-            'description_template' => 'Focus on relaxed speed, efficient mechanics, and maintaining quality throughout the session. Full recovery is encouraged to preserve running form.',
+            'description_template' => '{{rep_count}} × {{rep_distance_meters}}m at near-sprint effort. Run each rep fast and controlled — powerful but not falling apart. Take full walk-back recovery between reps to preserve speed and mechanics on every one.',
         ],
         'instance_signature' => ['fields' => ['code', 'variant', 'rep_distance_meters', 'rep_count', 'effort_zone']],
         'coach_notes' => [
@@ -1147,7 +1147,7 @@ $archetypes = [
             'show_time_range'      => false,
             'title_template'       => 'Plyometric Hill Circuit',
             'summary_template'     => '{{duration_minutes}} min · {{distance_range}}',
-            'description_template' => 'Complete a series of short uphill efforts combined with plyometric drills. Focus on coordination, stiffness, rhythm, and quality movement. Recover fully between circuits.',
+            'description_template' => 'Complete {{circuit_count}} circuits, each with a {{hill_sprint_duration_seconds}}-second uphill sprint followed by plyometric drills. Focus on coordination, stiffness, rhythm, and quality movement. Recover fully between circuits.',
         ],
         'instance_signature' => ['fields' => ['code', 'variant', 'circuit_count', 'hill_sprint_duration_seconds', 'drill_count_per_circuit']],
         'coach_notes' => [
@@ -1302,9 +1302,9 @@ $archetypes = [
             'lead_with'            => 'distance',
             'show_distance_range'  => false,
             'show_time_range'      => true,
-            'title_template'       => '{{generated_workout_title}}',
+            'title_template'       => '{{continuous_work_minutes}} min Progression Tempo',
             'summary_template'     => '{{total_distance}} miles · {{time_range}}',
-            'description_template' => 'A continuous tempo session with no recovery breaks. Let the effort build naturally and focus on rhythm, control, and smooth transitions between gears.',
+            'description_template' => '{{continuous_work_minutes}} minutes of continuous tempo with no recovery breaks. Let the effort build naturally and focus on rhythm, control, and smooth transitions between gears.',
         ],
         'instance_signature' => ['fields' => ['code', 'variant', 'continuous_work_minutes', 'wave_count', 'float_type']],
         'coach_notes' => [
