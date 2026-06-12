@@ -661,8 +661,7 @@ class PlanGenerator
             $params      = $instance['resolved_params'] ?? [];
             $structure   = self::resolveStructure($instance);
 
-            $slotFallback    = self::SLOT_WORKOUT_TYPE[$slotType] ?? 'easy';
-            $workoutType     = $instance['metadata']['workout_type'] ?? $slotFallback;
+            $workoutType     = self::SLOT_WORKOUT_TYPE[$slotType] ?? 'easy';
             $intensityFactor = (float)($instance['generation']['intensity_factor'] ?? 0.5);
             $load            = round($targetMinutes * $intensityFactor, 2);
 
@@ -978,7 +977,7 @@ class PlanGenerator
         $tokens = array_merge($params, [
             'variant_name'           => $variantName,
             'variant'                => $variantCode,
-            'generated_workout_title'=> $archetype['metadata']['name'] ?? '',
+            'generated_workout_title'=> $archetype['name'] ?? '',
         ]);
 
         return preg_replace_callback('/\{\{(\w+)\}\}/', function ($m) use ($tokens) {
@@ -1005,7 +1004,7 @@ class PlanGenerator
         $tokens = array_merge($params, [
             'variant_name'           => $variantName,
             'variant'                => $variantCode,
-            'generated_workout_title'=> $archetype['metadata']['name'] ?? '',
+            'generated_workout_title'=> $archetype['name'] ?? '',
         ]);
 
         return self::deepRenderTokens($tpl, $tokens);
