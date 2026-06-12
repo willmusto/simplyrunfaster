@@ -52,8 +52,8 @@ $today = date('Y-m-d');
                             style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
                 </form>
             </div>
-            <?php if ($flag['flag_message']): ?>
-            <p class="body-text" style="margin:6px 0 0;"><?= h($flag['flag_message']) ?></p>
+            <?php if ($flag['message']): ?>
+            <p class="body-text" style="margin:6px 0 0;"><?= h($flag['message']) ?></p>
             <?php endif; ?>
         </div>
         <?php endforeach; ?>

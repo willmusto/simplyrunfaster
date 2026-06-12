@@ -714,11 +714,14 @@ class CoachController
     private static function getPlanWorkouts(int $planId, PDO $db): array
     {
         $stmt = $db->prepare(
-            'SELECT pw.*, wl.name as template_name
-             FROM planned_workouts pw
-             LEFT JOIN workout_library wl ON wl.id = pw.workout_template_id
-             WHERE pw.plan_id = ?
-             ORDER BY pw.scheduled_date ASC'
+            'SELECT id, plan_id, athlete_id, scheduled_date, workout_type,
+                    archetype_code, display_title, display_summary, athlete_instructions,
+                    display_title                        AS template_name,
+                    COALESCE(display_summary, \'\')      AS description,
+                    structure, target_duration, intensity_load, visible_to_athlete
+             FROM planned_workouts
+             WHERE plan_id = ?
+             ORDER BY scheduled_date ASC'
         );
         $stmt->execute([$planId]);
         return $stmt->fetchAll();
