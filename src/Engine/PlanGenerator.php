@@ -252,7 +252,7 @@ class PlanGenerator
         for ($week = 1; $week <= $totalWeeks; $week++) {
             $isCutback  = ($week > 1 && $week % 4 === 0);
             $weeklyMins = $isCutback
-                ? max(30, (int)round($prevWeeklyMins * 0.75))
+                ? max(30, (int)round($prevWeeklyMins * 0.80))
                 : min((int)round($prevWeeklyMins * 1.08), $peakCeiling);
             $prevWeeklyMins = $weeklyMins;
 
