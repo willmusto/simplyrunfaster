@@ -915,6 +915,32 @@ class PlanGenerator
             $archetype['resolved_variant'] = self::pickVariant($archetype);
         }
 
+        // Resolve rep_distance_meters before fit-to-slot capping so the cap can use an
+        // accurate per-rep cycle time. equal_distance_repeats always re-derives from
+        // quality_volume/rep_count because its schema stores allowed_values (a reference
+        // list) rather than a single resolved instance distance.
+        if (!empty($params['rep_count']) && !empty($params['quality_volume_meters'])) {
+            if ($archetype['code'] === 'equal_distance_repeats' || empty($params['rep_distance_meters'])) {
+                $params['rep_distance_meters'] = (int)round($params['quality_volume_meters'] / $params['rep_count'] / 10) * 10;
+            }
+        }
+        if ($archetype['code'] === 'short_speed_repeats') {
+            $params['rep_distance_meters'] = (int)($params['rep_distance_meters'] ?? 200);
+            $params['effort_zone'] = $params['effort_zone'] ?? 'repetition';
+        }
+        // Derive rep_duration_seconds for distance-based interval archetypes. Used by
+        // fit-to-slot capping and computeMainSetMinutes for sum-of-parts duration honesty.
+        // Uses the quality pace range midpoint as a proxy for effort time per rep.
+        if (
+            in_array($archetype['code'], ['equal_distance_repeats', 'short_speed_repeats'], true)
+            && empty($params['rep_duration_seconds'])
+            && !empty($params['rep_distance_meters'])
+        ) {
+            $repDistMiles = (int)$params['rep_distance_meters'] / 1609.34;
+            $paces        = $classification === 'well_trained' ? [5.5, 7.5] : [7.5, 10.5];
+            $params['rep_duration_seconds'] = max(20, (int)round($repDistMiles * (($paces[0] + $paces[1]) / 2) * 60));
+        }
+
         // Fit-to-slot: cap the scalable dimension so warmup + main + cooldown ≤ targetMinutes.
         // Prevents classification midpoints from producing sessions that far exceed the
         // quality slot's volume allocation. Must run before total_distance and distance_range.
@@ -953,10 +979,12 @@ class PlanGenerator
                 }
                 break;
             case 'equal_distance_repeats':
-                // Minimum real-world rep cycle estimate for measured repeats:
-                // one work rep plus jogging recovery. This cap prevents tiny
-                // quality slots from producing "1 x repeat" interval sessions.
-                $maxReps = max(1, (int)floor($available / 3));
+                // Rep cycle = work run + equal-duration jogging recovery (vo2_standard model).
+                // Uses rep_duration_seconds-based cap; falls back to heuristic if absent.
+                $repSec  = (int)($params['rep_duration_seconds'] ?? 0);
+                $maxReps = $repSec > 0
+                    ? max(1, (int)floor($available * 60 / ($repSec * 2)))
+                    : max(1, (int)floor($available / 3));
                 $params['rep_count'] = min((int)($params['rep_count'] ?? 1), $maxReps);
                 break;
             case 'continuous_progression_tempo':
@@ -967,16 +995,6 @@ class PlanGenerator
         }
 
         $params = self::addConditionalInstructionParams($archetype['code'], $params);
-
-        // Derive rep_distance_meters from quality_volume_meters/rep_count when not directly
-        // resolvable (e.g. equal_distance_repeats stores rep_distance as allowed_values only)
-        if (empty($params['rep_distance_meters']) && !empty($params['rep_count']) && !empty($params['quality_volume_meters'])) {
-            $params['rep_distance_meters'] = (int)round($params['quality_volume_meters'] / $params['rep_count'] / 10) * 10;
-        }
-        if ($archetype['code'] === 'short_speed_repeats') {
-            $params['rep_distance_meters'] = (int)($params['rep_distance_meters'] ?? 200);
-            $params['effort_zone'] = $params['effort_zone'] ?? 'repetition';
-        }
 
         // total_distance: quality volume in miles for distance-based workouts.
         // Computed after fit-to-slot capping so rep_count reflects the capped value.
@@ -1200,7 +1218,7 @@ class PlanGenerator
     /**
      * Compute the main-set duration in minutes from resolved (and capped) parameters.
      * Returns null for archetypes where main-set time can't be derived from params alone
-     * (e.g. distance-based archetypes without pace, or plyometric circuits).
+     * (e.g. mixed_distance_repeats, which lacks a rep_count/rep_duration structure).
      */
     private static function computeMainSetMinutes(string $code, array $params): ?float
     {
@@ -1223,6 +1241,15 @@ class PlanGenerator
                     : null,
             'continuous_progression_tempo' =>
                 (float)($params['continuous_work_minutes'] ?? 0),
+            // Rep + walk-back recovery per sprint (speed_standard model — same formula as hill_sprints)
+            'short_speed_repeats' =>
+                (int)($params['rep_count'] ?? 0) * ((int)($params['rep_duration_seconds'] ?? 0) + 90) / 60.0,
+            // Rep + equal-duration jogging recovery (vo2_standard model)
+            'equal_distance_repeats' =>
+                (int)($params['rep_count'] ?? 0) * (int)($params['rep_duration_seconds'] ?? 0) * 2 / 60.0,
+            // Circuit + ~90 sec active recovery per circuit (coach-clearance only, same pattern as hill_sprints)
+            'plyometric_hill_circuits' =>
+                (int)($params['circuit_count'] ?? 0) * ((int)($params['hill_sprint_duration_seconds'] ?? 0) + 90) / 60.0,
             default => null,
         };
     }
