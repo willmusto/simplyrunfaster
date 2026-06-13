@@ -642,9 +642,14 @@ class PlanGenerator
                 default                                 => $easyMins, // easy, easy_strides
             };
 
+            $slotConstraints = $constraints + [
+                'weekly_minutes' => $weeklyMins,
+                'min_duration_week_fraction' => (float)($s['quality_min_duration_week_fraction'] ?? 0.40),
+            ];
+
             $instance = self::resolveSlotInstance(
                 $slotType, $phase, $goalDistance, $classification, $planType,
-                $constraints, $antiRepeatHistory, $targetMinutes, $date,
+                $slotConstraints, $antiRepeatHistory, $targetMinutes, $date,
                 $db, $selector
             );
 

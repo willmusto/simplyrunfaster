@@ -18,6 +18,33 @@ class ArchetypeSelector
     /** @var array<string, array> Code-keyed cache populated on first load. */
     private array $cache = [];
 
+    /**
+     * Canonical minimum viable session durations, used when existing DB rows
+     * have not yet been refreshed from the seed JSON metadata.
+     *
+     * The seed JSON stores the same values in generation.minimum_session_duration_minutes;
+     * keep both in sync until every environment has imported the updated archetypes.
+     */
+    private const DEFAULT_MINIMUM_SESSION_DURATIONS = [
+        'continuous_easy'               => 30,
+        'easy_with_strides'             => 30,
+        'continuous_long'               => 60,
+        'progression_long'              => 70,
+        'goal_pace_long_segments'       => 60,
+        'fast_finish_long'              => 70,
+        'structured_fartlek_ladder'     => 61,
+        'equal_distance_repeats'        => 55,
+        'mixed_distance_repeats'        => 60,
+        'short_speed_repeats'           => 40,
+        'sustained_hill_repeats'        => 31,
+        'hill_sprints'                  => 40,
+        'plyometric_hill_circuits'      => 37,
+        'tempo_intervals'               => 37,
+        'continuous_progression_tempo'  => 45,
+        'long_run_with_pickups'         => 60,
+        'high_volume_time_intervals'    => 52,
+    ];
+
     public function __construct(?PDO $db = null)
     {
         $this->db = $db ?? Database::get();
@@ -53,7 +80,8 @@ class ArchetypeSelector
      * @param string $planType       One of: race_cycle, development_plan, maintenance_plan,
      *                               recovery_block, return_to_running
      * @param array  $constraints    Keys: track_access, hill_access, plyometric_clearance,
-     *                               track_field_background, excludes (string[])
+     *                               track_field_background, weekly_minutes,
+     *                               min_duration_week_fraction, excludes (string[])
      * @param array  $excludeCodes   Archetype codes to hard-exclude (anti-repeat hard block)
      * @param array  $penalizedCodes Archetype codes to soft-penalize (anti-repeat soft penalty, -5 pts)
      */
@@ -214,6 +242,46 @@ class ArchetypeSelector
         return $archetype;
     }
 
+    /**
+     * Return the archetype's minimum viable session duration in minutes.
+     *
+     * `generation.minimum_session_duration_minutes` is canonical when present.
+     * It exists because distance-based workouts need coaching judgment about
+     * assigned effort and jog recoveries; the computed fallback is only for
+     * archetypes that do not yet carry an explicit minimum.
+     */
+    public function getMinimumSessionDurationMinutes(
+        array $archetype,
+        string $classification = 'workable',
+        string $phase = 'base',
+        string $goalDistance = '5K'
+    ): ?float {
+        $generation = $archetype['generation'] ?? [];
+        if (isset($generation['minimum_session_duration_minutes'])) {
+            return (float)$generation['minimum_session_duration_minutes'];
+        }
+        if (isset(self::DEFAULT_MINIMUM_SESSION_DURATIONS[$archetype['code'] ?? ''])) {
+            return (float)self::DEFAULT_MINIMUM_SESSION_DURATIONS[$archetype['code']];
+        }
+
+        $params   = $archetype['parameters'] ?? [];
+        $warmup   = self::paramFloor($params, 'warmup_minutes', $classification);
+        $cooldown = self::paramFloor($params, 'cooldown_minutes', $classification);
+
+        if ($warmup === null && $cooldown === null) {
+            $duration = self::paramFloor($params, 'duration_minutes', $classification);
+            return $duration !== null ? (float)$duration : null;
+        }
+
+        $warmup   = (float)($warmup ?? 0);
+        $cooldown = (float)($cooldown ?? 0);
+        $main     = $this->minimumMainSetMinutes($archetype, $classification, $phase, $goalDistance);
+
+        return $main !== null
+            ? round($warmup + $main + $cooldown, 1)
+            : round($warmup + $cooldown, 1);
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /** Load all archetypes into code-keyed cache. */
@@ -294,7 +362,206 @@ class ArchetypeSelector
             if (in_array($excl, $contextTags, true)) return false;
         }
 
+        // Quality session footprint gate. This is intentionally an eligibility
+        // rule, like min_classification: if the smallest viable version of a
+        // quality archetype would dominate the generated week, it never enters
+        // the weighted candidate pool for that slot.
+        if (in_array($slotType, ['quality_primary', 'quality_secondary'], true)) {
+            $weeklyMinutes = (int)($constraints['weekly_minutes'] ?? 0);
+            $fraction      = (float)($constraints['min_duration_week_fraction'] ?? 0);
+            if ($weeklyMinutes > 0 && $fraction > 0) {
+                $minDuration = $this->getMinimumSessionDurationMinutes(
+                    $archetype, $classification, $phase, $goalDistance
+                );
+                if ($minDuration !== null && $minDuration > $weeklyMinutes * $fraction) {
+                    return false;
+                }
+            }
+        }
+
         return true;
+    }
+
+    private function minimumMainSetMinutes(
+        array $archetype, string $classification, string $phase, string $goalDistance
+    ): ?float {
+        $code   = $archetype['code'] ?? '';
+        $params = $archetype['parameters'] ?? [];
+
+        return match ($code) {
+            'structured_fartlek_ladder' =>
+                $this->minimumFartlekLadderMinutes($params, $classification),
+            'tempo_intervals' =>
+                (float)(self::paramFloor($params, 'rep_count', $classification) ?? 1)
+                    * (float)(self::paramFloor($params, 'rep_duration_minutes', $classification) ?? 0),
+            'high_volume_time_intervals' =>
+                (float)(self::paramFloor($params, 'rep_count', $classification) ?? 1)
+                    * (
+                        (float)(self::paramFloor($params, 'work_duration_seconds', $classification) ?? 0)
+                        + (float)(self::paramFloor($params, 'recovery_duration_seconds', $classification) ?? 0)
+                    ) / 60.0,
+            'sustained_hill_repeats' =>
+                (float)(self::paramFloor($params, 'rep_count', $classification) ?? 1)
+                    * (float)(self::paramFloor($params, 'rep_duration_seconds', $classification) ?? 0)
+                    * 2 / 60.0,
+            'hill_sprints' =>
+                (float)(self::paramFloor($params, 'sprint_count', $classification) ?? 1)
+                    * (
+                        (float)(self::paramFloor($params, 'sprint_duration_seconds', $classification) ?? 0)
+                        + 90
+                    ) / 60.0,
+            'plyometric_hill_circuits' =>
+                (float)(self::paramFloor($params, 'circuit_count', $classification) ?? 1)
+                    * (
+                        (float)(self::paramFloor($params, 'hill_sprint_duration_seconds', $classification) ?? 0)
+                        + 90
+                    ) / 60.0,
+            'continuous_progression_tempo' =>
+                (float)(self::paramFloor($params, 'continuous_work_minutes', $classification) ?? 0),
+            'equal_distance_repeats', 'mixed_distance_repeats', 'short_speed_repeats' =>
+                $this->minimumDistanceSessionMainMinutes($archetype, $classification, $phase, $goalDistance),
+            default => null,
+        };
+    }
+
+    private function minimumFartlekLadderMinutes(array $params, string $classification): float
+    {
+        $rounds = (float)(self::paramFloor($params, 'round_count', $classification) ?? 1);
+        $patterns = $params['work_intervals_seconds']['allowed_patterns'] ?? [
+            [90, 60, 30],
+            [60, 120, 180, 240],
+            [60, 120, 180, 120, 60],
+            [60, 30, 15],
+        ];
+        $shortestPattern = null;
+        foreach ($patterns as $pattern) {
+            if (!is_array($pattern)) continue;
+            $sum = array_sum(array_map('intval', $pattern));
+            if ($shortestPattern === null || $sum < $shortestPattern) {
+                $shortestPattern = $sum;
+            }
+        }
+        $intervalSeconds = $shortestPattern ?? 180;
+        return $rounds * 2 * $intervalSeconds / 60.0;
+    }
+
+    private function minimumDistanceSessionMainMinutes(
+        array $archetype, string $classification, string $phase, string $goalDistance
+    ): ?float {
+        $params = $archetype['parameters'] ?? [];
+        $meters = self::paramFloor($params, 'quality_volume_meters', $classification);
+
+        $repCount = self::paramFloor($params, 'rep_count', $classification);
+        $repDist  = self::paramFloor($params, 'rep_distance_meters', $classification);
+        if ($repCount !== null && $repDist !== null) {
+            $meters = max((float)($meters ?? 0), (float)$repCount * (float)$repDist);
+        }
+
+        if ($meters === null || (float)$meters <= 0) return null;
+
+        $effort      = $this->minimumDistanceEffort($archetype, $phase, $goalDistance);
+        $workMinutes = self::estimateMinutesForMeters((float)$meters, $effort, $classification, $goalDistance);
+
+        $recoveryModel = $archetype['generation']['recovery_model'] ?? '';
+        $recovery      = 0.0;
+        if ($recoveryModel === 'vo2_standard') {
+            // Jogging recoveries are part of the session footprint. At this
+            // minimum-estimate layer, use a 1:1 work:recovery relationship.
+            $recovery = $workMinutes;
+        } elseif ($recoveryModel === 'speed_standard' && $repCount !== null) {
+            // Speed repetitions use generous movement recovery; approximate the
+            // minimum session footprint as 90 seconds per rep.
+            $recovery = (float)$repCount * 90 / 60.0;
+        }
+
+        return $workMinutes + $recovery;
+    }
+
+    private function minimumDistanceEffort(array $archetype, string $phase, string $goalDistance): string
+    {
+        $params = $archetype['parameters'] ?? [];
+
+        if (isset($params['target_effort']['default'])) return (string)$params['target_effort']['default'];
+        if (!empty($params['target_effort']['allowed_values'][0])) return (string)$params['target_effort']['allowed_values'][0];
+        if (!empty($params['effort_zone']['allowed_values'][0])) return (string)$params['effort_zone']['allowed_values'][0];
+        if (!empty($params['effort_zones']['allowed_values'][0])) return (string)$params['effort_zones']['allowed_values'][0];
+
+        if (($archetype['effort_mapping']['model'] ?? null) === 'goal_distance_adjusted') {
+            return match($goalDistance) {
+                '5K'      => $phase === 'peak' ? '5K' : '10K',
+                '10K'     => $phase === 'peak' ? '10K' : 'threshold',
+                'half'    => $phase === 'peak' ? 'half_marathon' : 'threshold',
+                'marathon'=> 'marathon',
+                default   => 'threshold',
+            };
+        }
+
+        return '5K';
+    }
+
+    private static function estimateMinutesForMeters(
+        float $meters, string $effort, string $classification, string $goalDistance
+    ): float {
+        $pace = self::paceForEffort($effort, $classification, $goalDistance);
+        return ($meters / 1609.34) * $pace;
+    }
+
+    private static function paceForEffort(string $effort, string $classification, string $goalDistance): float
+    {
+        $cls = $classification === 'well_trained' ? 'well_trained' : 'workable';
+
+        $quality = [
+            'well_trained' => [
+                '5K' => [5.5, 7.5], '10K' => [6.0, 8.0], 'half' => [6.5, 8.5], 'marathon' => [7.0, 9.0],
+            ],
+            'workable' => [
+                '5K' => [7.5, 10.5], '10K' => [8.0, 11.0], 'half' => [8.5, 12.0], 'marathon' => [9.5, 13.0],
+            ],
+        ];
+        $easy = [
+            'well_trained' => [
+                '5K' => [7.5, 10.5], '10K' => [8.0, 11.0], 'half' => [8.5, 11.5], 'marathon' => [9.0, 12.0],
+            ],
+            'workable' => [
+                '5K' => [9.5, 13.5], '10K' => [10.0, 14.0], 'half' => [10.5, 14.0], 'marathon' => [11.0, 14.5],
+            ],
+        ];
+
+        $normalized = strtolower(str_replace([' ', '-'], '_', $effort));
+        $distanceKey = match ($normalized) {
+            'marathon', 'marathon_pace' => 'marathon',
+            'half', 'half_marathon', 'threshold', 'tempo' => 'half',
+            '10k' => '10K',
+            '5k', '3k', 'mile', '800', 'repetition' => '5K',
+            'easy', 'recovery' => 'easy',
+            default => $goalDistance,
+        };
+
+        $source = $distanceKey === 'easy' ? $easy[$cls] : $quality[$cls];
+        $range  = $distanceKey === 'easy'
+            ? ($source[$goalDistance] ?? $source['5K'])
+            : ($source[$distanceKey] ?? $source[$goalDistance] ?? $source['5K']);
+
+        return ($range[0] + $range[1]) / 2;
+    }
+
+    private static function paramFloor(array $params, string $key, string $classification): mixed
+    {
+        if (!isset($params[$key]) || !is_array($params[$key])) return null;
+        $spec = $params[$key];
+
+        if (isset($spec[$classification]['min'])) return $spec[$classification]['min'];
+        if (isset($spec['workable']['min'])) return $spec['workable']['min'];
+        if (isset($spec['well_trained']['min'])) return $spec['well_trained']['min'];
+        if (isset($spec['min'])) return $spec['min'];
+        if (isset($spec['default'])) return $spec['default'];
+        if (!empty($spec['allowed_values']) && is_array($spec['allowed_values'])) {
+            $numeric = array_filter($spec['allowed_values'], 'is_numeric');
+            if (!empty($numeric)) return min($numeric);
+            return $spec['allowed_values'][0];
+        }
+
+        return null;
     }
 
     /**

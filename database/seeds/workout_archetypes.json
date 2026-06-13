@@ -72,7 +72,9 @@
       "duration_source": "easy_run_duration",
       "progression_model": "duration_from_weekly_volume",
       "recovery_model": null,
-      "intensity_factor": 0.5
+      "intensity_factor": 0.5,
+      "minimum_session_duration_minutes": 30,
+      "minimum_duration_notes": "Minimum continuous easy duration from duration_minutes floor."
     },
     "variants": [
       {
@@ -230,7 +232,9 @@
       "duration_source": "easy_run_duration",
       "progression_model": "duration_from_weekly_volume",
       "recovery_model": null,
-      "intensity_factor": 0.55
+      "intensity_factor": 0.55,
+      "minimum_session_duration_minutes": 30,
+      "minimum_duration_notes": "Minimum session duration remains the easy-run floor; strides occur inside the final stride window."
     },
     "variants": [
       {
@@ -416,7 +420,9 @@
       "duration_source": "long_run_duration",
       "progression_model": "weekly_volume_driven",
       "recovery_model": null,
-      "intensity_factor": 0.8
+      "intensity_factor": 0.8,
+      "minimum_session_duration_minutes": 60,
+      "minimum_duration_notes": "Minimum continuous long-run duration from duration_minutes floor."
     },
     "variants": [
       {
@@ -546,7 +552,9 @@
       "duration_source": "long_run_duration",
       "progression_model": "long_run_progression",
       "recovery_model": null,
-      "intensity_factor": 0.9
+      "intensity_factor": 0.9,
+      "minimum_session_duration_minutes": 70,
+      "minimum_duration_notes": "Minimum progression long-run duration from duration_minutes floor."
     },
     "variants": [
       {
@@ -689,7 +697,9 @@
       "duration_source": null,
       "progression_model": "goal_pace_segment_expansion",
       "recovery_model": null,
-      "intensity_factor": 1.05
+      "intensity_factor": 1.05,
+      "minimum_session_duration_minutes": 60,
+      "minimum_duration_notes": "Long-run archetype; minimum footprint follows long-run absolute floor until segment-specific floors are added."
     },
     "variants": [
       {
@@ -827,7 +837,9 @@
       "duration_source": "long_run_duration",
       "progression_model": "finish_segment_expansion",
       "recovery_model": null,
-      "intensity_factor": 1.0
+      "intensity_factor": 1.0,
+      "minimum_session_duration_minutes": 70,
+      "minimum_duration_notes": "Minimum fast-finish long-run duration from duration_minutes floor."
     },
     "variants": [
       {
@@ -986,7 +998,9 @@
       "duration_source": "quality_session_duration",
       "progression_model": "ladder_volume_and_rounds",
       "recovery_model": "fartlek_interval_recovery",
-      "intensity_factor": 0.7
+      "intensity_factor": 0.7,
+      "minimum_session_duration_minutes": 61,
+      "minimum_duration_notes": "Canonical minimum for a viable ladder session across variants: warmup/cooldown plus a coach-meaningful ladder main set with jog recoveries."
     },
     "variants": [
       {
@@ -1250,7 +1264,9 @@
       "duration_source": "quality_session_duration",
       "progression_model": "volume_expansion",
       "recovery_model": "vo2_standard",
-      "intensity_factor": 1.0
+      "intensity_factor": 1.0,
+      "minimum_session_duration_minutes": 55,
+      "minimum_duration_notes": "Estimated from minimum quality volume at assigned repeat effort, jog recoveries, 15 min warmup, and 10 min cooldown."
     },
     "variants": [
       {
@@ -1453,7 +1469,9 @@
       "duration_source": "quality_session_duration",
       "progression_model": "mixed_interval_volume_expansion",
       "recovery_model": "vo2_standard",
-      "intensity_factor": 1.05
+      "intensity_factor": 1.05,
+      "minimum_session_duration_minutes": 60,
+      "minimum_duration_notes": "Estimated from minimum mixed-repeat quality volume at assigned efforts, jog recoveries, 15 min warmup, and 10 min cooldown."
     },
     "variants": [
       {
@@ -1648,7 +1666,9 @@
       "duration_source": "quality_session_duration",
       "progression_model": "speed_volume_expansion",
       "recovery_model": "speed_standard",
-      "intensity_factor": 0.95
+      "intensity_factor": 0.95,
+      "minimum_session_duration_minutes": 40,
+      "minimum_duration_notes": "Estimated from minimum speed volume, generous movement recoveries, 15 min warmup, and 10 min cooldown."
     },
     "variants": [
       {
@@ -1851,7 +1871,9 @@
       "duration_source": "quality_session_duration",
       "progression_model": "hill_repeat_volume_expansion",
       "recovery_model": "hill_standard",
-      "intensity_factor": 0.7
+      "intensity_factor": 0.7,
+      "minimum_session_duration_minutes": 31,
+      "minimum_duration_notes": "Minimum viable hill session: 15 min warmup + 4 x 45 sec uphill with equal jog-back recovery + 10 min cooldown."
     },
     "effort_mapping": {
       "model": "goal_distance_adjusted",
@@ -2073,7 +2095,9 @@
       "duration_source": "quality_session_duration",
       "progression_model": "sprint_count_expansion",
       "recovery_model": "full_walkback_recovery",
-      "intensity_factor": 0.7
+      "intensity_factor": 0.7,
+      "minimum_session_duration_minutes": 40,
+      "minimum_duration_notes": "Minimum viable hill sprint session: 20 min warmup + 6 x 8 sec sprints with full walk-back recovery + 10 min cooldown."
     },
     "effort_mapping": {
       "model": "neuromuscular",
@@ -2275,7 +2299,9 @@
       "duration_source": "quality_session_duration",
       "progression_model": "circuit_expansion",
       "recovery_model": "full_recovery_between_circuits",
-      "intensity_factor": 0.6
+      "intensity_factor": 0.6,
+      "minimum_session_duration_minutes": 37,
+      "minimum_duration_notes": "Minimum viable plyometric hill circuit session with warmup, cooldown, and movement recovery between circuits."
     },
     "effort_mapping": {
       "model": "neuromuscular",
@@ -2479,7 +2505,9 @@
       "duration_source": "quality_session_duration",
       "progression_model": "threshold_volume_expansion",
       "recovery_model": "threshold_standard",
-      "intensity_factor": 0.85
+      "intensity_factor": 0.85,
+      "minimum_session_duration_minutes": 37,
+      "minimum_duration_notes": "Minimum tempo interval session: 15 min warmup + 2 x 6 min tempo + 10 min cooldown."
     },
     "effort_mapping": {
       "model": "goal_distance_adjusted",
@@ -2685,7 +2713,9 @@
       "duration_source": "quality_session_duration",
       "progression_model": "continuous_tempo_expansion",
       "recovery_model": null,
-      "intensity_factor": 0.9
+      "intensity_factor": 0.9,
+      "minimum_session_duration_minutes": 45,
+      "minimum_duration_notes": "Minimum progression tempo: 15 min warmup + 20 min continuous work + 10 min cooldown."
     },
     "effort_mapping": {
       "model": "goal_distance_adjusted",
@@ -2867,7 +2897,9 @@
       "duration_source": "long_run_duration",
       "progression_model": "pickup_count_and_duration_expansion",
       "recovery_model": "return_to_easy_between_pickups",
-      "intensity_factor": 0.85
+      "intensity_factor": 0.85,
+      "minimum_session_duration_minutes": 60,
+      "minimum_duration_notes": "Minimum pickup long-run duration from duration_minutes floor; pickups occur within the long run."
     },
     "effort_mapping": {
       "model": "goal_distance_adjusted",
@@ -3062,7 +3094,9 @@
       "duration_source": "quality_session_duration",
       "progression_model": "time_interval_volume_expansion",
       "recovery_model": "short_float_recovery",
-      "intensity_factor": 1.0
+      "intensity_factor": 1.0,
+      "minimum_session_duration_minutes": 52,
+      "minimum_duration_notes": "Minimum high-volume interval session: 15 min warmup + 12 x 90/45 sec + 10 min cooldown."
     },
     "effort_mapping": {
       "model": "goal_distance_adjusted",
