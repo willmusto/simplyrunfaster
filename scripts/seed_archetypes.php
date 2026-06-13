@@ -883,6 +883,9 @@ $archetypes = [
             'progression_model'  => 'speed_volume_expansion',
             'recovery_model'     => 'speed_standard',
             'intensity_factor'   => 0.95,
+            'minimum_session_duration_minutes' => 40,
+            'minimum_duration_notes' => 'Estimated from minimum speed volume, generous movement recoveries, 15 min warmup, and 10 min cooldown.',
+            'minimum_viable_params' => ['rep_count' => 4],
         ],
         'variants' => [
             ['code' => 'economy_200s',       'name' => 'Economy 200s'],
@@ -896,7 +899,7 @@ $archetypes = [
             'cooldown_minutes'      => ['type' => 'integer', 'min' => 10, 'max' => 15],
             'rep_distance_meters'   => ['type' => 'integer', 'allowed_values' => [60, 80, 100, 150, 200, 300, 400], 'default' => 200],
             'rep_count'             => ['type' => 'integer', 'workable' => ['min' => 4, 'max' => 10],  'well_trained' => ['min' => 6, 'max' => 16]],
-            'effort_zone'           => ['type' => 'enum',    'allowed_values' => ['repetition', 'mile', '800']],
+            'effort_zone'           => ['type' => 'enum',    'allowed_values' => ['repetition', 'mile', '800'], 'default' => 'repetition'],
             'quality_volume_meters' => ['type' => 'integer', 'workable' => ['min' => 800, 'max' => 2400], 'well_trained' => ['min' => 1200, 'max' => 4000]],
         ],
         'structure_template' => [

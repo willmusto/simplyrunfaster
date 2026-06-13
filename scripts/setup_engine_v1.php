@@ -50,7 +50,10 @@ if (empty($cols)) {
 try {
     $db->exec("ALTER TABLE engine_flags MODIFY COLUMN flag_type ENUM(
         'missed_workouts','hr_elevated','load_spike','compliance_low',
-        'plan_rebuild_needed','insufficient_base'
+        'plan_rebuild_needed','compliance_trend','compliance_pattern',
+        'excessive_fatigue','fitness_decline','taper_concern',
+        'insufficient_base','return_to_running_discomfort',
+        'limited_development_opportunity','display_generation_incomplete'
     )");
     echo "  ✓ Updated engine_flags.flag_type enum\n";
 } catch (PDOException $e) {

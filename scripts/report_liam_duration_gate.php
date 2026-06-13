@@ -137,6 +137,10 @@ if ($planId) {
     echo "\nDuration consistency:\n";
     $issues = countDurationMismatches($db, $planId);
     echo "  target_duration/sum-of-parts mismatches: {$issues}\n";
+
+    $displayFlags = countDisplayGenerationFlags($db, $athleteId, $planId);
+    echo "\nDisplay validation:\n";
+    echo "  display_generation_incomplete flags for plan {$planId}: {$displayFlags}\n";
 }
 
 function decodeArchetype(array $row): array
@@ -294,6 +298,28 @@ function countDurationMismatches(PDO $db, int $planId): int
     return $issues;
 }
 
+function countDisplayGenerationFlags(PDO $db, int $athleteId, int $planId): int
+{
+    $stmt = $db->prepare(
+        "SELECT details
+         FROM engine_flags
+         WHERE athlete_id = ?
+           AND flag_type = 'display_generation_incomplete'
+           AND status = 'open'"
+    );
+    $stmt->execute([$athleteId]);
+
+    $count = 0;
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $details = json_decode($row['details'] ?? '{}', true) ?? [];
+        if ((int)($details['plan_id'] ?? 0) === $planId) {
+            $count++;
+        }
+    }
+
+    return $count;
+}
+
 function countMinimumViableViolations(PDO $db, int $planId, array $archetypes): int
 {
     $minimums = [];
@@ -311,6 +337,7 @@ function countMinimumViableViolations(PDO $db, int $planId, array $archetypes): 
         'tempo_intervals' => ['rep_count' => 2],
         'continuous_progression_tempo' => ['continuous_work_minutes' => 15],
         'equal_distance_repeats' => ['rep_count' => 3],
+        'short_speed_repeats' => ['rep_count' => 4],
         'high_volume_time_intervals' => ['rep_count' => 6],
         'structured_fartlek_ladder' => ['round_count' => 1],
     ];

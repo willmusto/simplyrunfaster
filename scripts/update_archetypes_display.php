@@ -20,7 +20,12 @@ $updates = [
     'short_speed_repeats' => [
         'parameters_patch' => function (array $params): array {
             $params['rep_distance_meters']['default'] = 200;
+            $params['effort_zone']['default'] = 'repetition';
             return $params;
+        },
+        'generation_patch' => function (array $generation): array {
+            $generation['minimum_viable_params'] = ['rep_count' => 4];
+            return $generation;
         },
         'display_patch' => function (array $display): array {
             $display['title_template']       = '{{rep_count}} × {{rep_distance_meters}}m';
@@ -54,9 +59,9 @@ $updates = [
 
 ];
 
-$fetchStmt  = $pdo->prepare('SELECT display, parameters FROM workout_archetypes WHERE code = :code LIMIT 1');
+$fetchStmt  = $pdo->prepare('SELECT display, parameters, generation FROM workout_archetypes WHERE code = :code LIMIT 1');
 $updateStmt = $pdo->prepare(
-    'UPDATE workout_archetypes SET display = :display, parameters = :parameters WHERE code = :code'
+    'UPDATE workout_archetypes SET display = :display, parameters = :parameters, generation = :generation WHERE code = :code'
 );
 
 foreach ($updates as $code => $patches) {
@@ -70,6 +75,7 @@ foreach ($updates as $code => $patches) {
 
     $display    = json_decode($row['display'],    true) ?? [];
     $parameters = json_decode($row['parameters'], true) ?? [];
+    $generation = json_decode($row['generation'], true) ?? [];
 
     if (isset($patches['display_patch'])) {
         $display = ($patches['display_patch'])($display);
@@ -77,10 +83,14 @@ foreach ($updates as $code => $patches) {
     if (isset($patches['parameters_patch'])) {
         $parameters = ($patches['parameters_patch'])($parameters);
     }
+    if (isset($patches['generation_patch'])) {
+        $generation = ($patches['generation_patch'])($generation);
+    }
 
     $updateStmt->execute([
         ':display'    => json_encode($display,    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ':parameters' => json_encode($parameters, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ':generation' => json_encode($generation, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ':code'       => $code,
     ]);
 

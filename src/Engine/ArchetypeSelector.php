@@ -231,6 +231,8 @@ class ArchetypeSelector
 
             if (isset($spec['default'])) {
                 $resolved[$key] = $spec['default'];
+            } elseif (!empty($spec['allowed_values']) && is_array($spec['allowed_values'])) {
+                $resolved[$key] = $spec['allowed_values'][0];
             } elseif (isset($spec['min'])) {
                 $resolved[$key] = $spec['min'];
             } else {

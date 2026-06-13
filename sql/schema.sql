@@ -354,7 +354,9 @@ CREATE TABLE IF NOT EXISTS `engine_flags` (
                         'missed_workouts','hr_elevated','load_spike','compliance_low',
                         'plan_rebuild_needed','compliance_trend','compliance_pattern',
                         'excessive_fatigue','fitness_decline','taper_concern',
-                        'insufficient_base','return_to_running_discomfort'
+                        'insufficient_base','return_to_running_discomfort',
+                        'limited_development_opportunity','long_run_day_conflict',
+                        'display_generation_incomplete'
                     ) NOT NULL,
     `severity`      ENUM('info','warning','critical') NOT NULL DEFAULT 'info',
     `flag_date`     DATE NOT NULL,

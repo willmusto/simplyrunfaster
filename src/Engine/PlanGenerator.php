@@ -71,6 +71,7 @@ class PlanGenerator
         'tempo_intervals'               => ['rep_count' => 2],
         'continuous_progression_tempo'  => ['continuous_work_minutes' => 15],
         'equal_distance_repeats'        => ['rep_count' => 3],
+        'short_speed_repeats'           => ['rep_count' => 4],
         'high_volume_time_intervals'    => ['rep_count' => 6],
         'structured_fartlek_ladder'     => ['round_count' => 1],
     ];
@@ -149,6 +150,7 @@ class PlanGenerator
         };
 
         if ($planId) {
+            self::validateGeneratedDisplays($planId, $athleteId, $db);
             self::createApprovalQueueEntry($planId, $athleteId, $trigger, $db);
         }
 
@@ -971,6 +973,10 @@ class PlanGenerator
         if (empty($params['rep_distance_meters']) && !empty($params['rep_count']) && !empty($params['quality_volume_meters'])) {
             $params['rep_distance_meters'] = (int)round($params['quality_volume_meters'] / $params['rep_count'] / 10) * 10;
         }
+        if ($archetype['code'] === 'short_speed_repeats') {
+            $params['rep_distance_meters'] = (int)($params['rep_distance_meters'] ?? 200);
+            $params['effort_zone'] = $params['effort_zone'] ?? 'repetition';
+        }
 
         // total_distance: quality volume in miles for distance-based workouts.
         // Computed after fit-to-slot capping so rep_count reflects the capped value.
@@ -1281,7 +1287,7 @@ class PlanGenerator
         $tokens = array_merge($params, [
             'variant_name'           => $variantName,
             'variant'                => $variantCode,
-            'generated_workout_title'=> $archetype['name'] ?? '',
+            'generated_workout_title'=> $archetype['name'] ?? $archetype['metadata']['name'] ?? '',
         ]);
 
         return preg_replace_callback('/\{\{(\w+)\}\}/', function ($m) use ($tokens) {
@@ -1310,6 +1316,93 @@ class PlanGenerator
         return trim(preg_replace('/\s+/', ' ', $instructions));
     }
 
+    private static function validateGeneratedDisplays(int $planId, int $athleteId, PDO $db): void
+    {
+        $stmt = $db->prepare(
+            'SELECT scheduled_date, workout_type, archetype_code, archetype_params,
+                    display_title, display_summary, athlete_instructions
+             FROM planned_workouts
+             WHERE plan_id = ? AND archetype_code IS NOT NULL'
+        );
+        $stmt->execute([$planId]);
+
+        $issues = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $text = trim(implode(' ', array_filter([
+                $row['display_title'] ?? '',
+                $row['display_summary'] ?? '',
+                $row['athlete_instructions'] ?? '',
+            ])));
+
+            $reasons = [];
+            if (preg_match('/\{\{\w+\}\}/', $text)) {
+                $reasons[] = 'unresolved_template_token';
+            }
+
+            $params = json_decode($row['archetype_params'] ?? '{}', true);
+            if (!is_array($params)) $params = [];
+
+            if (
+                self::qualityDisplayExpectsNumbers((string)($row['workout_type'] ?? ''), (string)($row['archetype_code'] ?? ''), $params)
+                && !preg_match('/\d/', $text)
+            ) {
+                $reasons[] = 'numeric_quality_display_has_no_digits';
+            }
+
+            if (!empty($reasons)) {
+                $issues[] = [
+                    'date' => $row['scheduled_date'],
+                    'archetype_code' => $row['archetype_code'],
+                    'display_title' => $row['display_title'],
+                    'reasons' => $reasons,
+                ];
+            }
+        }
+
+        if (empty($issues)) return;
+
+        $count = count($issues);
+        $sample = array_slice($issues, 0, 5);
+        self::raiseFlag(
+            $athleteId,
+            'display_generation_incomplete',
+            'warning',
+            "Plan {$planId} has {$count} workout display(s) with incomplete generated text. Review before approval.",
+            $db,
+            ['plan_id' => $planId, 'issues' => $sample],
+            false
+        );
+    }
+
+    private static function qualityDisplayExpectsNumbers(string $workoutType, string $code, array $params): bool
+    {
+        $qualityTypes = ['interval', 'tempo', 'hill', 'fartlek', 'speed'];
+        $numericKeys = [
+            'rep_count', 'sprint_count', 'round_count', 'circuit_count',
+            'continuous_work_minutes', 'rep_duration_seconds', 'rep_duration_minutes',
+            'work_duration_seconds', 'recovery_duration_seconds', 'rep_distance_meters',
+            'rep_distance_miles', 'quality_volume_meters',
+        ];
+        $numericArchetypes = [
+            'equal_distance_repeats', 'mixed_distance_repeats', 'short_speed_repeats',
+            'sustained_hill_repeats', 'hill_sprints', 'tempo_intervals',
+            'continuous_progression_tempo', 'high_volume_time_intervals',
+            'structured_fartlek_ladder', 'plyometric_hill_circuits',
+        ];
+
+        if (!in_array($workoutType, $qualityTypes, true) && !in_array($code, $numericArchetypes, true)) {
+            return false;
+        }
+
+        foreach ($numericKeys as $key) {
+            if (isset($params[$key]) && $params[$key] !== '' && $params[$key] !== null) {
+                return true;
+            }
+        }
+
+        return in_array($code, $numericArchetypes, true);
+    }
+
     /**
      * Render all {{token}} placeholders in the structure_template (deep, recursive).
      * Returns the resolved structure array or null if there is no structure template.
@@ -1326,7 +1419,7 @@ class PlanGenerator
         $tokens = array_merge($params, [
             'variant_name'           => $variantName,
             'variant'                => $variantCode,
-            'generated_workout_title'=> $archetype['name'] ?? '',
+            'generated_workout_title'=> $archetype['name'] ?? $archetype['metadata']['name'] ?? '',
         ]);
 
         return self::deepRenderTokens($tpl, $tokens);
@@ -1555,19 +1648,22 @@ class PlanGenerator
     }
 
     private static function raiseFlag(
-        int $athleteId, string $flagType, string $severity, string $message, PDO $db
+        int $athleteId, string $flagType, string $severity, string $message, PDO $db,
+        ?array $details = null, bool $dedupeOpen = true
     ): void {
-        $check = $db->prepare(
-            'SELECT id FROM engine_flags WHERE athlete_id = ? AND flag_type = ? AND status = "open" LIMIT 1'
-        );
-        $check->execute([$athleteId, $flagType]);
-        if ($check->fetch()) return;
+        if ($dedupeOpen) {
+            $check = $db->prepare(
+                'SELECT id FROM engine_flags WHERE athlete_id = ? AND flag_type = ? AND status = "open" LIMIT 1'
+            );
+            $check->execute([$athleteId, $flagType]);
+            if ($check->fetch()) return;
+        }
 
         $db->prepare(
             'INSERT INTO engine_flags
-             (athlete_id, flag_type, severity, flag_date, message, status, created_at)
-             VALUES (?, ?, ?, CURDATE(), ?, "open", NOW())'
-        )->execute([$athleteId, $flagType, $severity, $message]);
+             (athlete_id, flag_type, severity, flag_date, details, message, status, created_at)
+             VALUES (?, ?, ?, CURDATE(), ?, ?, "open", NOW())'
+        )->execute([$athleteId, $flagType, $severity, $details ? json_encode($details) : null, $message]);
     }
 
     // ── Utility ──────────────────────────────────────────────────────────────
