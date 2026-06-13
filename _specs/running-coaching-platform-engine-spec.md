@@ -172,6 +172,26 @@ Classification is based on **combination of weekly mileage and length of running
 - Week shape unchanged: still 1 long run, 1 primary workout, easy days — everything dials back proportionally
 - Cutback weeks do not count against phase progression — the following week resumes building
 
+### Honest-Duration-Aware Slot Allocation
+
+`insertWeekWorkouts()` allocates a week's `weeklyMins` across long, quality, and easy slots so that the **sum of each workout's stored `target_duration` equals `weeklyMins`** (exactly, for weeks with a single easy slot; within rounding for multi-easy-slot weeks). The allocation order matters because quality `target_duration` is the honest sum-of-parts (warmup + main + cooldown), which can exceed the nominal quality work budget (see §18.7):
+
+1. **Long** — floor-based: `max(longFloor 60, min(floor(weeklyMins × 0.28), maxLongRun × 1.15, weeklyMins × 0.35))`. At development-plan volumes the 60-min floor binds.
+2. **Quality** — resolved *before* easy. Each quality slot is selected and its parameters resolved, producing its honest `target_duration` via `computeActualDuration()`. The nominal quality work budget (`qualMins = max(30, min(40, round(weeklyMins × 0.20)))`) is the `targetMinutes` passed to fit-to-slot capping, not the stored duration.
+3. **Easy** — distributes the remainder: `easyMins = clamp(easyFloor, easyCap, floor((weeklyMins − longMins×longCount − actualQualityMins) / easyCount))`.
+
+Computing `easyMins` from the *actual* resolved quality duration (rather than the nominal `qualMins`) is what keeps stored weekly totals equal to the generator's targets. Resolving quality before easy is a reordering from the original date-ordered single pass; quality instances are cached and reused so anti-repeat history is updated exactly once per slot.
+
+**`max_quality_duration` budget (week-allocation-level gate).** To guarantee `easyMins ≥ easyFloor` and prevent total overshoot, each quality slot carries a budget:
+
+```
+perSlotQualBudget = floor((weeklyMins − longMins×longCount − easyFloor×easyCount) / qualCount)
+```
+
+A quality candidate whose honest `computeActualDuration()` exceeds this budget is rejected at selection time (in `resolveSlotInstance`, alongside the minimum-viable check) and the next eligible candidate is tried, falling through ultimately to `continuous_easy`. Continuous archetypes have a null actual duration and are never budget-rejected, so `continuous_easy` is always an available fallback. This is the upper-bound counterpart to `minimum_viable_params` (a lower bound on main-set structure), operating at the week-allocation level rather than archetype-internally.
+
+**Consequence for `short_speed_repeats` at low volume.** `short_speed_repeats` resolves to a fixed ~43-min honest footprint (15 warmup + 7×(67+90)/60 main + 10 cooldown) with no fit-to-slot cap. It is therefore admitted only when `perSlotQualBudget ≥ 43`, i.e. (for a single-quality, single-easy, 60-min-long week) `weeklyMins ≥ 133`. Cutback weeks (≈121–123) and post-cutback rebuild weeks (≈130–132) fall below this threshold and **reliably** exclude `short_speed_repeats` in favour of a `continuous_easy` quality-slot fallback — this is now deterministic, not the coincidental anti-repeat-driven exclusion it was before the budget was added. On the higher-volume weeks where the budget admits it (cycle peaks/pre-peaks, ≈140–154), actual placement is weighted-random and interacts with the soft-penalty and the thin low-volume quality pool (§19 item 11): a quality slot may still fall back to `continuous_easy` when the draw exhausts its attempts on archetypes that cap below minimum-viable. The total/floor guarantees hold for every draw regardless of which archetype fills the slot.
+
 ### Coach-Set Peak Volume Ceiling
 - Each athlete profile has a `peak_volume_ceiling` field (in minutes per week, consistent with time-on-feet philosophy)
 - Default value derived from onboarding data: current weekly time on feet × 1.4 (conservative multiplier)
@@ -806,7 +826,7 @@ The remaining five archetypes (`continuous_easy`, `continuous_long`, `progressio
 
 A `normalizeInstructionText()` post-render pass handles any DB rows that still carry the pre-import hardcoded template: it replaces the old quarter/halfway/three-quarter text with the conditional string when `rep_count < 4`, and leaves it untouched when `rep_count ≥ 4`.
 
-**All 17 archetypes now produce instance-specific `display_title` and `athlete_instructions`, and render a populated distance or time range in `display_summary`.** plan_id=24 (Liam's development plan, regenerated 2026-06-13) is the first plan produced under the fully corrected engine — display completeness, duration honesty (sum-of-parts `target_duration` covering all 9 derivable archetypes), eligibility gating, minimum-viable-params, post-generation display validation, volume progression (0.80× cutback ratio, uninterrupted ×1.08 build resumption after each cutback), warmup/cooldown description completeness across all 10 structured archetypes, and correct `workout_type` for all continuous_easy fallback variants (standard_easy→easy, recovery_easy→recovery, regardless of which slot type triggered selection) — all in place together, with zero violations across all categories.
+**All 17 archetypes now produce instance-specific `display_title` and `athlete_instructions`, and render a populated distance or time range in `display_summary`.** plan_id=26 (Liam's development plan, regenerated 2026-06-13) is the first plan produced under the fully corrected engine — display completeness, duration honesty (sum-of-parts `target_duration` covering all 9 derivable archetypes), honest-duration-aware slot allocation (stored weekly totals equal generator targets, every easy slot ≥ floor — see §6), eligibility gating, minimum-viable-params, post-generation display validation, volume progression (0.80× cutback ratio, uninterrupted ×1.08 build resumption after each cutback), warmup/cooldown description completeness across all 10 structured archetypes, and correct `workout_type` for all continuous_easy fallback variants (standard_easy→easy, recovery_easy→recovery, regardless of which slot type triggered selection) — all in place together, with zero violations across all categories.
 
 ---
 
