@@ -682,13 +682,12 @@ class PlanGenerator
             $params      = $instance['resolved_params'] ?? [];
             $structure   = self::resolveStructure($instance);
 
-            // Prefer the resolved variant's workout_type when it's more specific than the
-            // slot default — specifically, recovery_easy variant must store as 'recovery'
-            // even when it is selected as a fallback for a quality or easy slot.
+            // When a variant specifies workout_type, use it — regardless of which slot type
+            // triggered selection. This ensures continuous_easy's standard_easy variant
+            // stores workout_type='easy' (not 'interval') when filling a quality-slot fallback,
+            // and recovery_easy stores 'recovery' in any context.
             $variantWorkoutType = $instance['resolved_variant']['workout_type'] ?? null;
-            $workoutType = ($variantWorkoutType === 'recovery')
-                ? 'recovery'
-                : (self::SLOT_WORKOUT_TYPE[$slotType] ?? 'easy');
+            $workoutType        = $variantWorkoutType ?? (self::SLOT_WORKOUT_TYPE[$slotType] ?? 'easy');
             $variantIF       = $instance['resolved_variant']['intensity_factor'] ?? null;
             $intensityFactor = (float)($variantIF ?? $instance['generation']['intensity_factor'] ?? 0.5);
             // Use actual sum-of-parts (warmup + main + cooldown) as the stored duration so
