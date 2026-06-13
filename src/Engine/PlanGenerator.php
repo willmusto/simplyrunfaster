@@ -817,17 +817,21 @@ class PlanGenerator
         $result       = null;
         $cutoffHard   = date('Y-m-d', strtotime($scheduledDate . " -{$hardDays} days"));
 
+        $DBG = (getenv('SRF_DEBUG_QUAL') === '1') && in_array($slotType, ['quality_primary','quality_secondary'], true);
+        if ($DBG) error_log("QUAL $scheduledDate tgt=$targetMinutes budget=" . ($constraints['max_quality_duration'] ?? 'n/a') . " penalized=[" . implode(',', array_unique($penalized)) . "]");
+
         for ($attempt = 0; $attempt < 4; $attempt++) {
             $candidate = $selector->selectForSlot(
                 $selectorSlot, $phase, $goalDistance, $classification, $planType,
                 $constraints, array_unique($excludeCodes), array_unique($penalized)
             );
 
-            if ($candidate === null) break;
+            if ($candidate === null) { if ($DBG) error_log("  a$attempt: selectForSlot=NULL"); break; }
 
             // Pick variant and resolve derived parameters
             $candidate = self::addDerivedParams($candidate, $targetMinutes, $phase, $goalDistance, $classification);
             if (self::isBelowMinimumViableInstance($candidate)) {
+                if ($DBG) error_log("  a$attempt: {$candidate['code']} DOOMED(min-viable)");
                 $excludeCodes[] = $candidate['code'];
                 continue;
             }
@@ -840,6 +844,7 @@ class PlanGenerator
             if ($maxQualDur !== null && in_array($slotType, ['quality_primary', 'quality_secondary'], true)) {
                 $actualDur = self::computeActualDuration($candidate);
                 if ($actualDur !== null && $actualDur > $maxQualDur) {
+                    if ($DBG) error_log("  a$attempt: {$candidate['code']} BUDGET-REJECT (dur=$actualDur > $maxQualDur)");
                     $excludeCodes[] = $candidate['code'];
                     continue;
                 }
@@ -856,12 +861,15 @@ class PlanGenerator
             }
 
             if (!$hardBlocked) {
+                if ($DBG) error_log("  a$attempt: {$candidate['code']}/{$candidate['resolved_variant']['code']} ACCEPTED sig=$sig");
                 $result = $candidate;
                 break;
             }
 
+            if ($DBG) error_log("  a$attempt: {$candidate['code']}/{$candidate['resolved_variant']['code']} HARD-BLOCK sig=$sig");
             $excludeSigs[] = $sig;
         }
+        if ($DBG && $result === null) error_log("  -> FALLBACK continuous_easy");
 
         // Final fallback: continuous_easy
         if ($result === null) {
