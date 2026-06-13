@@ -486,6 +486,8 @@ Coaches see:
 
 Coach accounts are tagged `role = coach` in `users`. A coach can be assigned to multiple athletes. An athlete has one assigned coach.
 
+**Plan week display — partial first/last weeks:** The coach dashboard and approval calendar group workouts into Mon–Sun calendar weeks. When a plan starts on a day other than Monday (the default: plans start on Sunday, the long-run day), the first UI week contains only the workouts falling within that Mon–Sun window — typically just Sunday's long run. The last UI week is similarly partial if the plan ends before Saturday. This is expected display behavior, not a generation artifact: the underlying plan generator computes volume per internal code-week (7-day blocks from plan start), but the UI groups by calendar week. A plan starting Sunday June 14 will show UI week 1 as a single long run (60 min) and UI week 2 as the first full 3-day training week.
+
 Coach dashboard also includes:
 - In-app messaging thread per athlete (see Section 14)
 - Push notification controls (see Section 15)
