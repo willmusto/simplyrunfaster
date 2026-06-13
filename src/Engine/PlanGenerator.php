@@ -62,6 +62,19 @@ class PlanGenerator
         'race'              => 'race',
     ];
 
+    // Minimum post-capping structure required for athlete-facing instructions
+    // to remain coherent. If a slot is too short to preserve these minima, the
+    // archetype is rejected for that slot and the selector retries.
+    const MIN_VIABLE_INSTANCE_PARAMS = [
+        'sustained_hill_repeats'        => ['rep_count' => 3],
+        'hill_sprints'                  => ['sprint_count' => 4],
+        'tempo_intervals'               => ['rep_count' => 2],
+        'continuous_progression_tempo'  => ['continuous_work_minutes' => 15],
+        'equal_distance_repeats'        => ['rep_count' => 3],
+        'high_volume_time_intervals'    => ['rep_count' => 6],
+        'structured_fartlek_ladder'     => ['round_count' => 1],
+    ];
+
     /** @var array|null Cached engine settings from config/engine_settings.php. */
     private static ?array $settings = null;
 
@@ -660,6 +673,7 @@ class PlanGenerator
             $title        = self::renderTemplate($display['title_template'] ?? '', $instance);
             $summary      = self::renderTemplate($display['summary_template'] ?? '', $instance);
             $instructions = self::renderTemplate($display['description_template'] ?? '', $instance);
+            $instructions = self::normalizeInstructionText($instructions, $instance);
 
             $sig         = self::computeInstanceSignature($instance);
             $variantCode = $instance['resolved_variant']['code'] ?? null;
@@ -739,20 +753,25 @@ class PlanGenerator
         // Effective slot type for selector (recovery maps to easy archetype slot)
         $selectorSlot = $slotType === 'recovery' ? 'easy' : $slotType;
 
-        $excludeSigs = [];
-        $result      = null;
-        $cutoffHard  = date('Y-m-d', strtotime($scheduledDate . " -{$hardDays} days"));
+        $excludeSigs  = [];
+        $excludeCodes = [];
+        $result       = null;
+        $cutoffHard   = date('Y-m-d', strtotime($scheduledDate . " -{$hardDays} days"));
 
         for ($attempt = 0; $attempt < 4; $attempt++) {
             $candidate = $selector->selectForSlot(
                 $selectorSlot, $phase, $goalDistance, $classification, $planType,
-                $constraints, [], array_unique($penalized)
+                $constraints, array_unique($excludeCodes), array_unique($penalized)
             );
 
             if ($candidate === null) break;
 
             // Pick variant and resolve derived parameters
             $candidate = self::addDerivedParams($candidate, $targetMinutes, $phase, $goalDistance, $classification);
+            if (self::isBelowMinimumViableInstance($candidate)) {
+                $excludeCodes[] = $candidate['code'];
+                continue;
+            }
 
             // Block by signature only — not by archetype code — so that other
             // variants of the same archetype remain eligible in subsequent attempts.
@@ -788,6 +807,24 @@ class PlanGenerator
         $antiRepeatHistory['codes'][$result['code']][] = $scheduledDate;
 
         return $result;
+    }
+
+    private static function isBelowMinimumViableInstance(array $archetype): bool
+    {
+        $code = $archetype['code'] ?? '';
+        $minimums = $archetype['generation']['minimum_viable_params']
+            ?? self::MIN_VIABLE_INSTANCE_PARAMS[$code]
+            ?? null;
+        if ($minimums === null) return false;
+
+        $params = $archetype['resolved_params'] ?? [];
+        foreach ($minimums as $key => $minimum) {
+            if ((float)($params[$key] ?? 0) < (float)$minimum) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Resolve a specific archetype by code with derived params applied. */
@@ -913,12 +950,21 @@ class PlanGenerator
                     $params['sprint_count'] = min((int)($params['sprint_count'] ?? 1), $maxReps);
                 }
                 break;
+            case 'equal_distance_repeats':
+                // Minimum real-world rep cycle estimate for measured repeats:
+                // one work rep plus jogging recovery. This cap prevents tiny
+                // quality slots from producing "1 x repeat" interval sessions.
+                $maxReps = max(1, (int)floor($available / 3));
+                $params['rep_count'] = min((int)($params['rep_count'] ?? 1), $maxReps);
+                break;
             case 'continuous_progression_tempo':
                 if (!empty($params['continuous_work_minutes']) && (int)$params['continuous_work_minutes'] > $available) {
                     $params['continuous_work_minutes'] = max(10, $available);
                 }
                 break;
         }
+
+        $params = self::addConditionalInstructionParams($archetype['code'], $params);
 
         // Derive rep_distance_meters from quality_volume_meters/rep_count when not directly
         // resolvable (e.g. equal_distance_repeats stores rep_distance as allowed_values only)
@@ -997,6 +1043,50 @@ class PlanGenerator
 
         $archetype['resolved_params'] = $params;
         return $archetype;
+    }
+
+    private static function addConditionalInstructionParams(string $code, array $params): array
+    {
+        switch ($code) {
+            case 'sustained_hill_repeats':
+                $repCount = (int)($params['rep_count'] ?? 0);
+                if ($repCount >= 4) {
+                    $params['checkpoint_recovery_instruction'] =
+                        'At the quarter, halfway, and three-quarter points of the workout, take 45-90 seconds standing recovery if you need it.';
+                } elseif ($repCount >= 3) {
+                    $params['checkpoint_recovery_instruction'] =
+                        'If you need extra recovery, take one short 45-90 second standing reset around halfway.';
+                } else {
+                    $params['checkpoint_recovery_instruction'] = '';
+                }
+                break;
+
+            case 'hill_sprints':
+                $params['sprint_recovery_instruction'] = ((int)($params['sprint_count'] ?? 0) > 1)
+                    ? 'Walk back down and recover fully before the next one.'
+                    : 'Walk back down, recover fully, then cool down.';
+                break;
+
+            case 'tempo_intervals':
+                $params['tempo_recovery_instruction'] = ((int)($params['rep_count'] ?? 0) > 1)
+                    ? 'Recover easily between segments and focus on rhythm and consistency.'
+                    : 'Settle into rhythm and keep the effort controlled from start to finish.';
+                break;
+
+            case 'equal_distance_repeats':
+                $params['repeat_consistency_instruction'] = ((int)($params['rep_count'] ?? 0) > 1)
+                    ? 'Focus on even pacing and maintaining quality from the first rep to the last.'
+                    : 'Focus on controlled, efficient mechanics for the full rep.';
+                break;
+
+            case 'high_volume_time_intervals':
+                $params['cumulative_volume_instruction'] = ((int)($params['rep_count'] ?? 0) >= 6)
+                    ? 'The cumulative volume is the point.'
+                    : 'Keep the effort controlled and stop before form breaks down.';
+                break;
+        }
+
+        return $params;
     }
 
     /**
@@ -1200,6 +1290,24 @@ class PlanGenerator
             $v = $tokens[$key];
             return is_array($v) ? implode(', ', $v) : (string)$v;
         }, $template);
+    }
+
+    private static function normalizeInstructionText(string $instructions, array $archetype): string
+    {
+        if (($archetype['code'] ?? '') !== 'sustained_hill_repeats') {
+            return trim($instructions);
+        }
+
+        $params = $archetype['resolved_params'] ?? [];
+        $repCount = (int)($params['rep_count'] ?? 0);
+        $oldQuarterText = 'At the quarter, halfway, and three-quarter points of the workout, take 45-90 seconds standing recovery if you need it.';
+        $oldQuarterTextUtf = 'At the quarter, halfway, and three-quarter points of the workout, take 45–90 seconds standing recovery if you need it.';
+        $replacement = $params['checkpoint_recovery_instruction'] ?? '';
+        if ($repCount < 4) {
+            $instructions = str_replace([$oldQuarterText, $oldQuarterTextUtf], $replacement, $instructions);
+        }
+
+        return trim(preg_replace('/\s+/', ' ', $instructions));
     }
 
     /**

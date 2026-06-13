@@ -1000,7 +1000,10 @@
       "recovery_model": "fartlek_interval_recovery",
       "intensity_factor": 0.7,
       "minimum_session_duration_minutes": 61,
-      "minimum_duration_notes": "Canonical minimum for a viable ladder session across variants: warmup/cooldown plus a coach-meaningful ladder main set with jog recoveries."
+      "minimum_duration_notes": "Canonical minimum for a viable ladder session across variants: warmup/cooldown plus a coach-meaningful ladder main set with jog recoveries.",
+      "minimum_viable_params": {
+        "round_count": 1
+      }
     },
     "variants": [
       {
@@ -1174,7 +1177,7 @@
       "show_time_range": false,
       "title_template": "{{variant_name}}",
       "summary_template": "{{duration_minutes}} min · {{distance_range}}",
-      "description_template": "A structured fartlek session with faster running broken into a ladder. Run the longer efforts controlled and the shorter efforts a little quicker. Recover easily between each one."
+      "description_template": "{{round_count}} x {{fartlek_ladder_sequence}} fartlek ladder with equal easy recovery. Run the longer efforts controlled and the shorter efforts a little quicker. Recover easily between each one."
     },
     "instance_signature": {
       "fields": [
@@ -1266,7 +1269,10 @@
       "recovery_model": "vo2_standard",
       "intensity_factor": 1.0,
       "minimum_session_duration_minutes": 55,
-      "minimum_duration_notes": "Estimated from minimum quality volume at assigned repeat effort, jog recoveries, 15 min warmup, and 10 min cooldown."
+      "minimum_duration_notes": "Estimated from minimum quality volume at assigned repeat effort, jog recoveries, 15 min warmup, and 10 min cooldown.",
+      "minimum_viable_params": {
+        "rep_count": 3
+      }
     },
     "variants": [
       {
@@ -1379,7 +1385,7 @@
       "show_time_range": true,
       "title_template": "{{rep_count}} × {{rep_distance_meters}}m",
       "summary_template": "{{total_distance}} miles · {{time_range}}",
-      "description_template": "Run each repeat at a consistent controlled effort. Focus on even pacing and maintaining quality from the first rep to the last."
+      "description_template": "{{rep_count}} x {{rep_distance_meters}}m. Run each repeat at a consistent controlled effort. {{repeat_consistency_instruction}}"
     },
     "instance_signature": {
       "fields": [
@@ -1873,7 +1879,10 @@
       "recovery_model": "hill_standard",
       "intensity_factor": 0.7,
       "minimum_session_duration_minutes": 31,
-      "minimum_duration_notes": "Minimum viable hill session: 15 min warmup + 4 x 45 sec uphill with equal jog-back recovery + 10 min cooldown."
+      "minimum_duration_notes": "Minimum viable hill session: 15 min warmup + 4 x 45 sec uphill with equal jog-back recovery + 10 min cooldown.",
+      "minimum_viable_params": {
+        "rep_count": 3
+      }
     },
     "effort_mapping": {
       "model": "goal_distance_adjusted",
@@ -1998,7 +2007,7 @@
       "show_time_range": false,
       "title_template": "{{rep_count}} × {{rep_duration_seconds}} sec Hill Repeats",
       "summary_template": "{{duration_minutes}} min · {{distance_range}}",
-      "description_template": "Find a sustained runnable hill, ideally around 4–8% grade. Run each uphill repeat at the assigned effort while keeping your mechanics strong. Jog back down easily after each rep. At the quarter, halfway, and three-quarter points of the workout, take 45–90 seconds standing recovery if you need it."
+      "description_template": "{{rep_count}} x {{rep_duration_seconds}} sec uphill on a runnable 4-8% hill. Run each uphill repeat at the assigned effort while keeping your mechanics strong. Jog back down easily after each rep. {{checkpoint_recovery_instruction}}"
     },
     "instance_signature": {
       "fields": [
@@ -2097,7 +2106,10 @@
       "recovery_model": "full_walkback_recovery",
       "intensity_factor": 0.7,
       "minimum_session_duration_minutes": 40,
-      "minimum_duration_notes": "Minimum viable hill sprint session: 20 min warmup + 6 x 8 sec sprints with full walk-back recovery + 10 min cooldown."
+      "minimum_duration_notes": "Minimum viable hill sprint session: 20 min warmup + 6 x 8 sec sprints with full walk-back recovery + 10 min cooldown.",
+      "minimum_viable_params": {
+        "sprint_count": 4
+      }
     },
     "effort_mapping": {
       "model": "neuromuscular",
@@ -2204,7 +2216,7 @@
       "show_time_range": false,
       "title_template": "{{sprint_count}} × {{sprint_duration_seconds}} sec Hill Sprints",
       "summary_template": "{{duration_minutes}} min · {{distance_range}}",
-      "description_template": "Find a short, steep hill. Sprint uphill hard but controlled for {{sprint_duration_seconds}} seconds, then walk back down and recover fully before the next one. These are about power and mechanics, not getting tired."
+      "description_template": "{{sprint_count}} x {{sprint_duration_seconds}} sec uphill sprints on a short, steep hill. Sprint uphill hard but controlled. {{sprint_recovery_instruction}} These are about power and mechanics, not getting tired."
     },
     "instance_signature": {
       "fields": [
@@ -2507,7 +2519,10 @@
       "recovery_model": "threshold_standard",
       "intensity_factor": 0.85,
       "minimum_session_duration_minutes": 37,
-      "minimum_duration_notes": "Minimum tempo interval session: 15 min warmup + 2 x 6 min tempo + 10 min cooldown."
+      "minimum_duration_notes": "Minimum tempo interval session: 15 min warmup + 2 x 6 min tempo + 10 min cooldown.",
+      "minimum_viable_params": {
+        "rep_count": 2
+      }
     },
     "effort_mapping": {
       "model": "goal_distance_adjusted",
@@ -2622,7 +2637,7 @@
       "show_time_range": true,
       "title_template": "{{generated_workout_title}}",
       "summary_template": "{{total_distance}} miles · {{time_range}}",
-      "description_template": "Run each tempo segment at a comfortably hard effort that you could sustain for roughly an hour of racing. Recover easily between segments and focus on rhythm and consistency."
+      "description_template": "{{rep_count}} x {{rep_duration_minutes}} min tempo reps at comfortably hard effort. {{tempo_recovery_instruction}}"
     },
     "instance_signature": {
       "fields": [
@@ -2715,7 +2730,10 @@
       "recovery_model": null,
       "intensity_factor": 0.9,
       "minimum_session_duration_minutes": 45,
-      "minimum_duration_notes": "Minimum progression tempo: 15 min warmup + 20 min continuous work + 10 min cooldown."
+      "minimum_duration_notes": "Minimum progression tempo: 15 min warmup + 20 min continuous work + 10 min cooldown.",
+      "minimum_viable_params": {
+        "continuous_work_minutes": 15
+      }
     },
     "effort_mapping": {
       "model": "goal_distance_adjusted",
@@ -3096,7 +3114,10 @@
       "recovery_model": "short_float_recovery",
       "intensity_factor": 1.0,
       "minimum_session_duration_minutes": 52,
-      "minimum_duration_notes": "Minimum high-volume interval session: 15 min warmup + 12 x 90/45 sec + 10 min cooldown."
+      "minimum_duration_notes": "Minimum high-volume interval session: 15 min warmup + 12 x 90/45 sec + 10 min cooldown.",
+      "minimum_viable_params": {
+        "rep_count": 6
+      }
     },
     "effort_mapping": {
       "model": "goal_distance_adjusted",
@@ -3193,7 +3214,7 @@
       "show_time_range": false,
       "title_template": "{{rep_count}} × {{work_duration_seconds}} sec On / {{recovery_duration_seconds}} sec Off",
       "summary_template": "{{duration_minutes}} min · {{distance_range}}",
-      "description_template": "A high-volume time-based workout. Run the on segments at a controlled hard effort and keep the recoveries easy enough to maintain rhythm. The cumulative volume is the point."
+      "description_template": "{{rep_count}} x {{work_duration_seconds}} sec on / {{recovery_duration_seconds}} sec off. Run the on segments at a controlled hard effort and keep the recoveries easy enough to maintain rhythm. {{cumulative_volume_instruction}}"
     },
     "instance_signature": {
       "fields": [

@@ -120,6 +120,7 @@ if ($planId) {
     printf("%-12s | %-28s | %-22s | %-4s | %s\n", 'date', 'archetype', 'variant', 'dur', 'title');
     echo str_repeat('-', 96) . "\n";
     foreach ($quality as $w) {
+        $params = json_decode($w['archetype_params'] ?? '{}', true) ?? [];
         printf(
             "%-12s | %-28s | %-22s | %-4d | %s\n",
             $w['scheduled_date'],
@@ -129,6 +130,9 @@ if ($planId) {
             $w['display_title'] ?? ''
         );
     }
+
+    $minimumViolations = countMinimumViableViolations($db, $planId, $archetypes);
+    echo "\nMinimum viable quality structure violations: {$minimumViolations}\n";
 
     echo "\nDuration consistency:\n";
     $issues = countDurationMismatches($db, $planId);
@@ -288,4 +292,51 @@ function countDurationMismatches(PDO $db, int $planId): int
     }
 
     return $issues;
+}
+
+function countMinimumViableViolations(PDO $db, int $planId, array $archetypes): int
+{
+    $minimums = [];
+    foreach ($archetypes as $a) {
+        $code = $a['code'] ?? '';
+        $params = $a['generation']['minimum_viable_params'] ?? null;
+        if ($code && is_array($params)) {
+            $minimums[$code] = $params;
+        }
+    }
+
+    $fallbacks = [
+        'sustained_hill_repeats' => ['rep_count' => 3],
+        'hill_sprints' => ['sprint_count' => 4],
+        'tempo_intervals' => ['rep_count' => 2],
+        'continuous_progression_tempo' => ['continuous_work_minutes' => 15],
+        'equal_distance_repeats' => ['rep_count' => 3],
+        'high_volume_time_intervals' => ['rep_count' => 6],
+        'structured_fartlek_ladder' => ['round_count' => 1],
+    ];
+    $minimums += $fallbacks;
+
+    $stmt = $db->prepare(
+        "SELECT scheduled_date, archetype_code, archetype_params
+         FROM planned_workouts
+         WHERE plan_id = ? AND archetype_code IS NOT NULL"
+    );
+    $stmt->execute([$planId]);
+
+    $violations = 0;
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $code = $row['archetype_code'] ?? '';
+        if (!isset($minimums[$code])) continue;
+
+        $params = json_decode($row['archetype_params'] ?? '{}', true) ?? [];
+        foreach ($minimums[$code] as $key => $minimum) {
+            if ((float)($params[$key] ?? 0) < (float)$minimum) {
+                $violations++;
+                echo "  violation: {$row['scheduled_date']} {$code} {$key}="
+                    . ($params[$key] ?? 'null') . " < {$minimum}\n";
+            }
+        }
+    }
+
+    return $violations;
 }
