@@ -666,7 +666,7 @@ A workout archetype is a parameterized workout type stored in the `workout_arche
 
 **Minimum viable parameter rejection (per-slot, post-capping):** A second rejection path operates inside the same retry loop, after `addDerivedParams` applies fit-to-slot capping. `isBelowMinimumViableInstance()` checks the capped values against `minimum_viable_params` thresholds stored in `generation.minimum_viable_params` (falling back to `MIN_VIABLE_INSTANCE_PARAMS` in `PlanGenerator` for DB rows not yet updated from seed). If any threshold is violated, the archetype is rejected **by code** for that slot attempt — all variants excluded for the remaining attempts — because the constraint is structural: the slot is too short for any viable instance of that archetype regardless of variant. Code-level exclusion is correct here and intentionally distinct from anti-repeat blocking, which is always signature-scoped.
 
-Seven archetypes define minimum viable thresholds:
+Eight archetypes define minimum viable thresholds:
 
 | Archetype | Minimum viable threshold |
 |---|---|
@@ -675,6 +675,7 @@ Seven archetypes define minimum viable thresholds:
 | `tempo_intervals` | `rep_count ≥ 2` |
 | `continuous_progression_tempo` | `continuous_work_minutes ≥ 15` |
 | `equal_distance_repeats` | `rep_count ≥ 3` |
+| `short_speed_repeats` | `rep_count ≥ 4` |
 | `high_volume_time_intervals` | `rep_count ≥ 6` |
 | `structured_fartlek_ladder` | `round_count ≥ 1` |
 
@@ -703,6 +704,8 @@ The minimum viable gate is downstream of the duration eligibility gate: the dura
 Example: `rep_duration_seconds` for `sustained_hill_repeats`, workable classification, {45, 120} range → midpoint 83 → rounds to **90 sec**.
 
 Integer parameters without the `_seconds` suffix are resolved to the raw nearest-integer midpoint. Float parameters round to 2 decimal places.
+
+**Enum parameter resolution fallback:** When a parameter's spec defines `allowed_values` but no classification `{min, max}` range and no explicit `default`, there is no midpoint to compute. `resolveParameters()` falls back to `allowed_values[0]` for these parameters (checked after `default`, before `min`). This was the root cause of `short_speed_repeats` rendering generic boilerplate: `effort_zone` (`allowed_values: [repetition, mile, 800]`, no range, no default prior to the fix) resolved to null, and the `{{effort_zone}}` token in the description template rendered as an empty string. The fix was two-pronged: add the `allowed_values[0]` fallback in `resolveParameters()`, and update the description template to use the static string "near-sprint effort" rather than a token that resolves to Daniels-terminology content ("repetition effort" — prohibited in athlete-facing text per §1). See §18.7 for the corrected template.
 
 **Special-case parameter derivations in `addDerivedParams`**
 
@@ -796,7 +799,20 @@ The remaining five archetypes (`continuous_easy`, `continuous_long`, `progressio
 
 A `normalizeInstructionText()` post-render pass handles any DB rows that still carry the pre-import hardcoded template: it replaces the old quarter/halfway/three-quarter text with the conditional string when `rep_count < 4`, and leaves it untouched when `rep_count ≥ 4`.
 
-**All 17 archetypes now produce instance-specific `display_title` and `athlete_instructions`, and render a populated distance or time range in `display_summary`.** plan_id=18 (Liam's development plan, regenerated 2026-06-12) is the first plan produced under the fully corrected engine — display completeness, duration honesty, eligibility gating, and minimum-viable-params all in place together, with zero violations across all categories.
+**All 17 archetypes now produce instance-specific `display_title` and `athlete_instructions`, and render a populated distance or time range in `display_summary`.** plan_id=19 (Liam's development plan, regenerated 2026-06-12) is the first plan produced under the fully corrected engine — display completeness, duration honesty, eligibility gating, minimum-viable-params, and post-generation display validation all in place together, with zero violations across all categories.
+
+---
+
+### 18.8 Post-Generation Display Validation
+
+`PlanGenerator::validateGeneratedDisplays()` runs after every plan generation, before the plan is written to the approval queue. It scans every `planned_workouts` row for the new plan where `archetype_code IS NOT NULL` and checks two conditions:
+
+1. **Unresolved template tokens:** any `{{word}}` pattern remaining in the concatenated `display_title`, `display_summary`, or `athlete_instructions` text.
+2. **Numeric-archetype display with no digits:** for workouts with a quality `workout_type` (`interval`, `tempo`, `hill`, `fartlek`, `speed`) or any of the 10 archetypes in the explicit `numericArchetypes` list (`equal_distance_repeats`, `mixed_distance_repeats`, `short_speed_repeats`, `sustained_hill_repeats`, `hill_sprints`, `tempo_intervals`, `continuous_progression_tempo`, `high_volume_time_intervals`, `structured_fartlek_ladder`, `plyometric_hill_circuits`), the combined display text must contain at least one digit.
+
+If either condition is violated for any workout in the plan, a `display_generation_incomplete` engine flag is raised for the athlete. This flag is **not deduped by open status** — each plan generation raises its own flag independently, because display completeness is plan-specific (an earlier open flag from a prior generation does not suppress a flag for the new plan).
+
+This is the systemic safety net for any future archetype resolution regression: if a new parameter is added to an archetype's template without a corresponding default or resolution path, the validation pass will catch it before the coach sees the plan rather than surfacing as blank or malformed display text to athletes.
 
 ---
 
@@ -822,9 +838,9 @@ These items are intentionally deferred and must be resolved before the relevant 
 
 9. **Distance range precision** — `computeDistanceRange()` treats all non-hill main-set time as equivalent to flat easy pace for distance estimation. For intervals and tempo sessions, this overstates the likely range (athletes cover less distance per minute during hard structured efforts than easy running). A structured-effort pace table for quality sessions is a future refinement.
 
-10. **`short_speed_repeats` variant display uniformity** — Variants `speed_300s`, `economy_200s`, `speed_endurance_400s`, `broken_speed_set`, and `speed_endurance_600s` currently all resolve to the same display title format (e.g. `7 × 200m`) for a workable athlete. Confirm whether this is correct: variant names likely describe effort targets or training emphasis rather than different rep distances — all variants may prescribe 200m reps but at different intensities or with different recovery structures, which would make uniform titles correct. If variants are instead meant to prescribe different rep distances, the `rep_distance_meters` parameter or per-variant `display.title_template` overrides are the fix. Needs a quick review of each variant's JSON definition in the `workout_archetypes` table.
+10. **`short_speed_repeats` variant display uniformity** — Variants `speed_300s`, `economy_200s`, `speed_endurance_400s`, `broken_speed_set`, and `speed_endurance_600s` currently all resolve to the same display title format (e.g. `7 × 200m`) for a workable athlete. Confirm whether this is correct: variant names likely describe effort targets or training emphasis rather than different rep distances — all variants may prescribe 200m reps but at different intensities or with different recovery structures, which would make uniform titles correct. If variants are instead meant to prescribe different rep distances, the `rep_distance_meters` parameter or per-variant `display.title_template` overrides are the fix. Needs a quick review of each variant's JSON definition in the `workout_archetypes` table. **Interaction with item 11:** For low-volume athletes where `short_speed_repeats` fills most or all quality slots, whether variants prescribe different rep distances or the same distance with different effort targets becomes more consequential — uniform display titles across variants make weeks of `short_speed_repeats` visually indistinguishable in the plan view even if the underlying training stimulus genuinely varies. Review items 10 and 11 together.
 
-11. **Low-volume athlete quality pool variety** *(low priority — monitor with real athlete data)* — For athletes with ~30-minute quality slots (roughly `current_weekly_minutes ≈ 130`), `short_speed_repeats` may be the only consistently eligible quality archetype after the duration gate and minimum-viable-params gate together exclude archetypes requiring substantial warmup/cooldown time (e.g. `tempo_intervals` needs 15 + 2×10 + 10 = 45 min minimum; `sustained_hill_repeats` needs ≥ 35 min for three reps). Anti-repeat blocking then exhausts the five `short_speed_repeats` variants, and later-plan quality slots fall back to `continuous_easy`. This is philosophically consistent with the Hart-influenced speed-development principle underlying the engine — short speed reps are a legitimate primary quality stimulus at low training volume — but warrants monitoring as real athlete feedback comes in. If variety proves insufficient, options include: a reduced-footprint "starter" tier of quality archetypes designed for shorter slots, adjusted warmup/cooldown floors for lower-volume athletes, or widening the anti-repeat soft-penalty window to allow variant reuse sooner.
+11. **Low-volume athlete quality pool variety** *(low priority — monitor with real athlete data)* — For athletes with ~30-minute quality slots (roughly `current_weekly_minutes ≈ 130`), `short_speed_repeats` may be the only consistently eligible quality archetype after the duration gate and minimum-viable-params gate together exclude archetypes requiring substantial warmup/cooldown time (e.g. `tempo_intervals` needs 15 + 2×10 + 10 = 45 min minimum; `sustained_hill_repeats` needs ≥ 35 min for three reps). Anti-repeat blocking then exhausts the five `short_speed_repeats` variants, and later-plan quality slots fall back to `continuous_easy`. This is philosophically consistent with the Hart-influenced speed-development principle underlying the engine — short speed reps are a legitimate primary quality stimulus at low training volume — but warrants monitoring as real athlete feedback comes in. If variety proves insufficient, options include: a reduced-footprint "starter" tier of quality archetypes designed for shorter slots, adjusted warmup/cooldown floors for lower-volume athletes, or widening the anti-repeat soft-penalty window to allow variant reuse sooner. *See also item 10 (variant display uniformity) — the two items interact most strongly at low training volumes where `short_speed_repeats` dominates the quality pool.*
 
 ---
 
