@@ -609,17 +609,32 @@ class PlanGenerator
             $maxLongRun = max($maxLongRun, $longMins);
         }
 
-        // Quality: 20% of weekly, hard-capped at 30–40 min
+        // Quality: 20% of weekly, hard-capped at 30–40 min. This is the quality WORK budget
+        // (the targetMinutes passed to selection / fit-to-slot capping), not the full session
+        // footprint — the honest sum-of-parts duration (warmup + main + cooldown) can exceed it.
         $qualMins = $qualCount > 0 ? max(30, min(40, (int)round($weeklyMins * 0.20))) : 0;
 
-        // Easy: distribute remainder, bounded by engine settings
         $easyFloor = $s['easy_run_min_minutes'] ?? 20;
         $easyCap   = $s['easy_run_max_minutes'] ?? 70;
-        $easyMins  = $easyFloor;
-        if ($easyCount > 0) {
-            $used     = $longMins * $longCount + $qualMins * $qualCount;
-            $easyMins = max($easyFloor, min($easyCap, (int)floor(($weeklyMins - $used) / $easyCount)));
+
+        // Per-quality-slot honest-duration budget: the most a quality session may actually
+        // occupy (warmup + main + cooldown) while still leaving every easy slot at or above its
+        // floor and keeping the week's stored total at the weekly target. A quality archetype
+        // whose resolved sum-of-parts duration exceeds this is rejected at selection time (see
+        // resolveSlotInstance's max_quality_duration check), falling through the eligible pool
+        // to continuous_easy. Without this, a quality slot resolving to its honest duration
+        // (e.g. short_speed_repeats at 43 min) on a low-volume week would push easyMins below
+        // the floor and overshoot the weekly target. Computed at the week-allocation level —
+        // similar in spirit to minimum_viable_params but bounding from above rather than below.
+        $perSlotQualBudget = PHP_INT_MAX;
+        if ($qualCount > 0) {
+            $easyReserve       = $easyFloor * $easyCount;
+            $perSlotQualBudget = (int)floor(($weeklyMins - $longMins * $longCount - $easyReserve) / $qualCount);
         }
+
+        // easyMins is computed after quality slots are resolved (see below) so the remainder
+        // reflects each quality slot's actual stored duration rather than the nominal qualMins.
+        $easyMins = $easyFloor;
 
         $insert = $db->prepare(
             'INSERT INTO planned_workouts
@@ -631,13 +646,53 @@ class PlanGenerator
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)'
         );
 
+        // Enumerate this week's training days (date + slot type), skipping rest and out-of-range.
+        $days = [];
         for ($d = 0; $d < 7; $d++) {
-            $date     = date('Y-m-d', strtotime($weekStart . " +{$d} days"));
+            $date = date('Y-m-d', strtotime($weekStart . " +{$d} days"));
             if ($date > $planEnd) continue;
-
             $dow      = (int)date('w', strtotime($date));
             $slotType = $schedule[$dow] ?? 'rest';
             if ($slotType === 'rest') continue;
+            $days[] = ['date' => $date, 'slot' => $slotType];
+        }
+
+        $qualSlots = ['quality_primary', 'quality_secondary'];
+
+        // Pass 1 — resolve quality slots first so their honest sum-of-parts durations are known
+        // before easyMins is computed. The max_quality_duration budget keeps each quality
+        // session small enough to leave the easy slots at/above their floor. Anti-repeat history
+        // is updated here; pass 2 reuses these cached instances rather than re-resolving.
+        $qualInstances     = [];
+        $actualQualityMins = 0;
+        foreach ($days as $day) {
+            if (!in_array($day['slot'], $qualSlots, true)) continue;
+            $slotConstraints = $constraints + [
+                'weekly_minutes'             => $weeklyMins,
+                'min_duration_week_fraction' => (float)($s['quality_min_duration_week_fraction'] ?? 0.40),
+                'max_quality_duration'       => $perSlotQualBudget,
+            ];
+            $instance = self::resolveSlotInstance(
+                $day['slot'], $phase, $goalDistance, $classification, $planType,
+                $slotConstraints, $antiRepeatHistory, $qualMins, $day['date'],
+                $db, $selector
+            );
+            $qualInstances[$day['date']] = $instance;
+            if ($instance !== null) {
+                $actualQualityMins += self::computeActualDuration($instance) ?? $qualMins;
+            }
+        }
+
+        // Easy: distribute the remainder after the resolved quality footprint, bounded by floor/cap.
+        if ($easyCount > 0) {
+            $used     = $longMins * $longCount + $actualQualityMins;
+            $easyMins = max($easyFloor, min($easyCap, (int)floor(($weeklyMins - $used) / $easyCount)));
+        }
+
+        // Pass 2 — insert every day's workout. Quality slots reuse the pass-1 instance.
+        foreach ($days as $day) {
+            $date     = $day['date'];
+            $slotType = $day['slot'];
 
             if ($slotType === 'race') {
                 $insert->execute([
@@ -657,16 +712,19 @@ class PlanGenerator
                 default                                 => $easyMins, // easy, easy_strides
             };
 
-            $slotConstraints = $constraints + [
-                'weekly_minutes' => $weeklyMins,
-                'min_duration_week_fraction' => (float)($s['quality_min_duration_week_fraction'] ?? 0.40),
-            ];
-
-            $instance = self::resolveSlotInstance(
-                $slotType, $phase, $goalDistance, $classification, $planType,
-                $slotConstraints, $antiRepeatHistory, $targetMinutes, $date,
-                $db, $selector
-            );
+            if (array_key_exists($date, $qualInstances)) {
+                $instance = $qualInstances[$date];
+            } else {
+                $slotConstraints = $constraints + [
+                    'weekly_minutes'             => $weeklyMins,
+                    'min_duration_week_fraction' => (float)($s['quality_min_duration_week_fraction'] ?? 0.40),
+                ];
+                $instance = self::resolveSlotInstance(
+                    $slotType, $phase, $goalDistance, $classification, $planType,
+                    $slotConstraints, $antiRepeatHistory, $targetMinutes, $date,
+                    $db, $selector
+                );
+            }
 
             if ($instance === null) continue;
 
@@ -772,6 +830,19 @@ class PlanGenerator
             if (self::isBelowMinimumViableInstance($candidate)) {
                 $excludeCodes[] = $candidate['code'];
                 continue;
+            }
+
+            // Week-allocation budget: reject a quality candidate whose honest sum-of-parts
+            // duration would exceed this slot's volume budget (which reserves the easy-slot
+            // floor). Continuous archetypes (null actual duration) are never rejected here, so
+            // continuous_easy remains the guaranteed final fallback. See insertWeekWorkouts.
+            $maxQualDur = $constraints['max_quality_duration'] ?? null;
+            if ($maxQualDur !== null && in_array($slotType, ['quality_primary', 'quality_secondary'], true)) {
+                $actualDur = self::computeActualDuration($candidate);
+                if ($actualDur !== null && $actualDur > $maxQualDur) {
+                    $excludeCodes[] = $candidate['code'];
+                    continue;
+                }
             }
 
             // Block by signature only — not by archetype code — so that other
