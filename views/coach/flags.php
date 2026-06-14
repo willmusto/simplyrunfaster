@@ -42,7 +42,10 @@ foreach ($flags as $f) {
                 <?php if ($flag['message']): ?>
                 <p class="body-text" style="margin:0 0 8px;"><?= h($flag['message']) ?></p>
                 <?php endif; ?>
-                <div style="font-size:11px;color:var(--text-muted);">
+                <?php if (($flag['flag_type'] ?? '') === 'profile_updated'): ?>
+                <?= render_profile_diff($flag['details'] ?? null) ?>
+                <?php endif; ?>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">
                     Raised <?= date('M j, Y', strtotime($flag['created_at'])) ?>
                 </div>
             </div>

@@ -926,6 +926,20 @@ All races are treated as full effort by the engine. No target effort distinction
 
 **Dismissal rationale:** A result that doesn't reflect actual fitness (bad day, illness, heat, deliberately conservative effort) should not automatically reset zones. Coach judgment call is the correct gate.
 
+### Pace Zone Provenance (`pace_zones_source`)
+Every populated `pace_zones` profile records how it was derived:
+- `race_result` — derived from a logged race / time trial. Framed as **verified**.
+- `easy_pace_estimate` — derived from the athlete's typical easy pace (engine spec
+  Section 2, pathway 2). Framed as **estimated** in the coach edit page. Automatically
+  replaced by a verified profile when a race result is logged and recalibration (above)
+  is approved.
+- `manual` — coach-entered override.
+
+The coach edit page surfaces this provenance ("Verified — race result" / "Estimated —
+easy pace" / "Manual — coach set" / "No zones yet"). The easy-pace estimate is refreshed
+when the athlete or coach updates the easy-pace range, but it never overwrites a
+`race_result` or `manual` profile.
+
 ### Pace Zone Visibility
 - Default: athlete can see their pace zones in the athlete-facing UI
 - Coach or admin can hide zones per athlete (`pace_zones_visible = false`)

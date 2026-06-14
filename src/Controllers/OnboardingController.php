@@ -119,6 +119,10 @@ class OnboardingController
         $_SESSION['onboarding_data']['most_recent_race_time']     = self::parseTimeToSeconds($_POST['recent_race_time'] ?? '');
         $_SESSION['onboarding_data']['most_recent_race_date']     = $_POST['recent_race_date'] ?? null;
 
+        // Easy-pace fallback (only meaningful when no race result was given).
+        $_SESSION['onboarding_data']['typical_easy_pace_min'] = ProfileForm::parsePace($_POST['typical_easy_pace_min'] ?? '');
+        $_SESSION['onboarding_data']['typical_easy_pace_max'] = ProfileForm::parsePace($_POST['typical_easy_pace_max'] ?? '');
+
         self::advance($step);
     }
 
@@ -235,6 +239,8 @@ class OnboardingController
             'most_recent_race_distance'  => $d['most_recent_race_distance'] ?: null,
             'most_recent_race_time'      => (int)($d['most_recent_race_time'] ?? 0) ?: null,
             'most_recent_race_date'      => $d['most_recent_race_date'] ?: null,
+            'typical_easy_pace_min'      => $d['typical_easy_pace_min'] ?? null,
+            'typical_easy_pace_max'      => $d['typical_easy_pace_max'] ?? null,
             'years_running'              => (float)($d['years_running'] ?? 0) ?: null,
             'peak_weekly_minutes'        => (int)($d['peak_weekly_minutes'] ?? 0) ?: null,
             'experience_level'           => $d['experience_level'] ?? 'intermediate',
@@ -285,6 +291,40 @@ class OnboardingController
                  )
              WHERE id = ?'
         )->execute([$userId, $athleteId]);
+
+        // ── Pace-zone derivation from onboarding inputs ───────────────────
+        // Race result takes precedence (verified); otherwise the typical easy
+        // pace gives an estimate. If neither exists, raise a coach info flag.
+        $raceTime = (int)($fields['most_recent_race_time'] ?? 0);
+        $raceDist = $fields['most_recent_race_distance'] ?? null;
+        $easyMin  = $fields['typical_easy_pace_min'] ?? null;
+        $easyMax  = $fields['typical_easy_pace_max'] ?? null;
+
+        $zones = null;
+        $source = null;
+        if ($raceTime > 0 && $raceDist) {
+            $zones  = PaceZones::fromRace($raceDist, $raceTime);
+            $source = 'race_result';
+        } elseif (!empty($easyMin)) {
+            $zones  = PaceZones::fromEasyPace((int)$easyMin, (int)($easyMax ?: $easyMin));
+            $source = 'easy_pace_estimate';
+        }
+
+        if ($zones) {
+            $db->prepare(
+                'UPDATE athlete_profiles SET pace_zones = ?, pace_zones_source = ? WHERE athlete_id = ?'
+            )->execute([json_encode($zones), $source, $athleteId]);
+        } else {
+            $first = explode(' ', trim($athlete['name'] ?? 'Athlete'))[0] ?: 'Athlete';
+            $db->prepare(
+                'INSERT INTO engine_flags
+                 (athlete_id, flag_type, severity, flag_date, message, status, created_at)
+                 VALUES (?, "pace_zones_missing", "info", CURDATE(), ?, "open", NOW())'
+            )->execute([
+                $athleteId,
+                "{$first} has no race result or typical easy pace on file — pace assignments can't be calculated yet.",
+            ]);
+        }
     }
 
     // ── Utility ────────────────────────────────────────────────

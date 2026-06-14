@@ -113,6 +113,72 @@ class CoachController
         include __DIR__ . '/../../views/layout/html_close.php';
     }
 
+    public static function editProfile(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db        = Database::get();
+        $coachId   = Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) {
+            http_response_code(404);
+            include __DIR__ . '/../../views/errors/404.php';
+            return;
+        }
+
+        $profile = Auth::getAthleteProfile($athleteId) ?? [];
+
+        $success = $_SESSION['flash_success'] ?? null;
+        $error   = $_SESSION['flash_error']   ?? null;
+        unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
+        $athletes         = self::getRosterAthletes($coachId, $db);
+        $openFlags        = self::getOpenFlagsCount($coachId, $db);
+        $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
+
+        $isCoach    = true;
+        $formAction = '/app/coach/athlete/' . $athleteId . '/edit';
+        $cancelUrl  = '/app/coach/athlete/' . $athleteId;
+
+        $pageTitle = h($athlete['name']) . ' — Edit Profile';
+        $activeNav = 'athletes';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_coach.php';
+        include __DIR__ . '/../../views/coach/edit_profile.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    public static function editProfileSave(array $params): void
+    {
+        Auth::requireRole(['coach','admin']);
+        Auth::verifyCsrf();
+
+        $db        = Database::get();
+        $coachId   = Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) {
+            header('Location: /app/coach/athletes');
+            exit;
+        }
+
+        $old = Auth::getAthleteProfile($athleteId) ?? [];
+        $new = ProfileForm::sanitize($_POST, true);
+
+        ProfileForm::save($athleteId, $old, $new, [
+            'actor_role'   => 'coach',
+            'athlete_name' => $athlete['name'],
+        ], $db);
+
+        $_SESSION['flash_success'] = 'Training profile updated.';
+        header('Location: /app/coach/athlete/' . $athleteId . '/edit');
+        exit;
+    }
+
     public static function generatePlan(array $params): void
     {
         Auth::requireRole(['coach','admin']);

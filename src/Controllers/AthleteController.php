@@ -313,6 +313,63 @@ class AthleteController
         exit;
     }
 
+    public static function trainingSettings(): void
+    {
+        Auth::requireRole('athlete');
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $athlete = Auth::getAthlete();
+        if (!$athlete || !$athlete['onboarding_completed_at']) {
+            header('Location: /app/onboarding');
+            exit;
+        }
+        $profile = Auth::getAthleteProfile((int)$athlete['id']) ?? [];
+
+        $success = $_SESSION['flash_success'] ?? null;
+        $error   = $_SESSION['flash_error']   ?? null;
+        unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
+        $db = Database::get();
+        $unreadMessages = self::getUnreadCount((int)$athlete['id'], $db);
+
+        $isCoach   = false;
+        $formAction = '/app/settings/training';
+        $cancelUrl  = '/app/settings';
+
+        $pageTitle = 'Training Settings';
+        $activeTab = 'settings';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_athlete.php';
+        include __DIR__ . '/../../views/athlete/training_settings.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    public static function trainingSettingsSave(): void
+    {
+        Auth::requireRole('athlete');
+        Auth::verifyCsrf();
+
+        $athlete = Auth::getAthlete();
+        if (!$athlete) {
+            header('Location: /app/settings');
+            exit;
+        }
+
+        $db        = Database::get();
+        $athleteId = (int)$athlete['id'];
+        $old       = Auth::getAthleteProfile($athleteId) ?? [];
+        $new       = ProfileForm::sanitize($_POST, false);
+
+        ProfileForm::save($athleteId, $old, $new, [
+            'actor_role'   => 'athlete',
+            'athlete_name' => $athlete['name'],
+        ], $db);
+
+        $_SESSION['flash_success'] = 'Training profile saved.';
+        header('Location: /app/settings/training');
+        exit;
+    }
+
     public static function messages(): void
     {
         Auth::requireRole('athlete');

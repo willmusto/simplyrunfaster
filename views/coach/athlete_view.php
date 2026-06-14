@@ -55,6 +55,9 @@ $today = date('Y-m-d');
             <?php if ($flag['message']): ?>
             <p class="body-text" style="margin:6px 0 0;"><?= h($flag['message']) ?></p>
             <?php endif; ?>
+            <?php if (($flag['flag_type'] ?? '') === 'profile_updated'): ?>
+            <?= render_profile_diff($flag['details'] ?? null) ?>
+            <?php endif; ?>
         </div>
         <?php endforeach; ?>
         <?php endif; ?>
@@ -164,6 +167,10 @@ $today = date('Y-m-d');
                     Generate Plan
                 </button>
             </form>
+            <a href="/app/coach/athlete/<?= (int)$athlete['id'] ?>/edit"
+               class="btn btn-secondary btn-full" style="margin-top:8px;">
+                Edit Training Profile
+            </a>
         </div>
 
         <!-- Training load -->

@@ -24,7 +24,27 @@ McMillan Running equivalency tables, implemented as internal math. Not attribute
 ### Inputs
 - Most recent race result (distance + time), OR
 - Coach-entered time trial result, OR
+- **Typical easy-pace range** (when no race/time-trial exists) — see "Derivation pathways" below, OR
 - Goal race pace (used for prescription targets, not fitness assessment)
+
+### Derivation pathways
+Three input pathways feed the **same** McMillan equivalency math (Riegel exponent
+1.06). They differ only in how the projection basis is established:
+1. **Race result / time trial** → projection basis is the performance itself.
+   `pace_zones_source = 'race_result'`.
+2. **Typical easy pace** (McMillan "project from a training pace" mode) → the entered
+   easy-pace range is converted to an equivalent marathon-pace velocity (easy pace is
+   treated as ~20% slower than marathon pace), which becomes the projection basis. This
+   is an *estimate*, framed as such in the UI. `pace_zones_source = 'easy_pace_estimate'`.
+3. **Manual coach override** → `pace_zones_source = 'manual'`.
+
+When a real race result later arrives, the Section 26 recalibration flow replaces the
+estimate and sets `pace_zones_source = 'race_result'` (verified). The easy-pace estimate
+pathway never overwrites verified or manual zones. Implemented in `src/Engine/PaceZones.php`.
+
+If an athlete provides neither a race result nor a typical easy pace, `pace_zones`
+remains empty: the athlete sees a Today-tab prompt to add pace data, and a coach-facing
+`pace_zones_missing` info flag is raised at onboarding.
 
 ### Output
 A pace zone profile for the athlete covering:
@@ -531,6 +551,10 @@ The following fields must be collected at onboarding to enable plan generation. 
 - Current weekly time on feet (minutes/week) *
 - Longest recent run (duration in minutes) *
 - Most recent race result (distance + time) — optional but enables pace zone derivation
+- **Typical easy-day pace (range)** — conditional: shown only when no recent race result
+  is provided. Stored as `typical_easy_pace_min` / `typical_easy_pace_max` (seconds/mile).
+  Enables the easy-pace pace-zone estimate (Section 2, pathway 2). Also editable later on
+  the athlete Training Settings page and coach edit page, since easy pace shifts with fitness.
 - How long at current volume (months) *
 
 ### Experience *

@@ -14,6 +14,7 @@ require_once __DIR__ . '/config/config.php';
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/src/Router.php';
 require_once __DIR__ . '/src/Auth.php';
+require_once __DIR__ . '/src/ProfileForm.php';
 require_once __DIR__ . '/src/Controllers/AuthController.php';
 require_once __DIR__ . '/src/Controllers/OnboardingController.php';
 require_once __DIR__ . '/src/Controllers/AthleteController.php';
@@ -21,6 +22,7 @@ require_once __DIR__ . '/src/Controllers/CoachController.php';
 require_once __DIR__ . '/src/Engine/TrainingLoad.php';
 require_once __DIR__ . '/src/Engine/RecoveryModel.php';
 require_once __DIR__ . '/src/Engine/EffortMapper.php';
+require_once __DIR__ . '/src/Engine/PaceZones.php';
 require_once __DIR__ . '/src/Engine/ArchetypeSelector.php';
 require_once __DIR__ . '/src/Engine/PlanGenerator.php';
 
@@ -65,12 +67,16 @@ $router->post('/log/note',         [AthleteController::class, 'sessionNoteSave']
 $router->get('/settings',          [AthleteController::class, 'settings']);
 $router->post('/settings',         [AthleteController::class, 'settingsSave']);
 $router->post('/settings/password',[AthleteController::class, 'changePasswordSubmit']);
+$router->get('/settings/training', [AthleteController::class, 'trainingSettings']);
+$router->post('/settings/training',[AthleteController::class, 'trainingSettingsSave']);
 
 // ── Coach dashboard ──────────────────────────────────────────
 $router->get('/coach/dashboard',          [CoachController::class, 'dashboard']);
 $router->get('/coach',                    [CoachController::class, 'dashboard']);
 $router->get('/coach/athletes',           [CoachController::class, 'roster']);
 $router->get('/coach/athlete/:id',             [CoachController::class, 'athleteView']);
+$router->get('/coach/athlete/:id/edit',         [CoachController::class, 'editProfile']);
+$router->post('/coach/athlete/:id/edit',        [CoachController::class, 'editProfileSave']);
 $router->get('/coach/athlete/:id/messages',         [CoachController::class, 'coachMessages']);
 $router->post('/coach/athlete/:id/messages/send',   [CoachController::class, 'coachMessagesSend']);
 $router->post('/coach/athlete/:id/generate-plan',   [CoachController::class, 'generatePlan']);

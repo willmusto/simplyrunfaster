@@ -61,6 +61,18 @@
 
     <div class="divider" style="margin:24px 0;"></div>
 
+    <div class="section-label">TRAINING</div>
+    <a href="/app/settings/training" class="card" style="display:flex;align-items:center;justify-content:space-between;
+       text-decoration:none;color:inherit;margin-bottom:16px;">
+        <div>
+            <div style="font-size:14px;font-weight:500;">Training profile</div>
+            <div style="font-size:13px;color:var(--text-muted);margin-top:2px;">
+                Goal, fitness, availability, easy pace, cross-training
+            </div>
+        </div>
+        <span style="color:var(--text-muted);font-size:20px;">›</span>
+    </a>
+
     <div class="section-label">SECURITY</div>
     <div class="card" style="margin-bottom:16px;">
         <form method="POST" action="/app/settings/password">

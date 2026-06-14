@@ -91,6 +91,29 @@ include __DIR__ . '/../../views/layout/html_open.php';
             <input type="date" id="recent_race_date" name="recent_race_date" class="form-input"
                    value="<?= h($d['most_recent_race_date'] ?? '') ?>">
         </div>
+
+        <!-- Easy-pace fallback: shown only when no race result is provided -->
+        <?php
+        $easyMin = isset($d['typical_easy_pace_min']) ? (int)$d['typical_easy_pace_min'] : null;
+        $easyMax = isset($d['typical_easy_pace_max']) ? (int)$d['typical_easy_pace_max'] : null;
+        $fmtPace = fn($s) => $s ? sprintf('%d:%02d', intdiv($s, 60), $s % 60) : '';
+        $hasRaceData = !empty($d['most_recent_race_distance']);
+        ?>
+        <div id="easyPaceSection" style="<?= $hasRaceData ? 'display:none;' : '' ?>">
+            <div class="divider"></div>
+            <div class="form-group">
+                <label class="form-label">Roughly what pace do you run your easy days?</label>
+                <div class="form-hint" style="margin-bottom:8px;">
+                    A range is fine. This lets us estimate your pace assignments until you log a race result.
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <input type="text" name="typical_easy_pace_min" class="form-input"
+                           placeholder="Faster — e.g. 9:00" value="<?= h($fmtPace($easyMin)) ?>">
+                    <input type="text" name="typical_easy_pace_max" class="form-input"
+                           placeholder="Slower — e.g. 10:00" value="<?= h($fmtPace($easyMax)) ?>">
+                </div>
+            </div>
+        </div>
     </form>
 
     <div class="onboarding-footer">
@@ -98,4 +121,17 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <button type="submit" form="step2Form" class="btn btn-primary">Continue →</button>
     </div>
 </div>
+
+<script>
+(function () {
+    var distSel = document.querySelector('select[name="recent_race_distance"]');
+    var section = document.getElementById('easyPaceSection');
+    function update() {
+        if (!section) return;
+        section.style.display = (distSel && distSel.value) ? 'none' : '';
+    }
+    if (distSel) distSel.addEventListener('change', update);
+    update();
+})();
+</script>
 <?php include __DIR__ . '/../../views/layout/html_close.php'; ?>

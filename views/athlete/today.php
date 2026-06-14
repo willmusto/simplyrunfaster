@@ -24,6 +24,27 @@ $today    = date('Y-m-d');
         <?php endif; ?>
     </div>
 
+    <?php
+    // Pace-data prompt: no zones, no race result, no typical easy pace on file.
+    $needsPaceData = $profile
+        && !PaceZones::isPopulated($profile['pace_zones'] ?? null)
+        && empty($profile['most_recent_race_time'])
+        && empty($profile['typical_easy_pace_min']);
+    ?>
+    <?php if ($needsPaceData): ?>
+    <a href="/app/settings/training#typical_easy_pace_min" class="card"
+       style="display:flex;align-items:center;justify-content:space-between;gap:10px;text-decoration:none;
+              color:inherit;border-left:3px solid var(--accent-mid);margin-bottom:16px;">
+        <div>
+            <div style="font-size:14px;font-weight:600;">Add your pace info</div>
+            <p class="body-text" style="margin:2px 0 0;font-size:13px;">
+                To calculate pace assignments, add a recent race result or your typical training pace.
+            </p>
+        </div>
+        <span style="color:var(--text-muted);font-size:20px;">›</span>
+    </a>
+    <?php endif; ?>
+
     <?php if ($plan && $plan['plan_start_date'] && $plan['plan_end_date']): ?>
     <!-- Phase progress bar -->
     <?php

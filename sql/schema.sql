@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS `athlete_profiles` (
     `injury_history`            TEXT DEFAULT NULL,
     -- Availability / scheduling
     `training_days_per_week`    INT DEFAULT NULL,
-    `must_off_days`             VARCHAR(20) DEFAULT NULL COMMENT 'JSON array of day numbers 0=Sun',
+    `must_off_days`             LONGTEXT DEFAULT NULL COMMENT 'JSON array of day numbers 0=Sun',
     `scheduling_preference`     ENUM('fixed','flex') DEFAULT 'flex',
     `long_run_day`              TINYINT DEFAULT NULL COMMENT '0=Sun..6=Sat',
     `primary_workout_day`       TINYINT DEFAULT NULL,
@@ -112,6 +112,9 @@ CREATE TABLE IF NOT EXISTS `athlete_profiles` (
     -- Zones (populated after race result or coach entry)
     `hr_zones`                  LONGTEXT DEFAULT NULL,
     `pace_zones`                LONGTEXT DEFAULT NULL,
+    `typical_easy_pace_min`     INT DEFAULT NULL COMMENT 'Faster end of typical easy-day pace, seconds per mile',
+    `typical_easy_pace_max`     INT DEFAULT NULL COMMENT 'Slower end of typical easy-day pace, seconds per mile',
+    `pace_zones_source`         ENUM('race_result','easy_pace_estimate','manual') DEFAULT NULL COMMENT 'How pace_zones was derived',
     `pace_zones_visible`        TINYINT(1) NOT NULL DEFAULT 1,
     `pace_zones_hidden_reason`  TEXT DEFAULT NULL COMMENT 'internal coach note',
     -- Peak volume ceiling (engine uses this — never exceeds)
@@ -356,7 +359,8 @@ CREATE TABLE IF NOT EXISTS `engine_flags` (
                         'excessive_fatigue','fitness_decline','taper_concern',
                         'insufficient_base','return_to_running_discomfort',
                         'limited_development_opportunity','long_run_day_conflict',
-                        'display_generation_incomplete'
+                        'display_generation_incomplete',
+                        'profile_updated','pace_zones_missing'
                     ) NOT NULL,
     `severity`      ENUM('info','warning','critical') NOT NULL DEFAULT 'info',
     `flag_date`     DATE NOT NULL,
