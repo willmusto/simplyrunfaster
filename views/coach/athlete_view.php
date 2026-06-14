@@ -1,6 +1,143 @@
 <?php
 // $athlete, $profile, $activePlan, $allWorkouts, $athleteFlags, $loadSnapshot, $pbs, $nextRace
 $today = date('Y-m-d');
+
+$macroWeeks = [];
+if ($activePlan && !empty($allWorkouts)) {
+    $planStart = (string)$activePlan['plan_start_date'];
+    $planEnd   = (string)$activePlan['plan_end_date'];
+    $planStartTs = strtotime($planStart);
+    $planEndTs   = strtotime($planEnd);
+
+    $normalizeDistance = function (?string $distance): string {
+        $d = strtolower(trim((string)$distance));
+        return match (true) {
+            in_array($d, ['marathon','m','42k','full','full marathon'], true) => 'marathon',
+            in_array($d, ['half','hm','half marathon','21k'], true) => 'half',
+            in_array($d, ['10k','10km','10 km'], true) => '10K',
+            default => '5K',
+        };
+    };
+
+    $classifyProfile = function (array $p, string $distance): string {
+        $thresholds = [
+            '5K' => [
+                'well_trained' => ['runs_per_week' => 4, 'weekly_minutes' => 180, 'long_run_minutes' => 60],
+                'workable'     => ['runs_per_week' => 3, 'weekly_minutes' => 120, 'long_run_minutes' => 45],
+            ],
+            '10K' => [
+                'well_trained' => ['runs_per_week' => 4, 'weekly_minutes' => 210, 'long_run_minutes' => 70],
+                'workable'     => ['runs_per_week' => 3, 'weekly_minutes' => 150, 'long_run_minutes' => 50],
+            ],
+            'half' => [
+                'well_trained' => ['runs_per_week' => 5, 'weekly_minutes' => 270, 'long_run_minutes' => 90],
+                'workable'     => ['runs_per_week' => 4, 'weekly_minutes' => 180, 'long_run_minutes' => 60],
+            ],
+            'marathon' => [
+                'well_trained' => ['runs_per_week' => 5, 'weekly_minutes' => 360, 'long_run_minutes' => 105],
+                'workable'     => ['runs_per_week' => 4, 'weekly_minutes' => 240, 'long_run_minutes' => 75],
+            ],
+        ];
+        $runsPerWeek = (int)($p['training_days_per_week'] ?? 0);
+        $weekly      = (int)($p['current_weekly_minutes'] ?? 0);
+        $longRun     = (int)($p['longest_recent_run_mins'] ?? 0);
+        $rules       = $thresholds[$distance] ?? $thresholds['5K'];
+
+        foreach (['well_trained', 'workable'] as $level) {
+            $r = $rules[$level];
+            if ($runsPerWeek >= $r['runs_per_week'] && $weekly >= $r['weekly_minutes'] && $longRun >= $r['long_run_minutes']) {
+                return $level;
+            }
+        }
+        return 'insufficient';
+    };
+
+    $phaseForWeek = function (string $planType, int $week, int $totalWeeks) use ($profile, $normalizeDistance, $classifyProfile): string {
+        if ($planType === 'development_plan') return 'Base';
+        if ($planType === 'maintenance_plan') return 'Build';
+        if ($planType === 'return_to_running') return 'Return';
+        if ($planType === 'recovery_block') return 'Recovery';
+        if ($planType !== 'race_cycle') return ucfirst(str_replace('_', ' ', $planType));
+
+        if ($week >= $totalWeeks - 1) return 'Taper';
+
+        $propsByClass = [
+            'well_trained' => ['base' => 0.20, 'build' => 0.40, 'peak' => 0.20, 'taper' => 0.15],
+            'workable'     => ['base' => 0.30, 'build' => 0.30, 'peak' => 0.20, 'taper' => 0.15],
+            'insufficient' => ['base' => 0.40, 'build' => 0.25, 'peak' => 0.20, 'taper' => 0.15],
+        ];
+        $distance = $normalizeDistance($profile['goal_race_distance'] ?? '5K');
+        $class    = $classifyProfile($profile ?? [], $distance);
+        $props    = $propsByClass[$class] ?? $propsByClass['workable'];
+        $props['base'] += max(0.0, 1.0 - array_sum($props));
+
+        $cursor = 1;
+        foreach (['base', 'build', 'peak', 'taper'] as $phase) {
+            $len = max(1, (int)round($totalWeeks * ($props[$phase] ?? 0)));
+            $end = $cursor + $len - 1;
+            if ($week >= $cursor && $week <= $end) {
+                return ucfirst($phase);
+            }
+            $cursor = $end + 1;
+        }
+        return 'Base';
+    };
+
+    $isCutbackWeek = function (string $planType, int $week, string $phase): bool {
+        if ($week <= 1) return false;
+        if ($planType === 'development_plan') return $week % 4 === 0;
+        if ($planType === 'race_cycle') return $week % 4 === 0 && strtolower($phase) !== 'taper';
+        return false;
+    };
+
+    $workoutsByDate = [];
+    foreach ($allWorkouts as $w) {
+        $workoutsByDate[$w['scheduled_date']][] = $w;
+    }
+
+    $firstDow = (int)date('N', $planStartTs);
+    $lastDow  = (int)date('N', $planEndTs);
+    $firstMondayTs = strtotime('-' . ($firstDow - 1) . ' days', $planStartTs);
+    $lastSundayTs  = strtotime('+' . (7 - $lastDow) . ' days', $planEndTs);
+    $macroTotalWeeks = (int)floor(($lastSundayTs - $firstMondayTs) / (7 * 86400)) + 1;
+    $internalTotalWeeks = max(1, (int)ceil(($planEndTs - $planStartTs + 86400) / (7 * 86400)));
+    $planType = (string)($activePlan['plan_type'] ?? '');
+
+    for ($weekIndex = 1, $weekStartTs = $firstMondayTs; $weekStartTs <= $lastSundayTs; $weekIndex++, $weekStartTs = strtotime('+7 days', $weekStartTs)) {
+        $days = [];
+        $internalWeeks = [];
+        for ($iso = 1; $iso <= 7; $iso++) {
+            $dayTs = strtotime('+' . ($iso - 1) . ' days', $weekStartTs);
+            $date  = date('Y-m-d', $dayTs);
+            $insidePlan = $dayTs >= $planStartTs && $dayTs <= $planEndTs;
+            if ($insidePlan) {
+                $internalWeeks[] = max(1, (int)floor(($dayTs - $planStartTs) / (7 * 86400)) + 1);
+            }
+            $days[] = [
+                'date' => $date,
+                'inside_plan' => $insidePlan,
+                'workouts' => $insidePlan ? ($workoutsByDate[$date] ?? []) : [],
+            ];
+        }
+        $phaseWeek = $internalWeeks ? min($internalWeeks) : $weekIndex;
+        $phase = $phaseForWeek($planType, $phaseWeek, $internalTotalWeeks);
+        $cutback = false;
+        foreach (array_unique($internalWeeks) as $internalWeek) {
+            if ($isCutbackWeek($planType, (int)$internalWeek, $phaseForWeek($planType, (int)$internalWeek, $internalTotalWeeks))) {
+                $cutback = true;
+                break;
+            }
+        }
+
+        $macroWeeks[] = [
+            'number' => $weekIndex,
+            'total' => $macroTotalWeeks,
+            'phase' => $phase,
+            'cutback' => $cutback,
+            'days' => $days,
+        ];
+    }
+}
 ?>
 <div class="page-content">
     <style>
@@ -27,6 +164,113 @@ $today = date('Y-m-d');
         color: var(--accent-mid);
         font-weight: 600;
         white-space: nowrap;
+    }
+    .macro-plan-scroll {
+        max-height: 72vh;
+        overflow-y: auto;
+        padding-right: 4px;
+    }
+    .macro-week {
+        margin-bottom: 14px;
+    }
+    .macro-week-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-muted);
+        letter-spacing: .06em;
+        text-transform: uppercase;
+    }
+    .macro-week-grid {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(112px, 1fr));
+        gap: 6px;
+        min-width: 820px;
+    }
+    .macro-week-wrap {
+        overflow-x: auto;
+        padding-bottom: 2px;
+    }
+    .macro-day {
+        min-height: 112px;
+        border: var(--card-border);
+        border-radius: var(--radius-sm);
+        background: var(--card-bg);
+        padding: 9px;
+    }
+    .macro-day-empty {
+        background: var(--recessed-bg);
+        color: var(--text-muted);
+    }
+    .macro-day-outside {
+        background: transparent;
+        border-color: transparent;
+    }
+    .macro-day-date {
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        margin-bottom: 6px;
+    }
+    .macro-workout {
+        margin-top: 6px;
+    }
+    .macro-workout summary {
+        list-style: none;
+        cursor: pointer;
+    }
+    .macro-workout summary::-webkit-details-marker {
+        display: none;
+    }
+    .macro-workout-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 5px;
+    }
+    .macro-duration {
+        font-size: 11px;
+        color: var(--text-muted);
+    }
+    .macro-detail {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: var(--card-border);
+    }
+    .macro-detail-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+    }
+    .macro-detail-text {
+        font-size: 12px;
+        color: var(--text-secondary);
+        line-height: 1.5;
+        white-space: pre-line;
+    }
+    .macro-lock {
+        font-size: 12px;
+        line-height: 1;
+    }
+    .macro-compliance {
+        margin-left: auto;
+        align-self: center;
+    }
+    @media (max-width: 767px) {
+        .macro-plan-scroll {
+            max-height: none;
+            overflow-y: visible;
+        }
+        .macro-week-grid {
+            min-width: 760px;
+        }
     }
     </style>
 
@@ -103,7 +347,11 @@ $today = date('Y-m-d');
                         <?= date('M j, Y', strtotime($activePlan['plan_end_date'])) ?>
                     </div>
                 </div>
-                <span class="pill pill-active"><?= h(ucfirst($activePlan['status'])) ?></span>
+                <?php
+                $planStatus = (string)($activePlan['status'] ?? '');
+                $planStatusClass = $planStatus === 'active' ? 'pill-active' : 'pill-pending';
+                ?>
+                <span class="pill <?= h($planStatusClass) ?>"><?= h(ucfirst(str_replace('_', ' ', $planStatus))) ?></span>
             </div>
             <?php
             $planStart    = strtotime($activePlan['plan_start_date']);
@@ -185,6 +433,107 @@ $today = date('Y-m-d');
             <?php endforeach; ?>
         </div>
         <?php endforeach; ?>
+
+        <?php if (!empty($macroWeeks)): ?>
+        <div class="section-label" style="margin-top:24px;">FULL MACRO PLAN</div>
+        <div class="macro-plan-scroll">
+            <?php foreach ($macroWeeks as $macroWeek): ?>
+            <section class="macro-week">
+                <div class="macro-week-header">
+                    <span>
+                        Week <?= (int)$macroWeek['number'] ?> of <?= (int)$macroWeek['total'] ?>
+                        &middot;
+                        <?= h($macroWeek['phase']) ?>
+                    </span>
+                    <?php if (!empty($macroWeek['cutback'])): ?>
+                    <span class="pill pill-warning" style="font-size:10px;">Cutback</span>
+                    <?php endif; ?>
+                </div>
+                <div class="macro-week-wrap">
+                    <div class="macro-week-grid">
+                        <?php foreach ($macroWeek['days'] as $day):
+                            $date = $day['date'];
+                            $insidePlan = !empty($day['inside_plan']);
+                            $dayWorkouts = $day['workouts'] ?? [];
+                            $dayClass = $insidePlan
+                                ? (empty($dayWorkouts) ? ' macro-day-empty' : '')
+                                : ' macro-day-outside';
+                        ?>
+                        <div class="macro-day<?= $dayClass ?>">
+                            <?php if ($insidePlan): ?>
+                            <div class="macro-day-date"><?= date('D M j', strtotime($date)) ?></div>
+                            <?php if (empty($dayWorkouts)): ?>
+                            <div style="font-size:12px;color:var(--text-muted);">Rest</div>
+                            <?php else: ?>
+                            <?php foreach ($dayWorkouts as $w):
+                                $score = isset($w['compliance_score']) && $w['compliance_score'] !== null
+                                    ? (float)$w['compliance_score']
+                                    : null;
+                                $isPastWorkout = $date < $today;
+                                $complianceClass = 'compliance-none';
+                                $complianceTitle = 'No compliance logged';
+                                if ($score !== null) {
+                                    if ($score >= 0.85) {
+                                        $complianceClass = 'compliance-good';
+                                        $complianceTitle = 'Compliance ' . round($score * 100) . '%';
+                                    } elseif ($score >= 0.70) {
+                                        $complianceClass = 'compliance-ok';
+                                        $complianceTitle = 'Compliance ' . round($score * 100) . '%';
+                                    } else {
+                                        $complianceClass = 'compliance-poor';
+                                        $complianceTitle = 'Compliance ' . round($score * 100) . '%';
+                                    }
+                                }
+                                $title = $w['display_title'] ?: ($w['template_name'] ?: pill_label($w['workout_type']));
+                                $description = (string)($w['description'] ?? '');
+                            ?>
+                            <details class="macro-workout">
+                                <summary>
+                                    <div class="macro-workout-row">
+                                        <span class="pill <?= pill_class($w['workout_type']) ?>">
+                                            <?= pill_label($w['workout_type']) ?>
+                                        </span>
+                                        <?php if ($w['target_duration']): ?>
+                                        <span class="macro-duration"><?= format_duration((int)$w['target_duration']) ?></span>
+                                        <?php endif; ?>
+                                        <?php if (!empty($w['coach_locked'])): ?>
+                                        <span class="macro-lock" title="Coach-locked">&#128274;</span>
+                                        <?php endif; ?>
+                                        <?php if ($isPastWorkout): ?>
+                                        <span class="compliance-dot <?= $complianceClass ?> macro-compliance"
+                                              title="<?= h($complianceTitle) ?>"></span>
+                                        <?php endif; ?>
+                                    </div>
+                                </summary>
+                                <div class="macro-detail">
+                                    <div class="macro-detail-title"><?= h($title) ?></div>
+                                    <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">
+                                        <?= date('l, M j', strtotime($date)) ?>
+                                        <?php if ($w['target_duration']): ?>
+                                        &middot; <?= format_duration((int)$w['target_duration']) ?>
+                                        <?php endif; ?>
+                                    </div>
+                                    <?php if (!empty($w['display_summary'])): ?>
+                                    <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">
+                                        <?= h($w['display_summary']) ?>
+                                    </div>
+                                    <?php endif; ?>
+                                    <?php if ($description !== ''): ?>
+                                    <div class="macro-detail-text"><?= nl2br(h($description)) ?></div>
+                                    <?php endif; ?>
+                                </div>
+                            </details>
+                            <?php endforeach; ?>
+                            <?php endif; ?>
+                            <?php endif; ?>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </section>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
 
         <?php else: ?>
         <div class="card" style="margin-bottom:16px;">

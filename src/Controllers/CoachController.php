@@ -274,6 +274,10 @@ class CoachController
         if ($instructions !== false) { $sets[] = 'athlete_instructions = ?'; $vals[] = $instructions; }
 
         if (!empty($sets)) {
+            $sets[] = 'coach_locked = 1';
+            $sets[] = 'coach_edited_by = ?';
+            $sets[] = 'coach_edited_at = NOW()';
+            $vals[] = $coachId;
             $vals[] = $workoutId;
             $db->prepare('UPDATE planned_workouts SET ' . implode(', ', $sets) . ' WHERE id = ?')
                ->execute($vals);
@@ -283,7 +287,7 @@ class CoachController
             'SELECT id, workout_type, target_duration, scheduled_date,
                     display_title, display_summary, athlete_instructions,
                     display_title                                           AS template_name,
-                    COALESCE(athlete_instructions, display_summary, \'\')   AS description,
+                    COALESCE(athlete_instructions, description, display_summary, \'\') AS description,
                     coach_locked
              FROM planned_workouts
              WHERE id = ? LIMIT 1'
@@ -765,7 +769,10 @@ class CoachController
     private static function getActivePlanDetail(int $athleteId, PDO $db): ?array
     {
         $stmt = $db->prepare(
-            'SELECT * FROM training_plans WHERE athlete_id = ? AND status = "active" ORDER BY id DESC LIMIT 1'
+            'SELECT * FROM training_plans
+             WHERE athlete_id = ? AND status IN ("active", "pending_approval")
+             ORDER BY FIELD(status, "active", "pending_approval"), id DESC
+             LIMIT 1'
         );
         $stmt->execute([$athleteId]);
         return $stmt->fetch() ?: null;
@@ -774,14 +781,29 @@ class CoachController
     private static function getPlanWorkouts(int $planId, PDO $db): array
     {
         $stmt = $db->prepare(
-            'SELECT id, plan_id, athlete_id, scheduled_date, workout_type,
-                    archetype_code, display_title, display_summary, athlete_instructions,
-                    display_title                                          AS template_name,
-                    COALESCE(athlete_instructions, display_summary, \'\')  AS description,
-                    structure, target_duration, intensity_load, coach_locked, visible_to_athlete
-             FROM planned_workouts
-             WHERE plan_id = ?
-             ORDER BY scheduled_date ASC'
+            'SELECT pw.id, pw.plan_id, pw.athlete_id, pw.scheduled_date, pw.workout_type,
+                    pw.archetype_code, pw.display_title, pw.display_summary, pw.athlete_instructions,
+                    pw.display_title                                          AS template_name,
+                    COALESCE(pw.athlete_instructions, pw.description, pw.display_summary, \'\') AS description,
+                    pw.structure, pw.target_duration, pw.intensity_load,
+                    pw.coach_locked, pw.visible_to_athlete,
+                    (
+                        SELECT cw.compliance_score
+                        FROM completed_workouts cw
+                        WHERE cw.planned_workout_id = pw.id
+                           OR (
+                               cw.planned_workout_id IS NULL
+                               AND cw.athlete_id = pw.athlete_id
+                               AND cw.activity_date = pw.scheduled_date
+                           )
+                        ORDER BY
+                            CASE WHEN cw.planned_workout_id = pw.id THEN 0 ELSE 1 END,
+                            cw.synced_at DESC
+                        LIMIT 1
+                    ) AS compliance_score
+             FROM planned_workouts pw
+             WHERE pw.plan_id = ?
+             ORDER BY pw.scheduled_date ASC'
         );
         $stmt->execute([$planId]);
         return $stmt->fetchAll();
