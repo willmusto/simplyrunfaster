@@ -46,7 +46,7 @@ ALTER TABLE `athlete_profiles`
         COMMENT 'Slower end of typical easy-day pace, seconds per mile'
         AFTER `typical_easy_pace_min`,
     ADD COLUMN `pace_zones_source` ENUM('race_result','easy_pace_estimate','manual') DEFAULT NULL
-        COMMENT 'How pace_zones was derived; drives estimated-vs-verified framing'
+        COMMENT 'How pace_zones was derived — drives estimated-vs-verified framing'
         AFTER `typical_easy_pace_max`;
 
 -- ── engine_flags ─────────────────────────────────────────────
