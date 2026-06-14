@@ -82,12 +82,15 @@ $qualityRows = function (int $planId) use ($db): array {
 };
 
 $flagCount = function (int $planId) use ($db, $athleteId): int {
+    // details is json_encode(['plan_id'=>N,'issues'=>...]) → {"plan_id":N,"issues":...}.
+    // Matched with LIKE (server MySQL build lacks JSON_EXTRACT); the trailing comma
+    // keeps plan_id N from false-matching plan_id N0, N1, ….
     $s = $db->prepare(
         "SELECT COUNT(*) FROM engine_flags
          WHERE athlete_id = ? AND flag_type = 'display_generation_incomplete'
-           AND JSON_EXTRACT(details, '$.plan_id') = ?"
+           AND details LIKE ?"
     );
-    try { $s->execute([$athleteId, $planId]); return (int)$s->fetchColumn(); }
+    try { $s->execute([$athleteId, '%"plan_id":' . $planId . ',%']); return (int)$s->fetchColumn(); }
     catch (Throwable $e) { return -1; }
 };
 
