@@ -119,12 +119,20 @@ Populated by onboarding form(s). The engine reads this at plan generation time.
 | goal_finish_time | VARCHAR | optional time goal |
 | current_weekly_mileage | FLOAT | self-reported at onboarding |
 | training_days_per_week | INT | availability |
-| long_run_day | TINYINT | preferred day of week (0=Sun) |
-| workout_day_preference | VARCHAR | JSON array of preferred days |
+| long_run_day | TINYINT | preferred day of week (0=Sun); used when scheduling_preference='fixed' |
+| primary_workout_day | TINYINT | preferred primary quality day (0=Sun); used when scheduling_preference='fixed' |
+| must_off_days | LONGTEXT | JSON array of day-of-week ints (0=Sun) that can never be training days. Widened from VARCHAR(20) in migration_004. |
+| scheduling_preference | ENUM | fixed, flex (default flex) |
+| track_access | ENUM | yes, no, road_reps_ok (default road_reps_ok) |
+| peak_weekly_minutes | INT | highest-ever weekly time on feet (serves the "highest weekly volume" field — no separate column was added) |
+| peak_volume_ceiling_mins | INT | coach-set weekly ceiling the engine never exceeds |
 | experience_level | ENUM | beginner, intermediate, advanced |
 | injury_history | TEXT | free text or structured JSON |
 | hr_zones | JSON | if available from watch data |
-| pace_zones | JSON | calculated from recent race/time trial |
+| pace_zones | JSON | derived via McMillan/Riegel math; see §26 provenance and engine spec §2. Shape: seconds/mile per zone. |
+| typical_easy_pace_min | INT | faster end of typical easy-day pace (seconds/mile); basis for the easy-pace pace-zone estimate |
+| typical_easy_pace_max | INT | slower end of typical easy-day pace (seconds/mile) |
+| pace_zones_source | ENUM | race_result, easy_pace_estimate, manual (nullable). See §26. |
 | watch_platform | ENUM | garmin, polar, apple, wahoo, none |
 | watch_connected | BOOL | default false |
 | pace_zones_visible | BOOL | default true — coach/admin can hide from athlete UI |
@@ -133,7 +141,9 @@ Populated by onboarding form(s). The engine reads this at plan generation time.
 | cross_training_elliptical | ENUM | none, gym, home |
 | cross_training_pool | BOOL | default false |
 | cross_training_other | TEXT | nullable — free text |
-| updated_at | DATETIME | |
+| updated_at | DATETIME | bumped on every profile save |
+
+> **Note:** `sql/schema.sql` is the canonical column list (this table is a high-level overview). `current_weekly_mileage` above is historical naming — the actual column is `current_weekly_minutes` (all volume is time-on-feet in minutes). `workout_day_preference` was specified but **never implemented** and does not exist in production; it is superseded by `long_run_day` + `primary_workout_day`. See §31 for the editing UI.
 
 ### `training_plans`
 One plan per athlete at a time. Previous plans are archived, not deleted.
@@ -234,7 +244,7 @@ The engine raises flags; coaches review and dismiss them.
 |---|---|---|
 | id | INT PK | |
 | athlete_id | INT FK | |
-| flag_type | ENUM | missed_workouts, hr_elevated, load_spike, compliance_low, plan_rebuild_needed, compliance_trend, compliance_pattern, excessive_fatigue, fitness_decline, taper_concern, insufficient_base, return_to_running_discomfort, limited_development_opportunity, long_run_day_conflict, display_generation_incomplete |
+| flag_type | ENUM | missed_workouts, hr_elevated, load_spike, compliance_low, plan_rebuild_needed, compliance_trend, compliance_pattern, excessive_fatigue, fitness_decline, taper_concern, insufficient_base, return_to_running_discomfort, limited_development_opportunity, long_run_day_conflict, display_generation_incomplete, profile_updated, pace_zones_missing |
 | severity | ENUM | info, warning, critical |
 | flag_date | DATE | |
 | details | JSON | machine-readable context |
@@ -243,7 +253,9 @@ The engine raises flags; coaches review and dismiss them.
 | reviewed_by | INT FK | nullable |
 | reviewed_at | DATETIME | nullable |
 
-**Flag deduplication:** Before inserting any engine flag, the engine checks for an existing open flag of the same `flag_type` for the same athlete and skips the insert if one is found. This applies to all engine-raised flags at generation and evaluation time — a given flag type will appear at most once in the open state per athlete. **Exception: `display_generation_incomplete`** is inserted without deduplication — each plan generation raises its own flag independently, because display completeness is plan-specific. See engine spec §18.8.
+**Flag deduplication:** Before inserting any engine flag, the engine checks for an existing open flag of the same `flag_type` for the same athlete and skips the insert if one is found. This applies to all engine-raised flags at generation and evaluation time — a given flag type will appear at most once in the open state per athlete. **Exceptions (inserted without deduplication):**
+- **`display_generation_incomplete`** — each plan generation raises its own flag independently, because display completeness is plan-specific. See engine spec §18.8.
+- **`profile_updated`** — each profile save is a distinct event the coach should see individually; never merged into an existing open flag. See §31 (Profile Editing).
 
 ### `plan_approval_queue`
 Holds generated plans pending coach review before activation.
@@ -1225,6 +1237,64 @@ A simple referral system can be layered on after launch:
 - Pull completed activities via Strava webhook
 - Universal compatibility layer — any watch that syncs to Strava now feeds SimplyRunFaster
 - Does not replace direct integrations
+
+---
+
+## 31. Profile Editing & Change Flags
+
+Athletes and coaches can edit a training profile after onboarding. Implemented in
+`src/ProfileForm.php` (shared sanitize / diff / save) with two entry points:
+
+- **Athlete — Training Settings** (`GET/POST /app/settings/training`, linked from the
+  Settings tab). Single consolidated form: goal, current fitness, typical easy pace,
+  availability (incl. must-off days + fixed/flex scheduling), history, cross-training.
+- **Coach — Edit Profile** (`GET/POST /app/coach/athlete/:id/edit`, button on the coach
+  athlete view). All athlete fields **plus** coach-only controls: `peak_volume_ceiling_mins`,
+  `pace_zones_visible` toggle, and `pace_zones_hidden_reason` (shown only when zones are
+  hidden, per §26). The page also surfaces pace-zone provenance (Verified / Estimated /
+  Manual / None).
+
+### Save behavior
+- Writes `athlete_profiles` and bumps `updated_at`. **Does NOT trigger plan regeneration** —
+  values are simply available for the next plan generation/rebuild to read.
+- If the typical easy-pace range changed and current zones are empty or
+  `pace_zones_source = 'easy_pace_estimate'`, zones are re-derived from the new easy pace
+  (engine spec §2, pathway 2). Verified (`race_result`) and `manual` zones are never
+  clobbered by an easy-pace edit.
+
+### Change flag (`profile_updated`)
+Every save with at least one changed field inserts a new `engine_flags` row:
+- `flag_type = 'profile_updated'`, `severity = 'info'`.
+- `message`: human-readable summary, e.g. *"Liam updated their training profile:
+  Training days 3 → 5, Goal race date Nov 1, 2026 → Oct 18, 2026"* (athlete-facing field
+  changes only; coach-only field changes are excluded from the summary). Coach-initiated
+  edits read *"Coach updated Liam's training profile: …"*.
+- `details`: JSON `{ actor_role, changes: [{ field, label, coach_only, old_display,
+  new_display }] }` — the full field-by-field diff, including coach-only fields.
+- **No deduplication** (contrast `limited_development_opportunity`): each save is a
+  distinct event the coach should see individually — always insert, never merge. The coach
+  flags view and athlete view render the diff as a before/after list via
+  `render_profile_diff()`.
+
+### Schema audit decisions (migration_004)
+- Most target fields already existed in production and were left as-is: `years_running`,
+  `months_at_current_volume`, `peak_weekly_minutes` (reused for "highest weekly volume" —
+  **no duplicate `highest_weekly_volume_minutes` column was created**), `scheduling_preference`,
+  `primary_workout_day`, `track_access` (kept enum value `road_reps_ok`, not `road_ok`).
+- `workout_day_preference` does **not** exist in production (never implemented) — no DROP
+  was issued (a bare `DROP COLUMN` errors on MariaDB 5.3).
+- `must_off_days` widened `VARCHAR(20)` → `LONGTEXT`.
+- Added `typical_easy_pace_min` / `typical_easy_pace_max` (INT, sec/mile) and
+  `pace_zones_source` ENUM.
+
+### Out of scope (follow-up)
+- Wiring `must_off_days`, `scheduling_preference`, `primary_workout_day`, and `track_access`
+  into PlanGenerator scheduling/archetype selection — columns exist and are editable now,
+  but engine **consumption** of these fields is future work. (`long_run_day` and
+  `current_weekly_minutes` are already consumed and continue to be.)
+- The previously-drafted "pace ranges in workout instructions" follow-up should run
+  **after** this lands: it is far more impactful once new athletes (the majority at any
+  time) have zone data via the easy-pace pathway, rather than only athletes with race history.
 
 ---
 

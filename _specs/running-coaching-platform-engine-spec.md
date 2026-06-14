@@ -58,6 +58,22 @@ A pace zone profile for the athlete covering:
 - 800m pace
 - 400m pace
 
+**Storage:** persisted as JSON in `athlete_profiles.pace_zones`. All values are **seconds
+per mile** (per-mile-equivalent pace, including the track distances). `easy`/`long` are
+`{min,max}` ranges; the named race distances are scalar paces. Example:
+```json
+{
+  "source": "easy_pace_estimate", "generated_at": "2026-06-14",
+  "easy": {"min": 540, "max": 600}, "long": {"min": 540, "max": 600},
+  "marathon": 475, "half_marathon": 456, "10K": 436,
+  "5K": 418, "mile": 390, "800": 354, "400": 342
+}
+```
+Implementation: `src/Engine/PaceZones.php`. Constants: Riegel exponent `1.06`; easy pace
+treated as `1.20×` marathon pace (`EASY_TO_MARATHON_RATIO`) on the easy-pace pathway. On
+the easy-pace pathway the `easy`/`long` ranges echo the athlete's entered range; on the
+race pathway they bracket marathon pace by +18%..+30%.
+
 ### Usage
 - Pace zones are used for **quality session prescription only**
 - Easy runs are **never** prescribed by pace — time on feet only
