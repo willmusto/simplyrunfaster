@@ -800,18 +800,14 @@ Display text is rendered at generation time by substituting `{{token}}` placehol
 
 **Format convention by prescription type:**
 
-- **Duration-first archetypes** (`lead_with: "duration"` — easy, long, fartlek, time-based hill sessions): summary leads with duration: `"45 min · 3.0–4.2 miles"`
-- **Distance-first archetypes** (`lead_with: "distance"` — intervals, tempo, distance-based workouts): summary leads with quality volume: `"4.5 miles · 34–47 min"`
+- **Duration-first archetypes** (`lead_with: "duration"` — easy, long, fartlek, time-based hill sessions): summary leads with the same effective duration stored in `planned_workouts.target_duration`: `"45 min · 3–4 miles"`. For structured archetypes this is `computeActualDuration(instance) ?? targetMinutes`, so `display_summary` does not continue to show the pre-capped slot allocation when `target_duration` uses the honest sum-of-parts duration.
+- **Distance-first archetypes** (`lead_with: "distance"` — intervals, tempo, distance-based workouts): summary leads with whole-mile quality volume: `"5 miles · 34–47 min"`. Time ranges are still computed from the raw resolved distance before display rounding.
 
-**Distance rounding:** Distance values in `display_summary` are rounded to one decimal place for distances ≥ 1 mile (e.g. `3.0–4.2 miles`). Distances in range strings are derived from `computeDistanceRange()` using classification-based easy pace ranges and the session's effective duration.
+**Distance rounding:** Distance values in `display_summary` are rounded to the nearest whole mile. `computeDistanceRange()` rounds each endpoint to the nearest whole mile, clamps the lower bound to at least 1 mile, and widens a collapsed range by 1 mile so short sessions never render as `0–1 miles` or a degenerate `1–1 miles` range. Single distance tokens (`{{distance}}`, `{{total_distance}}`) are also rounded to the nearest whole mile for display, with singular `1 mile` when applicable.
 
 ### 18.5 Distance Range Computation
 
-`computeDistanceRange()` converts a session duration into a mileage range using classification- and goal-distance-based easy pace bands. For structured archetypes that have warmup and cooldown blocks, the computation accounts for the structure rather than treating the full session as continuous easy running:
-
-- **Warmup/cooldown decomposition** applies to all structured archetypes that have non-zero `warmup_minutes` + `cooldown_minutes` parameters. The warmup and cooldown contribute their full minutes; the main-set minutes are scaled before combining.
-- **Hill/plyometric scaling:** For `sustained_hill_repeats`, `hill_sprints`, and `plyometric_hill_circuits`, the main-set minutes are multiplied by **0.6×** before combining with warmup/cooldown. This accounts for the significantly reduced ground speed of uphill running (~40% slower per minute than flat easy pace).
-- **All other structured archetypes** (intervals, tempo, fartlek) use a **1.0×** main-set factor — an approximation that treats main-set duration as equivalent to easy pace for distance estimation purposes.
+`computeDistanceRange()` converts the session's effective display/stored duration into a mileage range using classification- and goal-distance-based easy pace bands. The duration source is reconciled with `target_duration`: callers pass `computeActualDuration(instance) ?? targetMinutes`, so structured workouts that use sum-of-parts duration for storage use that same duration for the leading summary duration and mileage estimate. The range is intentionally approximate; no separate hill/plyometric main-set scaling is applied in the display layer.
 
 ### 18.6 Workout Display Field Semantics
 
@@ -820,7 +816,7 @@ Three `planned_workouts` columns hold athlete-facing display content:
 | Column | Written by | Editable? | Purpose |
 |---|---|---|---|
 | `display_title` | Engine at generation | No | Short workout name (e.g. "6 × 90 sec Hill Repeats", "Tempo Intervals") — shown as the workout headline in both coach and athlete UI |
-| `display_summary` | Engine at generation | No | One-line subtitle (e.g. "30 min · 2.2–3.0 miles", "4.5 miles · 34–47 min") — shown under the title as the at-a-glance prescription |
+| `display_summary` | Engine at generation | No | One-line subtitle (e.g. "30 min · 2–3 miles", "5 miles · 34–47 min") — shown under the title as the at-a-glance prescription |
 | `athlete_instructions` | Engine at generation; editable by coach | Yes — writes back to `planned_workouts.athlete_instructions` | Primary description paragraph shown to both coach and athlete; coaches write their annotation here (replaces the old unused `description` column for this purpose) |
 
 `CoachController::getPlanWorkouts()` returns `COALESCE(athlete_instructions, display_summary, '')` as the `description` alias for backward compatibility with the calendar UI. `CoachController::editPlannedWorkout()` saves coach edits to `athlete_instructions` only — `display_title` and `display_summary` are never overwritten by coach edits.

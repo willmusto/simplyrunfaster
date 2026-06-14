@@ -1168,25 +1168,18 @@ class PlanGenerator
             }
         }
 
-        // distance_range: "X.X–X.X miles" estimate for time-based workouts.
-        // Computed after fit-to-slot capping using the actual main-set duration so the
-        // displayed range matches the described session structure.
+        // Use the same effective duration for display text and stored target_duration:
+        // honest sum-of-parts when derivable, otherwise the slot allocation.
+        $archetype['resolved_params'] = $params;
+        $displayDuration = self::computeActualDuration($archetype) ?? $targetMinutes;
+        $params['duration_minutes'] = $displayDuration;
+        $archetype['resolved_params'] = $params;
+
+        // distance_range: whole-mile estimate for time-based workouts, based on
+        // the same effective duration stored in planned_workouts.target_duration.
         if (!empty($display['show_distance_range'])) {
-            $warmup   = (int)($params['warmup_minutes'] ?? 0);
-            $cooldown = (int)($params['cooldown_minutes'] ?? 0);
-            if ($warmup + $cooldown > 0) {
-                $mainMins   = self::computeMainSetMinutes($archetype['code'], $params);
-                if ($mainMins === null) {
-                    $mainMins = max(0, $targetMinutes - $warmup - $cooldown);
-                }
-                $hillCodes  = ['sustained_hill_repeats', 'hill_sprints', 'plyometric_hill_circuits'];
-                $mainFactor = in_array($archetype['code'], $hillCodes, true) ? 0.6 : 1.0;
-                $effectiveMins = (int)round($warmup + $cooldown + $mainMins * $mainFactor);
-            } else {
-                $effectiveMins = $targetMinutes;
-            }
             $params['distance_range'] = self::computeDistanceRange(
-                $effectiveMins, $goalDistance, $classification
+                $displayDuration, $goalDistance, $classification
             );
         }
 
@@ -1246,7 +1239,7 @@ class PlanGenerator
     }
 
     /**
-     * Compute a "X.X–X.X miles" estimate for a time-based workout.
+     * Compute a whole-mile "X–Y miles" estimate for a time-based workout.
      * Uses classification- and goal-distance-based easy pace ranges.
      */
     private static function computeDistanceRange(
@@ -1272,10 +1265,18 @@ class PlanGenerator
         $paces = $paceRanges[$cls][$goalDistance] ?? $paceRanges[$cls]['5K'];
 
         [$fastPace, $slowPace] = $paces;
-        $lower = round($durationMinutes / $slowPace, 1);
-        $upper = round($durationMinutes / $fastPace, 1);
+        $lower = self::roundDisplayMiles($durationMinutes / $slowPace);
+        $upper = self::roundDisplayMiles($durationMinutes / $fastPace);
+        if ($upper <= $lower) {
+            $upper = $lower + 1;
+        }
 
         return "{$lower}–{$upper} miles";
+    }
+
+    private static function roundDisplayMiles(float $miles): int
+    {
+        return max(1, (int)round($miles));
     }
 
     /**
@@ -1449,12 +1450,17 @@ class PlanGenerator
             'generated_workout_title'=> $archetype['name'] ?? $archetype['metadata']['name'] ?? '',
         ]);
 
-        return preg_replace_callback('/\{\{(\w+)\}\}/', function ($m) use ($tokens) {
+        $rendered = preg_replace_callback('/\{\{(\w+)\}\}/', function ($m) use ($tokens) {
             $key = $m[1];
             if (!array_key_exists($key, $tokens)) return '';
             $v = $tokens[$key];
+            if (in_array($key, ['distance', 'total_distance'], true) && is_numeric($v)) {
+                return (string)self::roundDisplayMiles((float)$v);
+            }
             return is_array($v) ? implode(', ', $v) : (string)$v;
         }, $template);
+
+        return preg_replace('/\b1 miles\b/', '1 mile', $rendered);
     }
 
     private static function normalizeInstructionText(string $instructions, array $archetype): string

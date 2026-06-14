@@ -182,7 +182,7 @@ The full macro plan. One row per day with a workout.
 | instance_signature | VARCHAR | nullable; pipe-delimited fingerprint of key resolved parameters — used to enforce anti-repeat hard-block window |
 | structure | JSON | nullable; fully rendered workout structure |
 | display_title | VARCHAR | nullable; engine-generated title (e.g. "6 × 90 sec Hill Repeats") — non-editable, regenerated on plan rebuild |
-| display_summary | VARCHAR | nullable; engine-generated subtitle (e.g. "30 min · 2.0–3.0 miles") — non-editable |
+| display_summary | VARCHAR | nullable; engine-generated subtitle (e.g. "30 min · 2–3 miles") — non-editable |
 | athlete_instructions | TEXT | nullable; engine-generated instructional paragraph; the field coaches edit to annotate or replace the description |
 | description | TEXT | legacy field; active for return_to_running and recovery_block workouts; superseded by athlete_instructions for archetype workouts |
 | target_distance | FLOAT | miles or km |
