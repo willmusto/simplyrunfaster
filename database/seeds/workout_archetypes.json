@@ -1276,28 +1276,24 @@
     },
     "variants": [
       {
-        "code": "400s",
-        "name": "400m Repeats"
-      },
-      {
         "code": "600s",
-        "name": "600m Repeats"
+        "name": "600m Repeats",
+        "rep_distance_meters": 600
       },
       {
         "code": "800s",
-        "name": "800m Repeats"
+        "name": "800m Repeats",
+        "rep_distance_meters": 800
       },
       {
         "code": "1000s",
-        "name": "1000m Repeats"
+        "name": "1000m Repeats",
+        "rep_distance_meters": 1000
       },
       {
         "code": "1200s",
-        "name": "1200m Repeats"
-      },
-      {
-        "code": "1600s",
-        "name": "1600m Repeats"
+        "name": "1200m Repeats",
+        "rep_distance_meters": 1200
       }
     ],
     "parameters": {
@@ -1314,12 +1310,10 @@
       "rep_distance_meters": {
         "type": "integer",
         "allowed_values": [
-          400,
           600,
           800,
           1000,
-          1200,
-          1600
+          1200
         ]
       },
       "rep_count": {
@@ -2834,9 +2828,9 @@
       "lead_with": "distance",
       "show_distance_range": false,
       "show_time_range": true,
-      "title_template": "{{generated_workout_title}}",
+      "title_template": "{{variant_name}}",
       "summary_template": "{{total_distance}} miles · {{time_range}}",
-      "description_template": "A continuous tempo session with no recovery breaks. Let the effort build naturally and focus on rhythm, control, and smooth transitions between gears."
+      "description_template": "Warm up {{warmup_minutes}} min easy. {{progression_instruction}} Cool down {{cooldown_minutes}} min easy."
     },
     "instance_signature": {
       "fields": [

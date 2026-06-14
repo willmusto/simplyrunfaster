@@ -989,28 +989,27 @@ class PlanGenerator
             $archetype['resolved_variant'] = self::pickVariant($archetype);
         }
 
-        // Resolve rep_distance_meters before fit-to-slot capping so the cap can use an
-        // accurate per-rep cycle time. equal_distance_repeats always re-derives from
-        // quality_volume/rep_count because its schema stores allowed_values (a reference
-        // list) rather than a single resolved instance distance.
-        if (!empty($params['rep_count']) && !empty($params['quality_volume_meters'])) {
-            if ($archetype['code'] === 'equal_distance_repeats' || empty($params['rep_distance_meters'])) {
-                $params['rep_distance_meters'] = (int)round($params['quality_volume_meters'] / $params['rep_count'] / 10) * 10;
-            }
+        // Generic fallback: derive rep_distance from quality_volume/rep_count only when an
+        // archetype leaves it unset and isn't one of the discrete-distance archetypes below.
+        if (!empty($params['rep_count']) && !empty($params['quality_volume_meters'])
+            && empty($params['rep_distance_meters'])
+            && !in_array($archetype['code'], ['equal_distance_repeats', 'short_speed_repeats'], true)) {
+            $params['rep_distance_meters'] = (int)round($params['quality_volume_meters'] / $params['rep_count'] / 10) * 10;
         }
-        if ($archetype['code'] === 'short_speed_repeats') {
-            // Each variant prescribes a distinct rep distance (data-driven from the variant JSON),
-            // so variants produce distinct instance signatures. Previously every variant resolved
-            // to 200m → identical signatures → using SSR once 28-day-hard-blocked all five variants
-            // together (Item 10). Distinct distances let SSR recur with genuine variety.
-            $variantDist = $archetype['resolved_variant']['rep_distance_meters'] ?? null;
-            $params['rep_distance_meters'] = (int)($variantDist ?? $params['rep_distance_meters'] ?? 200);
-            $params['effort_zone'] = $params['effort_zone'] ?? 'repetition';
 
-            // Derive rep_count from the quality-volume target so total speed volume stays within
-            // the archetype's intended band regardless of rep distance (longer reps → fewer reps).
-            // Clamped to the classification's rep_count range, so it never drops below
-            // minimum_viable_params (rep_count ≥ 4 workable / 6 well_trained).
+        // short_speed_repeats and equal_distance_repeats: each variant prescribes a distinct
+        // discrete rep distance (data-driven from the variant JSON) — so variants render distinct
+        // titles and produce distinct instance signatures (resolves Item 10). rep_count is then
+        // derived from the quality-volume target so total volume stays within the archetype's band
+        // regardless of distance (longer reps → fewer reps), clamped to the classification's
+        // rep_count range so it never drops below minimum_viable_params.
+        if (in_array($archetype['code'], ['short_speed_repeats', 'equal_distance_repeats'], true)) {
+            $variantDist = $archetype['resolved_variant']['rep_distance_meters'] ?? null;
+            $default     = $archetype['code'] === 'short_speed_repeats' ? 200 : 800;
+            $params['rep_distance_meters'] = (int)($variantDist ?? $params['rep_distance_meters'] ?? $default);
+            if ($archetype['code'] === 'short_speed_repeats') {
+                $params['effort_zone'] = $params['effort_zone'] ?? 'repetition';
+            }
             if (!empty($params['quality_volume_meters']) && $params['rep_distance_meters'] > 0) {
                 $rcSpec = $archetype['parameters']['rep_count'][$classification] ?? ['min' => 4, 'max' => 10];
                 $rcMin  = (int)($rcSpec['min'] ?? 4);
@@ -1086,6 +1085,30 @@ class PlanGenerator
         }
 
         $params = self::addConditionalInstructionParams($archetype['code'], $params);
+
+        // continuous_progression_tempo: build a structure-aware, instance-specific instruction
+        // from the (capped) continuous_work_minutes split into thirds, differentiated by variant.
+        // Effort-based language (no pace numbers) per §2/§3 — the established athlete-facing tone.
+        if ($archetype['code'] === 'continuous_progression_tempo') {
+            $w = max(1, (int)($params['continuous_work_minutes'] ?? 0));
+            $a = (int)round($w / 3);
+            $b = (int)round($w / 3);
+            $c = max(1, $w - $a - $b);
+            $tempoEffort = 'tempo effort — comfortably hard, where you could say a few words but not hold a conversation';
+            $variantCode = $archetype['resolved_variant']['code'] ?? 'linear_progression';
+            if ($variantCode === 'wave_progression') {
+                $params['progression_instruction'] =
+                    "Run continuously for {$w} minutes with no recovery breaks, riding waves of effort that trend "
+                    . "faster overall: roughly the first {$a} minutes easing in from a comfortable to a moderate effort, "
+                    . "the middle {$b} minutes alternating short tempo surges with moderate floats, and the final "
+                    . "{$c} minutes settling into a sustained {$tempoEffort}.";
+            } else {
+                $params['progression_instruction'] =
+                    "Run continuously for {$w} minutes with no recovery breaks, building effort steadily: roughly the "
+                    . "first {$a} minutes at an easy, comfortable effort, the middle {$b} minutes at a moderate effort, "
+                    . "and the final {$c} minutes at {$tempoEffort}.";
+            }
+        }
 
         // total_distance: quality volume in miles for distance-based workouts.
         // Computed after fit-to-slot capping so rep_count reflects the capped value.
