@@ -999,8 +999,25 @@ class PlanGenerator
             }
         }
         if ($archetype['code'] === 'short_speed_repeats') {
-            $params['rep_distance_meters'] = (int)($params['rep_distance_meters'] ?? 200);
+            // Each variant prescribes a distinct rep distance (data-driven from the variant JSON),
+            // so variants produce distinct instance signatures. Previously every variant resolved
+            // to 200m → identical signatures → using SSR once 28-day-hard-blocked all five variants
+            // together (Item 10). Distinct distances let SSR recur with genuine variety.
+            $variantDist = $archetype['resolved_variant']['rep_distance_meters'] ?? null;
+            $params['rep_distance_meters'] = (int)($variantDist ?? $params['rep_distance_meters'] ?? 200);
             $params['effort_zone'] = $params['effort_zone'] ?? 'repetition';
+
+            // Derive rep_count from the quality-volume target so total speed volume stays within
+            // the archetype's intended band regardless of rep distance (longer reps → fewer reps).
+            // Clamped to the classification's rep_count range, so it never drops below
+            // minimum_viable_params (rep_count ≥ 4 workable / 6 well_trained).
+            if (!empty($params['quality_volume_meters']) && $params['rep_distance_meters'] > 0) {
+                $rcSpec = $archetype['parameters']['rep_count'][$classification] ?? ['min' => 4, 'max' => 10];
+                $rcMin  = (int)($rcSpec['min'] ?? 4);
+                $rcMax  = (int)($rcSpec['max'] ?? 10);
+                $params['rep_count'] = max($rcMin, min($rcMax,
+                    (int)round($params['quality_volume_meters'] / $params['rep_distance_meters'])));
+            }
         }
         // Derive rep_duration_seconds for distance-based interval archetypes. Used by
         // fit-to-slot capping and computeMainSetMinutes for sum-of-parts duration honesty.

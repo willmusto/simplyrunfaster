@@ -1682,23 +1682,28 @@
     "variants": [
       {
         "code": "economy_200s",
-        "name": "Economy 200s"
+        "name": "Economy 200s",
+        "rep_distance_meters": 200
       },
       {
         "code": "speed_300s",
-        "name": "Speed 300s"
+        "name": "Speed 300s",
+        "rep_distance_meters": 300
       },
       {
         "code": "speed_endurance_400s",
-        "name": "Speed Endurance 400s"
+        "name": "Speed Endurance 400s",
+        "rep_distance_meters": 400
       },
       {
         "code": "broken_speed_set",
-        "name": "Broken Speed Set"
+        "name": "Broken Speed Set",
+        "rep_distance_meters": 150
       },
       {
         "code": "repetition_session",
-        "name": "Repetition Session"
+        "name": "Repetition Session",
+        "rep_distance_meters": 600
       }
     ],
     "parameters": {
@@ -1721,7 +1726,9 @@
           150,
           200,
           300,
-          400
+          400,
+          500,
+          600
         ],
         "default": 200
       },
