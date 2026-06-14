@@ -283,7 +283,8 @@ class CoachController
             'SELECT id, workout_type, target_duration, scheduled_date,
                     display_title, display_summary, athlete_instructions,
                     display_title                                           AS template_name,
-                    COALESCE(athlete_instructions, display_summary, \'\')   AS description
+                    COALESCE(athlete_instructions, display_summary, \'\')   AS description,
+                    coach_locked
              FROM planned_workouts
              WHERE id = ? LIMIT 1'
         );
@@ -777,7 +778,7 @@ class CoachController
                     archetype_code, display_title, display_summary, athlete_instructions,
                     display_title                                          AS template_name,
                     COALESCE(athlete_instructions, display_summary, \'\')  AS description,
-                    structure, target_duration, intensity_load, visible_to_athlete
+                    structure, target_duration, intensity_load, coach_locked, visible_to_athlete
              FROM planned_workouts
              WHERE plan_id = ?
              ORDER BY scheduled_date ASC'

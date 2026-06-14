@@ -58,6 +58,12 @@ check('equal_distance_repeats 1200m → mile key',
 check('short_speed_repeats 200m → 400 key',
     PaceZones::qualityCitation('short_speed_repeats', ['rep_distance_meters' => 200], $zones),
     'Aim for around 5:37–5:47/mile on the reps.');           // 200 → 400 342 ±5
+check('short_speed_repeats 150m → 400 key',
+    PaceZones::qualityCitation('short_speed_repeats', ['rep_distance_meters' => 150], $zones),
+    'Aim for around 5:37–5:47/mile on the reps.');           // 150 → 400 342 ±5
+check('short_speed_repeats missing rep distance',
+    PaceZones::qualityCitation('short_speed_repeats', ['quality_volume_meters' => 1500], $zones),
+    null);
 
 echo "\nMixed reps band (mile..5K)\n";
 check('mixed_distance_repeats',

@@ -163,7 +163,11 @@ class PaceZones
             // track/short pace key, cited as a narrow range around that pace.
             case 'equal_distance_repeats':
             case 'short_speed_repeats':
-                $key   = self::nearestDistanceKey((int)($params['rep_distance_meters'] ?? 0));
+                $meters = self::repDistanceMeters($params);
+                if ($meters === null) {
+                    return null;
+                }
+                $key   = self::nearestDistanceKey($meters);
                 $range = self::scalarRange($zones, $key);
                 return $range ? "Aim for around {$range} on the reps." : null;
 
@@ -227,6 +231,21 @@ class PaceZones
         $lo = min((int)$zones[$a], (int)$zones[$b]);
         $hi = max((int)$zones[$a], (int)$zones[$b]);
         return self::formatRange($lo, $hi);
+    }
+
+    /**
+     * Return the prescribed single-rep distance for distance-repeat citations.
+     * Intentionally does not fall back to quality_volume_meters: that is total
+     * work volume, not the rep length used for nearest-distance pace mapping.
+     */
+    private static function repDistanceMeters(array $params): ?int
+    {
+        if (!isset($params['rep_distance_meters']) || !is_numeric($params['rep_distance_meters'])) {
+            return null;
+        }
+
+        $meters = (int)$params['rep_distance_meters'];
+        return $meters > 0 ? $meters : null;
     }
 
     /**

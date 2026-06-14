@@ -176,4 +176,3 @@ async function networkFirst(req, fallbackUrl) {
         return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
     }
 }
-

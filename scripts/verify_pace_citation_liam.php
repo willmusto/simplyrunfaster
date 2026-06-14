@@ -59,6 +59,12 @@ if (!$populated) {
     exit(1);
 }
 
+$zoneProfile = json_decode($liam['pace_zones'] ?? 'null', true);
+if (!is_array($zoneProfile)) {
+    fwrite(STDERR, "Liam's pace_zones could not be decoded.\n");
+    exit(1);
+}
+
 $setVisible = function (int $v) use ($db, $athleteId) {
     $db->prepare('UPDATE athlete_profiles SET pace_zones_visible = ? WHERE athlete_id = ?')
        ->execute([$v, $athleteId]);
@@ -72,7 +78,8 @@ $latestPlanId = function () use ($db, $athleteId): int {
 
 $qualityRows = function (int $planId) use ($db): array {
     $s = $db->prepare(
-        "SELECT scheduled_date, archetype_code, archetype_variant, display_title, athlete_instructions
+        "SELECT scheduled_date, archetype_code, archetype_variant, archetype_params,
+                display_title, athlete_instructions
          FROM planned_workouts
          WHERE plan_id = ? AND archetype_code IS NOT NULL
          ORDER BY scheduled_date"
@@ -94,6 +101,64 @@ $flagCount = function (int $planId) use ($db, $athleteId): int {
     catch (Throwable $e) { return -1; }
 };
 
+$scalarRange = function (string $key) use ($zoneProfile): ?string {
+    if (empty($zoneProfile[$key]) || !is_numeric($zoneProfile[$key])) return null;
+    $pace = (int)$zoneProfile[$key];
+    return PaceZones::formatRange($pace - 5, $pace + 5);
+};
+
+$bandRange = function (string $a, string $b) use ($zoneProfile): ?string {
+    if (empty($zoneProfile[$a]) || empty($zoneProfile[$b])
+        || !is_numeric($zoneProfile[$a]) || !is_numeric($zoneProfile[$b])) {
+        return null;
+    }
+    return PaceZones::formatRange(min((int)$zoneProfile[$a], (int)$zoneProfile[$b]), max((int)$zoneProfile[$a], (int)$zoneProfile[$b]));
+};
+
+$nearestDistanceKey = function (int $meters): string {
+    return match (true) {
+        $meters > 0 && $meters < 566 => '400',
+        $meters < 1134               => '800',
+        $meters < 2236               => 'mile',
+        default                      => '5K',
+    };
+};
+
+$expectedCitation = function (array $row) use ($scalarRange, $bandRange, $nearestDistanceKey): array {
+    $code = $row['archetype_code'] ?? '';
+    $params = json_decode($row['archetype_params'] ?? '{}', true);
+    if (!is_array($params)) $params = [];
+
+    switch ($code) {
+        case 'tempo_intervals':
+        case 'continuous_progression_tempo':
+        case 'high_volume_time_intervals':
+            return ['10K..half_marathon', $bandRange('10K', 'half_marathon')];
+
+        case 'equal_distance_repeats':
+        case 'short_speed_repeats':
+            $meters = isset($params['rep_distance_meters']) && is_numeric($params['rep_distance_meters'])
+                ? (int)$params['rep_distance_meters']
+                : 0;
+            if ($meters <= 0) return ['missing rep_distance_meters', null];
+            $key = $nearestDistanceKey($meters);
+            return ["{$meters}m->{$key}", $scalarRange($key)];
+
+        case 'mixed_distance_repeats':
+            return ['mile..5K', $bandRange('mile', '5K')];
+
+        case 'structured_fartlek_ladder':
+            return ['5K..10K', $bandRange('5K', '10K')];
+
+        case 'fast_finish_long':
+            $hint = strtolower((string)($row['archetype_variant'] ?? '') . ' ' . (string)($params['finish_zone'] ?? ''));
+            $key = str_contains($hint, 'threshold') ? 'half_marathon' : 'marathon';
+            return ["finish->{$key}", $scalarRange($key)];
+    }
+
+    return ['', null];
+};
+
 $problems = [];
 
 // ── Pass 1: visible ON ────────────────────────────────────────────────────
@@ -104,16 +169,25 @@ echo "Visible ON  → plan {$onPlan}\n";
 $citedSeen = 0;
 foreach ($qualityRows($onPlan) as $r) {
     $code = $r['archetype_code'];
-    $hasMile = str_contains((string)$r['athlete_instructions'], '/mile');
+    $instructions = (string)$r['athlete_instructions'];
+    $hasMile = str_contains($instructions, '/mile');
     $tag = '';
+    [$expectLabel, $expectRange] = $expectedCitation($r);
     if (in_array($code, $CITING, true)) {
         if ($hasMile) { $citedSeen++; $tag = ' [cited ✓]'; }
         else { $problems[] = "ON: {$code} on {$r['scheduled_date']} missing /mile citation"; $tag = ' [MISSING]'; }
+        if ($expectRange === null) {
+            $problems[] = "ON: {$code} on {$r['scheduled_date']} missing expected citation basis ({$expectLabel})";
+        } elseif (!str_contains($instructions, $expectRange)) {
+            $problems[] = "ON: {$code} on {$r['scheduled_date']} cited wrong range; expected {$expectRange} ({$expectLabel})";
+            $tag .= ' [WRONG RANGE]';
+        }
     } elseif (in_array($code, $HILL, true) && $hasMile) {
         $problems[] = "ON: hill {$code} on {$r['scheduled_date']} unexpectedly cited pace"; $tag = ' [UNEXPECTED]';
     }
     if (in_array($code, $CITING, true) || in_array($code, $HILL, true)) {
-        printf("  %-30s %-16s%s\n      %s\n", $code, $r['archetype_variant'] ?? '', $tag, $r['athlete_instructions']);
+        $expectText = $expectLabel ? " expected={$expectLabel}" : '';
+        printf("  %-30s %-16s%s%s\n      %s\n", $code, $r['archetype_variant'] ?? '', $tag, $expectText, $instructions);
     }
 }
 $onFlags = $flagCount($onPlan);

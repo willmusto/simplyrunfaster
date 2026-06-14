@@ -3,6 +3,32 @@
 $today = date('Y-m-d');
 ?>
 <div class="page-content">
+    <style>
+    .coach-workout-details {
+        margin: 6px 0 0;
+        font-size: 12px;
+    }
+    .coach-workout-details summary {
+        cursor: pointer;
+        color: var(--text-secondary);
+        line-height: 1.5;
+    }
+    .coach-workout-details summary::marker {
+        color: var(--text-muted);
+    }
+    .coach-workout-details[open] .coach-workout-preview,
+    .coach-workout-details:not([open]) .coach-workout-toggle-less {
+        display: none;
+    }
+    .coach-workout-details[open] .coach-workout-toggle-more {
+        display: none;
+    }
+    .coach-workout-toggle {
+        color: var(--accent-mid);
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    </style>
 
     <?php if (!empty($flashSuccess)): ?>
     <div class="alert alert-success" style="margin-bottom:16px;padding:10px 14px;border-radius:var(--radius-card);
@@ -114,6 +140,9 @@ $today = date('Y-m-d');
             <?php foreach ($workouts as $w):
                 $isPast  = $w['scheduled_date'] < $today;
                 $isToday = $w['scheduled_date'] === $today;
+                $description = (string)($w['description'] ?? '');
+                $isLongDescription = mb_strlen($description) > 160;
+                $descriptionPreview = mb_substr($description, 0, 160);
             ?>
             <div class="card" style="margin-bottom:6px;<?= $isPast ? 'opacity:.65;' : '' ?>
                                      <?= $isToday ? 'border-left:3px solid var(--accent-mid);' : '' ?>">
@@ -127,17 +156,30 @@ $today = date('Y-m-d');
                     <?php if ($w['target_duration']): ?>
                     <span style="font-size:12px;color:var(--text-muted);"><?= format_duration((int)$w['target_duration']) ?></span>
                     <?php endif; ?>
-                    <?php if ($w['coach_locked']): ?>
+                    <?php if (!empty($w['coach_locked'])): ?>
                     <span title="Coach-locked" style="font-size:14px;">🔒</span>
                     <?php endif; ?>
                     <?php if ($w['visible_to_athlete']): ?>
                     <span class="pill" style="background:var(--recessed-bg);color:var(--text-muted);font-size:10px;">visible</span>
                     <?php endif; ?>
                 </div>
-                <?php if ($w['description']): ?>
+                <?php if ($description !== ''): ?>
+                <?php if ($isLongDescription): ?>
+                <details class="coach-workout-details">
+                    <summary>
+                        <span class="coach-workout-preview"><?= nl2br(h($descriptionPreview)) ?>&hellip; </span>
+                        <span class="coach-workout-toggle coach-workout-toggle-more">Show more</span>
+                        <span class="coach-workout-toggle coach-workout-toggle-less">Show less</span>
+                    </summary>
+                    <p class="body-text" style="margin:6px 0 0;font-size:12px;">
+                        <?= nl2br(h($description)) ?>
+                    </p>
+                </details>
+                <?php else: ?>
                 <p class="body-text" style="margin:6px 0 0;font-size:12px;">
-                    <?= nl2br(h(mb_substr($w['description'], 0, 160) . (mb_strlen($w['description']) > 160 ? '…' : ''))) ?>
+                    <?= nl2br(h($description)) ?>
                 </p>
+                <?php endif; ?>
                 <?php endif; ?>
             </div>
             <?php endforeach; ?>
