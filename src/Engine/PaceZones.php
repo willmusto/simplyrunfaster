@@ -119,6 +119,147 @@ class PaceZones
         return is_array($decoded) && !empty($decoded['5K']);
     }
 
+    // ── Quality pace-zone citation (engine spec §19 item 14) ────────────────
+    //
+    // When an athlete's pace_zones are visible and populated, quality-session
+    // instructions cite the relevant zone alongside the existing effort-language
+    // description. This is an ADDITIVE clause appended at render time — the effort
+    // framing is untouched, and when zones are hidden/empty no clause is produced,
+    // so the effort-only output is byte-for-byte unchanged.
+    //
+    // Cited zones render as a narrow ±5 sec/mile range around a scalar zone, or as
+    // the band between two zones for the threshold/mixed efforts that genuinely
+    // span a range. Format reuses an "M:SS/mile" pace formatter (see formatRange).
+
+    /** Width, in seconds per mile, of the ±band drawn around a single scalar zone. */
+    private const SCALAR_PACE_HALF_BAND = 5;
+
+    /**
+     * Build the pace-citation clause for a quality archetype instance, or null
+     * when the archetype is effort-only (hill terrain) or the needed zone keys
+     * are absent. Callers append the returned sentence to the rendered effort text.
+     *
+     * @param string      $code    archetype code
+     * @param array       $params  resolved_params for the instance
+     * @param array|null  $zones   decoded pace_zones (seconds/mile), or null when hidden/empty
+     * @param string|null $variant resolved variant code (used by fast_finish_long)
+     */
+    public static function qualityCitation(string $code, array $params, ?array $zones, ?string $variant = null): ?string
+    {
+        if (empty($zones)) {
+            return null;
+        }
+
+        switch ($code) {
+            // Threshold/tempo efforts sit in the band between 10K (fast end) and
+            // half-marathon (slow end) pace. Cited as that band directly.
+            case 'tempo_intervals':
+            case 'continuous_progression_tempo':
+            case 'high_volume_time_intervals':
+                $range = self::bandRange($zones, '10K', 'half_marathon');
+                return $range ? "Target roughly {$range} on the tempo work." : null;
+
+            // Distance repeats: map the prescribed rep distance to the nearest
+            // track/short pace key, cited as a narrow range around that pace.
+            case 'equal_distance_repeats':
+            case 'short_speed_repeats':
+                $key   = self::nearestDistanceKey((int)($params['rep_distance_meters'] ?? 0));
+                $range = self::scalarRange($zones, $key);
+                return $range ? "Aim for around {$range} on the reps." : null;
+
+            // Mixed-distance reps span short/fast to longer reps — cite the band
+            // from mile (fast end) to 5K (slow end) pace.
+            case 'mixed_distance_repeats':
+                $range = self::bandRange($zones, 'mile', '5K');
+                return $range ? "Aim for around {$range} across the mixed reps." : null;
+
+            // Fartlek ladder: controlled longer efforts to quicker short efforts —
+            // cite the band from 5K (fast end) to 10K (slow end) pace.
+            case 'structured_fartlek_ladder':
+                $range = self::bandRange($zones, '5K', '10K');
+                return $range ? "On the faster efforts, aim for around {$range}." : null;
+
+            // Fast-finish long run: only the closing segment is pace-prescribed,
+            // mapped from the finish variant/zone to the corresponding pace key.
+            case 'fast_finish_long':
+                $key   = self::finishZoneKey($variant, $params['finish_zone'] ?? null);
+                $range = self::scalarRange($zones, $key);
+                return $range ? "Run the closing segment at around {$range}." : null;
+
+            // Hill archetypes (sustained_hill_repeats, hill_sprints,
+            // plyometric_hill_circuits) and everything else remain effort-only.
+            // Uphill running is ~40% slower per minute than flat easy pace
+            // (see engine spec §18.5), so flat-road pace zones do not transfer to
+            // hill terrain — citing them would misprescribe the effort.
+            default:
+                return null;
+        }
+    }
+
+    /** Format seconds-per-mile as "M:SS/mile". */
+    public static function formatPace(int $secs): string
+    {
+        return sprintf('%d:%02d/mile', intdiv($secs, 60), $secs % 60);
+    }
+
+    /** Format a low/high seconds-per-mile pair as "M:SS–M:SS/mile" (en-dash). */
+    public static function formatRange(int $lo, int $hi): string
+    {
+        return sprintf('%d:%02d–%d:%02d/mile', intdiv($lo, 60), $lo % 60, intdiv($hi, 60), $hi % 60);
+    }
+
+    /** A ±SCALAR_PACE_HALF_BAND range around a single scalar zone, or null if absent. */
+    private static function scalarRange(?array $zones, string $key): ?string
+    {
+        if (empty($zones[$key]) || !is_numeric($zones[$key])) {
+            return null;
+        }
+        $v = (int)$zones[$key];
+        return self::formatRange($v - self::SCALAR_PACE_HALF_BAND, $v + self::SCALAR_PACE_HALF_BAND);
+    }
+
+    /** The band between two scalar zones (smaller=faster first), or null if either is absent. */
+    private static function bandRange(?array $zones, string $a, string $b): ?string
+    {
+        if (empty($zones[$a]) || empty($zones[$b]) || !is_numeric($zones[$a]) || !is_numeric($zones[$b])) {
+            return null;
+        }
+        $lo = min((int)$zones[$a], (int)$zones[$b]);
+        $hi = max((int)$zones[$a], (int)$zones[$b]);
+        return self::formatRange($lo, $hi);
+    }
+
+    /**
+     * Map a rep distance in meters to the nearest track/short pace key.
+     * Breakpoints are the geometric midpoints between adjacent reference
+     * distances (400, 800, 1609, 3107 m), so each distance snaps to the key it
+     * is closest to in pace terms: e.g. 200→400, 600→800, 1200→mile, 3000→5K.
+     */
+    private static function nearestDistanceKey(int $meters): string
+    {
+        return match (true) {
+            $meters > 0 && $meters < 566  => '400',
+            $meters < 1134                => '800',
+            $meters < 2236                => 'mile',
+            default                       => '5K',
+        };
+    }
+
+    /**
+     * Map a fast_finish_long finish to a single pace key. The finish character is
+     * carried by the variant (threshold_finish / marathon_finish / steady_finish);
+     * the finish_zone param is a fallback. "threshold" → half-marathon pace (the
+     * nearest single zone to threshold); "marathon"/"steady" → marathon pace.
+     */
+    private static function finishZoneKey(?string $variant, ?string $finishZone): string
+    {
+        $hint = strtolower((string)($variant ?? '') . ' ' . (string)($finishZone ?? ''));
+        return match (true) {
+            str_contains($hint, 'threshold') => 'half_marathon',
+            default                          => 'marathon',
+        };
+    }
+
     // ── Core ──────────────────────────────────────────────────────────────
 
     /**

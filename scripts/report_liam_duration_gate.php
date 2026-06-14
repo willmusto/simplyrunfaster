@@ -183,7 +183,7 @@ function weeklyMinutesForProfile(array $profile, string $planType): array
     for ($week = 1; $week <= 12; $week++) {
         $isCutback = ($week > 1 && $week % 4 === 0);
         $weekly = $isCutback
-            ? max(30, (int)round($prev * 0.75))
+            ? max(30, (int)round($prev * 0.80))
             : min((int)round($prev * 1.08), $peak);
         $weeks[$week] = $weekly;
         $prev = $weekly;

@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/PaceZones.php';
+
 /**
  * PlanGenerator — archetype-based training plan generation.
  *
@@ -79,6 +81,14 @@ class PlanGenerator
     /** @var array|null Cached engine settings from config/engine_settings.php. */
     private static ?array $settings = null;
 
+    /**
+     * Decoded pace_zones for the athlete currently being generated, or null when
+     * the athlete's zones are hidden or empty. Set per-generation in generate().
+     * When non-null, quality instructions cite the relevant pace zone (§19 item 14);
+     * when null, instructions are effort-only and byte-for-byte unchanged.
+     */
+    private static ?array $paceZones = null;
+
     /** Load and cache engine settings. */
     private static function settings(): array
     {
@@ -125,6 +135,13 @@ class PlanGenerator
         $db      = Database::get();
         $profile = self::loadProfile($athleteId, $db);
         if (!$profile) return null;
+
+        // Pace-zone citation context (§19 item 14). Only populated when the athlete's
+        // zones are both visible and non-empty; otherwise null → effort-only output.
+        self::$paceZones = (!empty($profile['pace_zones_visible'])
+            && PaceZones::isPopulated($profile['pace_zones'] ?? null))
+            ? (json_decode($profile['pace_zones'] ?? 'null', true) ?: null)
+            : null;
 
         $planType = $profile['plan_type'] ?? 'development_plan';
 
@@ -738,6 +755,7 @@ class PlanGenerator
             $summary      = self::renderTemplate($display['summary_template'] ?? '', $instance);
             $instructions = self::renderTemplate($display['description_template'] ?? '', $instance);
             $instructions = self::normalizeInstructionText($instructions, $instance);
+            $instructions = self::appendPaceCitation($instructions, $instance);
 
             $sig         = self::computeInstanceSignature($instance);
             $variantCode = $instance['resolved_variant']['code'] ?? null;
@@ -1455,6 +1473,31 @@ class PlanGenerator
         }
 
         return trim(preg_replace('/\s+/', ' ', $instructions));
+    }
+
+    /**
+     * Append the pace-zone citation clause to rendered quality instructions when the
+     * athlete's zones are visible (§19 item 14). A no-op when self::$paceZones is null
+     * (hidden/empty zones) or the archetype is effort-only — so the effort-language
+     * output is byte-for-byte unchanged in those cases.
+     */
+    private static function appendPaceCitation(string $instructions, array $archetype): string
+    {
+        if (self::$paceZones === null) {
+            return $instructions;
+        }
+
+        $clause = PaceZones::qualityCitation(
+            $archetype['code'] ?? '',
+            $archetype['resolved_params'] ?? [],
+            self::$paceZones,
+            $archetype['resolved_variant']['code'] ?? null
+        );
+        if ($clause === null || $clause === '') {
+            return $instructions;
+        }
+
+        return $instructions === '' ? $clause : rtrim($instructions) . ' ' . $clause;
     }
 
     private static function validateGeneratedDisplays(int $planId, int $athleteId, PDO $db): void
