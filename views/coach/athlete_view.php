@@ -165,10 +165,9 @@ if ($activePlan && !empty($allWorkouts)) {
         font-weight: 600;
         white-space: nowrap;
     }
-    .macro-plan-scroll {
-        max-height: 72vh;
-        overflow-y: auto;
-        padding-right: 4px;
+    .macro-plan-list {
+        /* Flows naturally in the page — no nested scroll container.
+           Horizontal overflow per week is handled by .macro-week-wrap. */
     }
     .macro-week {
         margin-bottom: 14px;
@@ -218,15 +217,22 @@ if ($activePlan && !empty($allWorkouts)) {
         letter-spacing: .05em;
         margin-bottom: 6px;
     }
+    /* Day-cell workout is a button that opens the detail popout — no inline
+       expansion, so the grid row never changes height when clicked. */
     .macro-workout {
+        display: block;
+        width: 100%;
         margin-top: 6px;
-    }
-    .macro-workout summary {
-        list-style: none;
+        padding: 4px;
+        border: none;
+        border-radius: var(--radius-sm);
+        background: none;
+        text-align: left;
+        font: inherit;
         cursor: pointer;
     }
-    .macro-workout summary::-webkit-details-marker {
-        display: none;
+    .macro-workout:hover {
+        background: var(--recessed-bg);
     }
     .macro-workout-row {
         display: flex;
@@ -238,23 +244,6 @@ if ($activePlan && !empty($allWorkouts)) {
         font-size: 11px;
         color: var(--text-muted);
     }
-    .macro-detail {
-        margin-top: 8px;
-        padding-top: 8px;
-        border-top: var(--card-border);
-    }
-    .macro-detail-title {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 4px;
-    }
-    .macro-detail-text {
-        font-size: 12px;
-        color: var(--text-secondary);
-        line-height: 1.5;
-        white-space: pre-line;
-    }
     .macro-lock {
         font-size: 12px;
         line-height: 1;
@@ -264,14 +253,40 @@ if ($activePlan && !empty($allWorkouts)) {
         align-self: center;
     }
     @media (max-width: 767px) {
-        .macro-plan-scroll {
-            max-height: none;
-            overflow-y: visible;
-        }
         .macro-week-grid {
             min-width: 760px;
         }
     }
+
+    /* Workout detail popout — mirrors the #calWD modal in
+       views/partials/calendar_week.php (view-only here). */
+    #mwd {
+        display: none;
+        position: fixed; inset: 0; z-index: 9999;
+        align-items: center; justify-content: center;
+    }
+    #mwd.is-open { display: flex; }
+    #mwd-bd {
+        position: absolute; inset: 0;
+        background: rgba(0,0,0,.45);
+    }
+    #mwd-sheet {
+        position: relative; z-index: 1;
+        width: min(480px, calc(100vw - 32px));
+        max-height: 88vh; overflow-y: auto;
+        background: var(--card-bg);
+        border: var(--card-border);
+        border-radius: var(--radius-card);
+        padding: 20px 20px 24px;
+        box-shadow: 0 20px 60px rgba(0,0,0,.25);
+    }
+    #mwd-close {
+        position: absolute; top: 12px; right: 14px;
+        background: none; border: none; cursor: pointer;
+        font-size: 22px; line-height: 1; padding: 2px 4px;
+        color: var(--text-muted);
+    }
+    #mwd-close:hover { color: var(--text-primary); }
     </style>
 
     <?php if (!empty($flashSuccess)): ?>
@@ -366,26 +381,25 @@ if ($activePlan && !empty($allWorkouts)) {
             <div style="font-size:11px;color:var(--text-muted);margin-top:4px;"><?= $pct ?>% complete</div>
         </div>
 
-        <!-- Workout list -->
-        <div class="section-label">WORKOUTS</div>
+        <!-- Upcoming workouts: rolling 7-day window (today … +6 days), mirroring the
+             athlete Plan tab's rolling list. The full plan is in the macro view below. -->
+        <div class="section-label">NEXT 7 DAYS</div>
         <?php
-        // Group by week
-        $byWeek = [];
-        foreach ($allWorkouts as $w) {
-            $week = date('W', strtotime($w['scheduled_date']));
-            $byWeek[$week][] = $w;
-        }
-        $weekNum = 0;
-        foreach ($byWeek as $week => $workouts):
-            $weekNum++;
-            $startDate = reset($workouts)['scheduled_date'];
+        $windowEnd = date('Y-m-d', strtotime($today . ' +6 days'));
+        $upcoming = array_values(array_filter(
+            $allWorkouts,
+            fn($w) => $w['scheduled_date'] >= $today && $w['scheduled_date'] <= $windowEnd
+        ));
         ?>
+        <?php if (empty($upcoming)): ?>
+        <div class="card" style="margin-bottom:16px;">
+            <p class="body-text" style="margin:0;font-size:13px;color:var(--text-muted);">
+                No workouts scheduled in the next 7 days.
+            </p>
+        </div>
+        <?php else: ?>
         <div style="margin-bottom:16px;">
-            <div style="font-size:11px;font-weight:600;color:var(--text-muted);letter-spacing:.06em;
-                        text-transform:uppercase;margin-bottom:8px;">
-                Week <?= $weekNum ?> · <?= date('M j', strtotime($startDate)) ?>
-            </div>
-            <?php foreach ($workouts as $w):
+            <?php foreach ($upcoming as $w):
                 $isPast  = $w['scheduled_date'] < $today;
                 $isToday = $w['scheduled_date'] === $today;
                 $description = (string)($w['description'] ?? '');
@@ -432,11 +446,11 @@ if ($activePlan && !empty($allWorkouts)) {
             </div>
             <?php endforeach; ?>
         </div>
-        <?php endforeach; ?>
+        <?php endif; ?>
 
         <?php if (!empty($macroWeeks)): ?>
         <div class="section-label" style="margin-top:24px;">FULL MACRO PLAN</div>
-        <div class="macro-plan-scroll">
+        <div class="macro-plan-list">
             <?php foreach ($macroWeeks as $macroWeek): ?>
             <section class="macro-week">
                 <div class="macro-week-header">
@@ -487,42 +501,34 @@ if ($activePlan && !empty($allWorkouts)) {
                                 $title = $w['display_title'] ?: ($w['template_name'] ?: pill_label($w['workout_type']));
                                 $description = (string)($w['description'] ?? '');
                             ?>
-                            <details class="macro-workout">
-                                <summary>
-                                    <div class="macro-workout-row">
-                                        <span class="pill <?= pill_class($w['workout_type']) ?>">
-                                            <?= pill_label($w['workout_type']) ?>
-                                        </span>
-                                        <?php if ($w['target_duration']): ?>
-                                        <span class="macro-duration"><?= format_duration((int)$w['target_duration']) ?></span>
-                                        <?php endif; ?>
-                                        <?php if (!empty($w['coach_locked'])): ?>
-                                        <span class="macro-lock" title="Coach-locked">&#128274;</span>
-                                        <?php endif; ?>
-                                        <?php if ($isPastWorkout): ?>
-                                        <span class="compliance-dot <?= $complianceClass ?> macro-compliance"
-                                              title="<?= h($complianceTitle) ?>"></span>
-                                        <?php endif; ?>
-                                    </div>
-                                </summary>
-                                <div class="macro-detail">
-                                    <div class="macro-detail-title"><?= h($title) ?></div>
-                                    <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">
-                                        <?= date('l, M j', strtotime($date)) ?>
-                                        <?php if ($w['target_duration']): ?>
-                                        &middot; <?= format_duration((int)$w['target_duration']) ?>
-                                        <?php endif; ?>
-                                    </div>
-                                    <?php if (!empty($w['display_summary'])): ?>
-                                    <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">
-                                        <?= h($w['display_summary']) ?>
-                                    </div>
+                            <?php
+                            $mwData = htmlspecialchars(json_encode([
+                                'type_label'      => pill_label($w['workout_type']),
+                                'type_class'      => pill_class($w['workout_type']),
+                                'title'           => (string)$title,
+                                'date'            => (string)$date,
+                                'target_duration' => (int)($w['target_duration'] ?? 0),
+                                'summary'         => (string)($w['display_summary'] ?? ''),
+                                'description'     => $description,
+                            ]), ENT_QUOTES, 'UTF-8');
+                            ?>
+                            <button type="button" class="macro-workout" data-mw="<?= $mwData ?>">
+                                <div class="macro-workout-row">
+                                    <span class="pill <?= pill_class($w['workout_type']) ?>">
+                                        <?= pill_label($w['workout_type']) ?>
+                                    </span>
+                                    <?php if ($w['target_duration']): ?>
+                                    <span class="macro-duration"><?= format_duration((int)$w['target_duration']) ?></span>
                                     <?php endif; ?>
-                                    <?php if ($description !== ''): ?>
-                                    <div class="macro-detail-text"><?= nl2br(h($description)) ?></div>
+                                    <?php if (!empty($w['coach_locked'])): ?>
+                                    <span class="macro-lock" title="Coach-locked">&#128274;</span>
+                                    <?php endif; ?>
+                                    <?php if ($isPastWorkout): ?>
+                                    <span class="compliance-dot <?= $complianceClass ?> macro-compliance"
+                                          title="<?= h($complianceTitle) ?>"></span>
                                     <?php endif; ?>
                                 </div>
-                            </details>
+                            </button>
                             <?php endforeach; ?>
                             <?php endif; ?>
                             <?php endif; ?>
@@ -671,4 +677,74 @@ if ($activePlan && !empty($allWorkouts)) {
     </div><!-- /sidebar -->
 
     </div><!-- /grid -->
+
+    <!-- Workout detail popout (view-only) — mirrors the #calWD modal in
+         views/partials/calendar_week.php for visual consistency. -->
+    <div id="mwd" role="dialog" aria-modal="true" aria-label="Workout detail">
+        <div id="mwd-bd"></div>
+        <div id="mwd-sheet">
+            <button id="mwd-close" aria-label="Close">×</button>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-right:28px;">
+                <span id="mwd-type" class="pill"></span>
+                <span id="mwd-date" style="font-size:12px;color:var(--text-muted);"></span>
+            </div>
+            <div id="mwd-name"
+                 style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:10px;"></div>
+            <div id="mwd-dur-wrap" style="margin-bottom:14px;">
+                <div style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+                            color:var(--text-muted);margin-bottom:2px;">Target duration</div>
+                <div id="mwd-dur" style="font-size:14px;font-weight:500;color:var(--text-primary);"></div>
+            </div>
+            <div id="mwd-summary" style="font-size:13px;color:var(--text-muted);margin-bottom:10px;"></div>
+            <div id="mwd-desc"
+                 style="font-size:13px;color:var(--text-secondary);line-height:1.6;white-space:pre-line;"></div>
+        </div>
+    </div>
+
+    <script>
+    (function () {
+        function $id(id) { return document.getElementById(id); }
+        function fmtDur(m) {
+            m = parseInt(m, 10);
+            if (!m) return '—';
+            if (m < 60) return m + ' min';
+            var h = Math.floor(m / 60), r = m % 60;
+            return r ? h + 'h ' + r + 'min' : h + 'h';
+        }
+        function setBlock(id, val) {
+            $id(id).textContent = val || '';
+            $id(id).style.display = val ? '' : 'none';
+        }
+        function openModal(el) {
+            var raw = el.getAttribute('data-mw');
+            if (!raw) return;
+            var d;
+            try { d = JSON.parse(raw); } catch (e) { return; }
+            $id('mwd-type').textContent = d.type_label || '';
+            $id('mwd-type').className   = 'pill ' + (d.type_class || '');
+            $id('mwd-date').textContent = d.date
+                ? new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'})
+                : '';
+            $id('mwd-name').textContent = d.title || '';
+            $id('mwd-dur').textContent  = fmtDur(d.target_duration);
+            $id('mwd-dur-wrap').style.display = d.target_duration ? '' : 'none';
+            setBlock('mwd-summary', d.summary);
+            setBlock('mwd-desc', d.description);
+            $id('mwd').classList.add('is-open');
+            document.body.style.overflow = 'hidden';
+        }
+        function closeModal() {
+            $id('mwd').classList.remove('is-open');
+            document.body.style.overflow = '';
+        }
+        document.addEventListener('click', function (e) {
+            var el = e.target.closest('[data-mw]');
+            if (el) { openModal(el); return; }
+            if (e.target.id === 'mwd-bd' || e.target.id === 'mwd-close') { closeModal(); return; }
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && $id('mwd').classList.contains('is-open')) closeModal();
+        });
+    })();
+    </script>
 </div>
