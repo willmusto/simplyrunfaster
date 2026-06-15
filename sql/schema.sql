@@ -361,7 +361,8 @@ CREATE TABLE IF NOT EXISTS `engine_flags` (
                         'insufficient_base','return_to_running_discomfort',
                         'limited_development_opportunity','long_run_day_conflict',
                         'display_generation_incomplete',
-                        'profile_updated','pace_zones_missing'
+                        'profile_updated','pace_zones_missing',
+                        'schedule_day_ramp'
                     ) NOT NULL,
     `severity`      ENUM('info','warning','critical') NOT NULL DEFAULT 'info',
     `flag_date`     DATE NOT NULL,

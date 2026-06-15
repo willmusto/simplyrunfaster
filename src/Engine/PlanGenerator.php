@@ -131,6 +131,122 @@ class PlanGenerator
         };
     }
 
+    // ── Volume / schedule allocation (§6/§7) ─────────────────────────────────
+
+    /**
+     * Item 1 — how many training days a given week's weeklyMins can structurally
+     * support under the canonical week shape (§7): 1 long run at the long-run floor
+     * plus each additional day at the easy-run floor.
+     *
+     *   supported = 1 + floor((weeklyMins − longFloor) / easyFloor)
+     *
+     * e.g. long-floor 60, easy-floor 30: 120 → 3 days, 180 → 5 days. The caller
+     * caps the requested training_days_per_week to this so low-volume weeks run
+     * fewer days (avoiding all-easy degenerate weeks where the quality budget is
+     * squeezed below any structured archetype). Returns ≥1; callers apply their own
+     * minimum (2).
+     */
+    private static function supportedTrainingDays(int $weeklyMins): int
+    {
+        $s         = self::settings();
+        $longFloor = (int)($s['long_run_absolute_floor_minutes'] ?? 60);
+        $easyFloor = (int)($s['easy_run_min_minutes'] ?? 20);
+        $supported = 1 + (int)floor(max(0, $weeklyMins - $longFloor) / max(1, $easyFloor));
+        return max(1, $supported);
+    }
+
+    /**
+     * Item 2 — informational flag when the athlete's requested training_days_per_week
+     * exceeds what week-1 volume can support (Item 1). Not a hold state: the plan
+     * generates and is usable, just at a reduced initial day count that ramps up.
+     */
+    private static function maybeRaiseScheduleRampFlag(
+        int $athleteId, int $week1Mins, array $profile, PDO $db
+    ): void {
+        $requested = max(2, min(7, (int)($profile['training_days_per_week'] ?? 4)));
+        $supported = max(2, self::supportedTrainingDays($week1Mins));
+        if ($supported >= $requested) return;
+
+        self::raiseFlag(
+            $athleteId, 'schedule_day_ramp', 'info',
+            "Schedule will start at {$supported} day(s)/week (you requested {$requested}) and ramp up "
+            . "toward {$requested} as weekly volume increases. Current volume ({$week1Mins} min/week) does not "
+            . "yet support {$requested} running days at the minimum easy-run duration.",
+            $db
+        );
+    }
+
+    /**
+     * Item 4 — resolve the week-1 starting weekly minutes.
+     *
+     * For onboarding / coach_manual the athlete-profile current_weekly_minutes is the
+     * source (no continuity assumed). For block_end / engine_rebuild (a prior plan ran
+     * its full progression) the new cycle continues the prior plan's trajectory: it
+     * starts from the prior plan's peak weekly volume (capped by peak_volume_ceiling),
+     * so volume does not silently reset to the onboarding-era value every cycle.
+     *
+     * Manual-edit override: if the profile was edited after the prior plan was
+     * generated (profile.updated_at > prior.generated_at), the coach has likely set a
+     * new deliberate baseline, so current_weekly_minutes takes precedence over derived
+     * continuity. (Heuristic: athlete_profiles has a single updated_at, not a per-column
+     * timestamp, so any profile edit since the last plan counts — documented in §6.)
+     */
+    private static function resolveStartingWeeklyMins(
+        int $athleteId, array $profile, string $trigger, int $currentMins, int $peakCeiling, PDO $db
+    ): int {
+        if (!in_array($trigger, ['block_end', 'engine_rebuild'], true)) {
+            return $currentMins;
+        }
+
+        $prior = $db->prepare(
+            'SELECT id, generated_at FROM training_plans
+             WHERE athlete_id = ? AND plan_type IN ("race_cycle","development_plan","maintenance_plan")
+             ORDER BY id DESC LIMIT 1'
+        );
+        $prior->execute([$athleteId]);
+        $priorRow = $prior->fetch(PDO::FETCH_ASSOC);
+        if (!$priorRow) return $currentMins;
+
+        // Manual edit since the prior plan → respect the new baseline.
+        $profileUpdated = strtotime((string)($profile['updated_at'] ?? '')) ?: 0;
+        $priorGenerated = strtotime((string)($priorRow['generated_at'] ?? '')) ?: 0;
+        if ($profileUpdated > $priorGenerated) {
+            return $currentMins;
+        }
+
+        $priorPeak = self::priorPlanPeakVolume((int)$priorRow['id'], $db);
+        if ($priorPeak === null || $priorPeak <= 0) return $currentMins;
+
+        // Continue the trajectory, never above the ceiling (§6 "maintains volume").
+        return max($currentMins, min($priorPeak, $peakCeiling));
+    }
+
+    /**
+     * Peak weekly volume reached by a prior plan: sum of stored target_duration per
+     * 7-day window from plan start, max across windows. Uses the peak (not the literal
+     * final week, which is typically a planned cutback/taper dip) so continuity
+     * reflects the athlete's achieved trajectory rather than the wind-down.
+     */
+    private static function priorPlanPeakVolume(int $planId, PDO $db): ?int
+    {
+        $stmt = $db->prepare(
+            'SELECT pw.scheduled_date, pw.target_duration, tp.plan_start_date
+             FROM planned_workouts pw JOIN training_plans tp ON tp.id = pw.plan_id
+             WHERE pw.plan_id = ?'
+        );
+        $stmt->execute([$planId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!$rows) return null;
+
+        $start   = strtotime((string)$rows[0]['plan_start_date']);
+        $buckets = [];
+        foreach ($rows as $r) {
+            $w = (int)floor((strtotime($r['scheduled_date']) - $start) / (7 * 86400));
+            $buckets[$w] = ($buckets[$w] ?? 0) + (int)($r['target_duration'] ?? 0);
+        }
+        return $buckets ? (int)max($buckets) : null;
+    }
+
     // ── Public API ───────────────────────────────────────────────────────────
 
     /**
@@ -213,11 +329,14 @@ class PlanGenerator
                 'Athlete base is insufficient for the selected distance. Coach decision required.', $db);
         }
 
-        $planId         = self::createPlanRecord($athleteId, 'race_cycle', $startDate, $raceDate, $raceDate, $trigger, $db);
-        $weeklyMins     = max(60, (int)($profile['current_weekly_minutes'] ?? 120));
-        $peakCeiling    = max($weeklyMins, (int)($profile['peak_volume_ceiling_mins'] ?? (int)round($weeklyMins * 1.4)));
+        // Volume base resolved BEFORE the plan record is created so the cross-cycle
+        // continuity query (Item 4) sees the prior plan, not this new empty one.
+        $currentMins    = max(60, (int)($profile['current_weekly_minutes'] ?? 120));
+        $peakCeiling    = max($currentMins, (int)($profile['peak_volume_ceiling_mins'] ?? (int)round($currentMins * 1.4)));
         $longestRun     = max(30, (int)($profile['longest_recent_run_mins'] ?? 60));
-        $prevWeeklyMins = $weeklyMins;
+        $buildBase      = self::resolveStartingWeeklyMins($athleteId, $profile, $trigger, $currentMins, $peakCeiling, $db);
+
+        $planId         = self::createPlanRecord($athleteId, 'race_cycle', $startDate, $raceDate, $raceDate, $trigger, $db);
         $maxLongRun     = $longestRun;
         $constraints    = self::buildConstraints($profile);
 
@@ -228,6 +347,9 @@ class PlanGenerator
             $isRaceWeek    = ($week === $totalWeeks);
             $isPreRaceWeek = ($week === $totalWeeks - 1 && $totalWeeks > 2);
 
+            // Taper and race week derive from the ceiling (not the build base); cutback
+            // reduces from the build base without advancing it; build weeks advance the
+            // base by × 1.10 (Item 3 — post-cutback resumes from the pre-cutback peak).
             if ($phase === 'taper') {
                 $taperMult  = match(true) {
                     $weekInPhase === 1 => 0.75,
@@ -238,11 +360,13 @@ class PlanGenerator
             } elseif ($isRaceWeek) {
                 $weeklyMins = max(30, (int)round($peakCeiling * 0.40));
             } elseif ($isCutback) {
-                $weeklyMins = max(30, (int)round($prevWeeklyMins * 0.75));
+                $weeklyMins = max(30, (int)round($buildBase * 0.75));
             } else {
-                $weeklyMins = min((int)round($prevWeeklyMins * 1.10), $peakCeiling);
+                $weeklyMins = min((int)round($buildBase * 1.10), $peakCeiling);
+                $buildBase  = $weeklyMins;
             }
-            $prevWeeklyMins = $weeklyMins;
+
+            if ($week === 1) self::maybeRaiseScheduleRampFlag($athleteId, $weeklyMins, $profile, $db);
 
             $weekStart  = date('Y-m-d', strtotime($startDate . ' +' . (($week - 1) * 7) . ' days'));
             $schedule   = self::buildDaySchedule($profile, $phase, $weeklyMins, $isRaceWeek, $isPreRaceWeek, $athleteId, $db, 'race_cycle', $week, $isCutback);
@@ -264,21 +388,30 @@ class PlanGenerator
         $totalWeeks = 12;
         $endDate    = date('Y-m-d', strtotime($startDate . " +{$totalWeeks} weeks -1 day"));
 
+        // Volume base resolved BEFORE the plan record is created so the cross-cycle
+        // continuity query (Item 4) sees the prior plan, not this new empty one.
+        $currentMins    = max(60, (int)($profile['current_weekly_minutes'] ?? 120));
+        $peakCeiling    = max($currentMins, (int)($profile['peak_volume_ceiling_mins'] ?? (int)round($currentMins * 1.4)));
+        $buildBase      = self::resolveStartingWeeklyMins($athleteId, $profile, $trigger, $currentMins, $peakCeiling, $db);
+
         $planId         = self::createPlanRecord($athleteId, 'development_plan', $startDate, $endDate, null, $trigger, $db);
-        $weeklyMins     = max(60, (int)($profile['current_weekly_minutes'] ?? 120));
-        $peakCeiling    = max($weeklyMins, (int)($profile['peak_volume_ceiling_mins'] ?? (int)round($weeklyMins * 1.4)));
-        $prevWeeklyMins = $weeklyMins;
         $maxLongRun     = max(30, (int)($profile['longest_recent_run_mins'] ?? 60));
         $constraints    = self::buildConstraints($profile);
         $goalDist       = self::normalizeDistance($profile['goal_race_distance'] ?? '5K');
         $classification = self::classifyAthlete($profile, $goalDist);
 
         for ($week = 1; $week <= $totalWeeks; $week++) {
-            $isCutback  = ($week > 1 && $week % 4 === 0);
-            $weeklyMins = $isCutback
-                ? max(30, (int)round($prevWeeklyMins * 0.80))
-                : min((int)round($prevWeeklyMins * 1.08), $peakCeiling);
-            $prevWeeklyMins = $weeklyMins;
+            $isCutback = ($week > 1 && $week % 4 === 0);
+            // Item 3: cutback reduces from the build base but does NOT advance it, so the
+            // next build week resumes from the pre-cutback peak (× 1.08), not the dip.
+            if ($isCutback) {
+                $weeklyMins = max(30, (int)round($buildBase * 0.80));
+            } else {
+                $weeklyMins = min((int)round($buildBase * 1.08), $peakCeiling);
+                $buildBase  = $weeklyMins;
+            }
+
+            if ($week === 1) self::maybeRaiseScheduleRampFlag($athleteId, $weeklyMins, $profile, $db);
 
             $weekStart  = date('Y-m-d', strtotime($startDate . ' +' . (($week - 1) * 7) . ' days'));
             $schedule   = self::buildDaySchedule($profile, 'base', $weeklyMins, false, false, $athleteId, $db, 'development_plan', $week, $isCutback);
@@ -307,6 +440,11 @@ class PlanGenerator
         $constraints = self::buildConstraints($profile);
         $goalDist    = self::normalizeDistance($profile['goal_race_distance'] ?? 'marathon');
         $classification = self::classifyAthlete($profile, $goalDist);
+
+        // Maintenance volume is ceiling-anchored (85% of ceiling, constant) rather than
+        // ramped from current_weekly_minutes, so it is already cross-cycle continuous;
+        // the day-ramp flag still applies if that volume can't support the requested days.
+        self::maybeRaiseScheduleRampFlag($athleteId, $weeklyMins, $profile, $db);
 
         for ($week = 1; $week <= $totalWeeks; $week++) {
             $weekStart  = date('Y-m-d', strtotime($startDate . ' +' . (($week - 1) * 7) . ' days'));
@@ -532,7 +670,16 @@ class PlanGenerator
     ): array {
         $schedule = array_fill(0, 7, 'rest');
         $mustOff  = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
-        $numDays  = max(2, min(7, (int)($profile['training_days_per_week'] ?? 4)));
+
+        // Item 1 — days-per-week ramp (§6/§7). Rather than forcing the requested
+        // training_days_per_week from week 1, cap the scheduled day count to what this
+        // week's weeklyMins can structurally support under the canonical week shape
+        // (1 long ≥ long-floor + the remaining days each ≥ easy-floor). When volume is
+        // low the week runs fewer days (more rest); as weeklyMins grows week-over-week
+        // the count ramps toward the requested days. must_off_days still constrains the
+        // available pool below, so the actual scheduled count is min(numDays, available).
+        $requestedDays = max(2, min(7, (int)($profile['training_days_per_week'] ?? 4)));
+        $numDays       = max(2, min($requestedDays, self::supportedTrainingDays($weeklyMins)));
 
         $longPrefRaw = isset($profile['long_run_day']) ? (int)$profile['long_run_day'] : 0;
         $longPref    = $longPrefRaw > 0 ? $longPrefRaw : null;
