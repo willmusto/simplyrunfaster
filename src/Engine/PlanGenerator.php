@@ -1175,7 +1175,7 @@ class PlanGenerator
         $params['duration_minutes'] = $displayDuration;
         $archetype['resolved_params'] = $params;
 
-        // distance_range: whole-mile estimate for time-based workouts, based on
+        // distance_range: half-mile estimate for time-based workouts, based on
         // the same effective duration stored in planned_workouts.target_duration.
         if (!empty($display['show_distance_range'])) {
             $params['distance_range'] = self::computeDistanceRange(
@@ -1239,7 +1239,7 @@ class PlanGenerator
     }
 
     /**
-     * Compute a whole-mile "X–Y miles" estimate for a time-based workout.
+     * Compute a half-mile "X–Y miles" estimate for a time-based workout.
      * Uses classification- and goal-distance-based easy pace ranges.
      */
     private static function computeDistanceRange(
@@ -1268,15 +1268,24 @@ class PlanGenerator
         $lower = self::roundDisplayMiles($durationMinutes / $slowPace);
         $upper = self::roundDisplayMiles($durationMinutes / $fastPace);
         if ($upper <= $lower) {
-            $upper = $lower + 1;
+            $upper = $lower + 0.5;
         }
 
-        return "{$lower}–{$upper} miles";
+        return self::formatDisplayMiles($lower) . '–' . self::formatDisplayMiles($upper) . ' miles';
     }
 
-    private static function roundDisplayMiles(float $miles): int
+    private static function roundDisplayMiles(float $miles): float
     {
-        return max(1, (int)round($miles));
+        return max(0.5, round($miles * 2) / 2);
+    }
+
+    private static function formatDisplayMiles(float $miles): string
+    {
+        $rounded = self::roundDisplayMiles($miles);
+        if (abs($rounded - round($rounded)) < 0.0001) {
+            return (string)(int)round($rounded);
+        }
+        return number_format($rounded, 1, '.', '');
     }
 
     /**
@@ -1455,12 +1464,12 @@ class PlanGenerator
             if (!array_key_exists($key, $tokens)) return '';
             $v = $tokens[$key];
             if (in_array($key, ['distance', 'total_distance'], true) && is_numeric($v)) {
-                return (string)self::roundDisplayMiles((float)$v);
+                return self::formatDisplayMiles((float)$v);
             }
             return is_array($v) ? implode(', ', $v) : (string)$v;
         }, $template);
 
-        return preg_replace('/\b1 miles\b/', '1 mile', $rendered);
+        return preg_replace('/(^|·\s)1 miles\b/', '${1}1 mile', $rendered);
     }
 
     private static function normalizeInstructionText(string $instructions, array $archetype): string

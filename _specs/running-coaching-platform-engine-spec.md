@@ -800,10 +800,10 @@ Display text is rendered at generation time by substituting `{{token}}` placehol
 
 **Format convention by prescription type:**
 
-- **Duration-first archetypes** (`lead_with: "duration"` — easy, long, fartlek, time-based hill sessions): summary leads with the same effective duration stored in `planned_workouts.target_duration`: `"45 min · 3–4 miles"`. For structured archetypes this is `computeActualDuration(instance) ?? targetMinutes`, so `display_summary` does not continue to show the pre-capped slot allocation when `target_duration` uses the honest sum-of-parts duration.
-- **Distance-first archetypes** (`lead_with: "distance"` — intervals, tempo, distance-based workouts): summary leads with whole-mile quality volume: `"5 miles · 34–47 min"`. Time ranges are still computed from the raw resolved distance before display rounding.
+- **Duration-first archetypes** (`lead_with: "duration"` — easy, long, fartlek, time-based hill sessions): summary leads with the same effective duration stored in `planned_workouts.target_duration`: `"45 min · 3.5–4 miles"`. For structured archetypes this is `computeActualDuration(instance) ?? targetMinutes`, so `display_summary` does not continue to show the pre-capped slot allocation when `target_duration` uses the honest sum-of-parts duration.
+- **Distance-first archetypes** (`lead_with: "distance"` — intervals, tempo, distance-based workouts): summary leads with half-mile quality volume: `"4.5 miles · 34–47 min"`. Time ranges are still computed from the raw resolved distance before display rounding.
 
-**Distance rounding:** Distance values in `display_summary` are rounded to the nearest whole mile. `computeDistanceRange()` rounds each endpoint to the nearest whole mile, clamps the lower bound to at least 1 mile, and widens a collapsed range by 1 mile so short sessions never render as `0–1 miles` or a degenerate `1–1 miles` range. Single distance tokens (`{{distance}}`, `{{total_distance}}`) are also rounded to the nearest whole mile for display, with singular `1 mile` when applicable.
+**Distance rounding:** Distance values in `display_summary` are rounded to the nearest half mile. `computeDistanceRange()` rounds each endpoint to the nearest 0.5 mile, clamps the lower bound to at least 0.5 miles, and widens a collapsed range by 0.5 mile on the upper bound only so short sessions never render as `0–0.5 miles` or a degenerate `1–1 miles` range. Single distance tokens (`{{distance}}`, `{{total_distance}}`) are also rounded to the nearest half mile for display, with singular `1 mile` when applicable.
 
 ### 18.5 Distance Range Computation
 
@@ -816,7 +816,7 @@ Three `planned_workouts` columns hold athlete-facing display content:
 | Column | Written by | Editable? | Purpose |
 |---|---|---|---|
 | `display_title` | Engine at generation | No | Short workout name (e.g. "6 × 90 sec Hill Repeats", "Tempo Intervals") — shown as the workout headline in both coach and athlete UI |
-| `display_summary` | Engine at generation | No | One-line subtitle (e.g. "30 min · 2–3 miles", "5 miles · 34–47 min") — shown under the title as the at-a-glance prescription |
+| `display_summary` | Engine at generation | No | One-line subtitle (e.g. "30 min · 2.5–3 miles", "4.5 miles · 34–47 min") — shown under the title as the at-a-glance prescription |
 | `athlete_instructions` | Engine at generation; editable by coach | Yes — writes back to `planned_workouts.athlete_instructions` | Primary description paragraph shown to both coach and athlete; coaches write their annotation here (replaces the old unused `description` column for this purpose) |
 
 `CoachController::getPlanWorkouts()` returns `COALESCE(athlete_instructions, display_summary, '')` as the `description` alias for backward compatibility with the calendar UI. `CoachController::editPlannedWorkout()` saves coach edits to `athlete_instructions` only — `display_title` and `display_summary` are never overwritten by coach edits.
