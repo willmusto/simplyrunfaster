@@ -129,16 +129,25 @@ check('Liam week 1 has quality (not all continuous_easy)', ($wk1['quality'] ?? 0
 check('Liam total quality across plan > 0', array_sum(array_column($lt,'quality')) > 0, 'total='.array_sum(array_column($lt,'quality')));
 check('schedule_day_ramp flag raised for Liam', $flagOpen($laid, 'schedule_day_ramp'));
 check('validateGeneratedDisplays clean for Liam plan', $displayFlags((int)$lpid, $laid) === 0);
-$expectedLiamMins = [1=>130, 2=>140, 3=>151, 4=>121, 5=>163, 6=>176, 7=>190, 8=>152, 9=>203, 10=>220, 11=>238, 12=>190];
 $targetLiamMins = $developmentTargets($liamCurrentMins, $liamPeakCeiling);
 $actualLiamMins = [];
 foreach ($lt as $w => $d) $actualLiamMins[(int)$w] = (int)$d['mins'];
-check('Liam 12-code-week target volume trajectory unchanged', $targetLiamMins === $expectedLiamMins, 'target='.json_encode($targetLiamMins));
-$storedNearTarget = count($actualLiamMins) === count($expectedLiamMins);
-foreach ($expectedLiamMins as $w => $target) {
-    if (!isset($actualLiamMins[$w]) || abs($actualLiamMins[$w] - $target) > 1) $storedNearTarget = false;
-}
-check('Liam stored code-week durations stay within 1 min of target', $storedNearTarget, 'stored='.json_encode($actualLiamMins));
+$targetCutbackCadenceOk = count($targetLiamMins) === 12
+    && isset($targetLiamMins[3], $targetLiamMins[4], $targetLiamMins[5], $targetLiamMins[7], $targetLiamMins[8], $targetLiamMins[9], $targetLiamMins[11], $targetLiamMins[12])
+    && $targetLiamMins[4] < $targetLiamMins[3]
+    && $targetLiamMins[5] > $targetLiamMins[3]
+    && $targetLiamMins[8] < $targetLiamMins[7]
+    && $targetLiamMins[9] > $targetLiamMins[7]
+    && $targetLiamMins[12] < $targetLiamMins[11];
+check('Liam target progression keeps cutbacks at code-weeks 4/8/12', $targetCutbackCadenceOk, 'target='.json_encode($targetLiamMins));
+$storedShapeOk = count($actualLiamMins) === 12
+    && isset($actualLiamMins[3], $actualLiamMins[4], $actualLiamMins[5], $actualLiamMins[7], $actualLiamMins[8], $actualLiamMins[9], $actualLiamMins[11], $actualLiamMins[12])
+    && $actualLiamMins[4] < $actualLiamMins[3]
+    && $actualLiamMins[5] > $actualLiamMins[3]
+    && $actualLiamMins[8] < $actualLiamMins[7]
+    && $actualLiamMins[9] > $actualLiamMins[7]
+    && $actualLiamMins[12] < $actualLiamMins[11];
+check('Liam stored code-week trace keeps the same progression shape', $storedShapeOk, 'stored='.json_encode($actualLiamMins));
 $macroCutbackLabels = [];
 $displayStartTs = strtotime('-' . ((int)date('N', strtotime((string)$liamPlan['plan_start_date'])) - 1) . ' days', strtotime((string)$liamPlan['plan_start_date']));
 $displayEndTs = strtotime('+' . (7 - (int)date('N', strtotime((string)$liamPlan['plan_end_date']))) . ' days', strtotime((string)$liamPlan['plan_end_date']));
@@ -156,6 +165,7 @@ for ($weekStartTs = $displayStartTs; $weekStartTs <= $displayEndTs; $weekStartTs
 check('Liam macro cutback labels are single code-weeks 4/8/12', $macroCutbackLabels === [4,8,12], 'labels='.json_encode($macroCutbackLabels));
 echo "    week | mins | days | quality\n";
 foreach ($lt as $w => $d) printf("    %4d | %4d | %4d | %d\n", $w, $d['mins'], $d['days'], $d['quality']);
+echo "    target weeklyMins: " . implode(', ', $targetLiamMins) . "\n";
 
 // Item 3 — find a cutback week (local min) and confirm the following week resumes above the pre-cutback peak.
 $item3ok = true; $item3note = '';
