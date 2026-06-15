@@ -413,6 +413,10 @@ class PlanGenerator
         $goalDist       = self::normalizeDistance($profile['goal_race_distance'] ?? '5K');
         $classification = self::classifyAthlete($profile, $goalDist);
 
+        // Snapshot the anti-repeat history before the loop: the lead-in (which precedes week 1)
+        // resolves against this prior-plan-only context so it isn't blocked by week 1's own picks.
+        $leadInHistory = $antiRepeatHistory;
+
         for ($week = 1; $week <= $totalWeeks; $week++) {
             $isCutback = ($week > 1 && $week % 4 === 0);
             // Item 3: cutback reduces from the build base but does NOT advance it, so the
@@ -450,7 +454,7 @@ class PlanGenerator
             $leadInSchedule ?? [], $leadInMins ?? 0, 'base',
             $goalDist, $classification, 'development_plan',
             $leadInMaxLongRun ?? $maxLongRun, $constraints, $profile,
-            $db, $selector, $antiRepeatHistory
+            $db, $selector, $leadInHistory
         );
 
         return $planId;
@@ -478,6 +482,9 @@ class PlanGenerator
         // the day-ramp flag still applies if that volume can't support the requested days.
         self::maybeRaiseScheduleRampFlag($athleteId, $weeklyMins, $profile, $db);
 
+        // Snapshot for the lead-in (precedes week 1); see generateDevelopmentPlan.
+        $leadInHistory = $antiRepeatHistory;
+
         for ($week = 1; $week <= $totalWeeks; $week++) {
             $weekStart  = date('Y-m-d', strtotime($codeWeekStart . ' +' . (($week - 1) * 7) . ' days'));
             $schedule   = self::buildDaySchedule($profile, 'build', $weeklyMins, false, false, $athleteId, $db, 'maintenance_plan', $week, false);
@@ -498,7 +505,7 @@ class PlanGenerator
             $leadInSchedule ?? [], $weeklyMins, 'build',
             $goalDist, $classification, 'maintenance_plan',
             $leadInMaxLongRun ?? $maxLongRun, $constraints, $profile,
-            $db, $selector, $antiRepeatHistory
+            $db, $selector, $leadInHistory
         );
 
         return $planId;
@@ -1091,8 +1098,12 @@ class PlanGenerator
      * therefore week-1-scale (a lead-in long run looks like week 1's long run, etc.). Because the
      * lead-in spans < 7 days, each day-of-week appears at most once, so it is a faithful slice of
      * week 1's rhythm. Generated after the main loop, so it cannot perturb the code-week
-     * trajectory; the anti-repeat history only nudges the lead-in toward different *variants* of
-     * the same slot types (the day TYPES are preserved).
+     * trajectory. It resolves against a SNAPSHOT of the anti-repeat history taken before the main
+     * loop (prior-plan history only) — the chronologically faithful context, since the lead-in
+     * precedes week 1. This is deliberate: resolving against the post-loop history would let week
+     * 1's own signatures hard-block the lead-in's matching slots and force a type-changing fallback
+     * (e.g. a long-run slot collapsing to a recovery run). Using the pre-loop snapshot keeps the
+     * day TYPES faithful to week 1; the snapshot is passed by value, so its mutations are discarded.
      *
      * Day-1 guarantee: plan_start_date (the first lead-in day, i.e. "tomorrow") must carry a real
      * running assignment — at minimum an easy run — UNLESS its day-of-week is one of the athlete's
@@ -1115,7 +1126,7 @@ class PlanGenerator
         array $week1Schedule, int $weeklyMins, string $phase,
         string $goalDistance, string $classification, string $planType,
         int $maxLongRun, array $constraints, array $profile, PDO $db,
-        ArchetypeSelector $selector, array &$antiRepeatHistory
+        ArchetypeSelector $selector, array $antiRepeatHistory
     ): void {
         // No lead-in on Monday starts (or any degenerate case where the code-week is not later).
         if (strtotime($codeWeekStart) <= strtotime($startDate) || empty($week1Schedule)) {
