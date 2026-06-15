@@ -242,6 +242,7 @@ CREATE TABLE IF NOT EXISTS `training_plans` (
     `id`                    INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `athlete_id`            INT UNSIGNED NOT NULL,
     `plan_type`             ENUM('race_cycle','development_plan','maintenance_plan','recovery_block','return_to_running') NOT NULL DEFAULT 'race_cycle',
+    `rtr_current_stage`     INT DEFAULT NULL COMMENT 'return_to_running run/walk stage 1-10; NULL for other plan types',
     `status`                ENUM('pending_approval','active','archived','abandoned') NOT NULL DEFAULT 'pending_approval',
     `approved_by`           INT UNSIGNED DEFAULT NULL COMMENT 'coach user_id',
     `approved_at`           DATETIME DEFAULT NULL,

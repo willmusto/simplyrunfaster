@@ -78,6 +78,13 @@ class PlanGenerator
         'structured_fartlek_ladder'     => ['round_count' => 1],
     ];
 
+    // Deterministic beginner archetypes whose placement is driven by a fixed
+    // stage/structure, not weighted variety-seeking. They are intentionally
+    // repeated across a plan, so they bypass the anti-repeat hard block and the
+    // per-slot quality-duration budget (the run/walk session IS the athlete's
+    // primary session, not budgeted quality work). See engine spec §19 item 6.
+    const REPEATABLE_ARCHETYPES = ['run_walk_intervals', 'standalone_strides'];
+
     /** @var array|null Cached engine settings from config/engine_settings.php. */
     private static ?array $settings = null;
 
@@ -314,76 +321,153 @@ class PlanGenerator
         return $planId;
     }
 
+    /**
+     * Return-to-running: a STATIC initial rolling window (next 10 days) at run/walk
+     * stage 1. Run days use the run_walk_intervals archetype (stage 1) on an
+     * every-other-day cadence, capped by the athlete's training_days_per_week as an
+     * UPPER BOUND and never on must-off days. Non-run days are low-impact cross-
+     * training (if equipment) or rest, both carrying a coach-drill note (rehab
+     * Phases I–III are handled by the coach off-platform).
+     *
+     * rtr_current_stage is set to 1 at creation. plan_end_date is the window end
+     * (start + 9 days); the adaptive stage-progression follow-on (engine spec §19
+     * item 6) extends the plan as the athlete advances through the stages.
+     */
     private static function generateReturnToRunning(
         int $athleteId, array $profile, string $trigger, PDO $db
     ): ?int {
-        $band          = $profile['return_time_off_band'] ?? '6_16_weeks';
-        $startingStage = in_array($band, ['6_16_weeks', '4_12_months', '12_plus_months']) ? 1 : 3;
-        $sessionsPerStage = in_array($band, ['4_12_months', '12_plus_months']) ? 2 : 1;
+        $selector = new ArchetypeSelector($db);
 
-        $r2rStages = [
-            1  => ['run' => 1,  'walk' => 2, 'total' => 21],
-            2  => ['run' => 2,  'walk' => 2, 'total' => 24],
-            3  => ['run' => 3,  'walk' => 2, 'total' => 25],
-            4  => ['run' => 4,  'walk' => 1, 'total' => 25],
-            5  => ['run' => 5,  'walk' => 1, 'total' => 30],
-            6  => ['run' => 6,  'walk' => 1, 'total' => 28],
-            7  => ['run' => 7,  'walk' => 1, 'total' => 32],
-            8  => ['run' => 8,  'walk' => 1, 'total' => 27],
-            9  => ['run' => 9,  'walk' => 1, 'total' => 30],
-            10 => ['run' => 30, 'walk' => 0, 'total' => 30],
-        ];
-
-        $sessions = [];
-        for ($stage = $startingStage; $stage <= 10; $stage++) {
-            for ($s = 0; $s < $sessionsPerStage; $s++) {
-                $sessions[] = $stage;
-            }
-        }
-
-        $planDays   = count($sessions) * 2 + 4;
+        $stage      = 1;
+        $windowDays = 10;
         $startDate  = date('Y-m-d', strtotime('+1 day'));
-        $totalWeeks = max(4, (int)ceil($planDays / 7));
-        $endDate    = date('Y-m-d', strtotime($startDate . " +{$totalWeeks} weeks -1 day"));
-        $planId     = self::createPlanRecord($athleteId, 'return_to_running', $startDate, $endDate, null, $trigger, $db);
-        $crossDesc  = self::getCrossTrainDescription($profile);
+        $endDate    = date('Y-m-d', strtotime($startDate . ' +' . ($windowDays - 1) . ' days'));
 
-        $currentDate  = strtotime($startDate);
-        $sessionIndex = 0;
+        $planId = self::createPlanRecord($athleteId, 'return_to_running', $startDate, $endDate, null, $trigger, $db);
+        $db->prepare('UPDATE training_plans SET rtr_current_stage = ? WHERE id = ?')->execute([$stage, $planId]);
 
-        while ($sessionIndex < count($sessions)) {
-            $date = date('Y-m-d', $currentDate);
-            if ($date > $endDate) break;
+        $cap          = max(1, min(7, (int)($profile['training_days_per_week'] ?? 3)));
+        $mustOff      = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
+        $hasEquipment = self::hasCrossTrainingEquipment($profile);
+        $crossDesc    = self::getCrossTrainDescription($profile);
+        $drillNote    = ' Complete your coach-provided mobility and strength drills (rehab Phases I–III) on this day as well.';
 
-            $stage     = $sessions[$sessionIndex];
-            $stageData = $r2rStages[$stage];
-            $desc      = $stage < 10
-                ? "Run/walk: {$stageData['run']} min run, {$stageData['walk']} min walk. Repeat ~{$stageData['total']} min. Keep effort easy throughout."
-                : "First continuous run — easy effort, {$stageData['total']} minutes. Stay comfortable and celebrate the milestone.";
+        $insert = $db->prepare(
+            'INSERT INTO planned_workouts
+             (plan_id, athlete_id, scheduled_date, workout_type,
+              archetype_code, archetype_variant, archetype_params,
+              description, target_duration, intensity_load, visible_to_athlete,
+              workout_archetype_id, archetype_version_snapshot, instance_signature,
+              structure, display_title, display_summary, athlete_instructions)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)'
+        );
 
-            $db->prepare(
-                'INSERT INTO planned_workouts
-                 (plan_id, athlete_id, scheduled_date, workout_type,
-                  description, target_duration, intensity_load, visible_to_athlete)
-                 VALUES (?, ?, ?, "easy", ?, ?, ?, 0)'
-            )->execute([$planId, $athleteId, $date, $desc, $stageData['total'], round($stageData['total'] * 0.4, 2)]);
+        $runDaysUsed   = 0;
+        $lastRunOffset = -2; // allow day 0 to be a run day (every-other-day spacing)
 
-            $sessionIndex++;
-            $currentDate = strtotime('+1 day', $currentDate);
+        for ($d = 0; $d < $windowDays; $d++) {
+            $date = date('Y-m-d', strtotime($startDate . " +{$d} days"));
+            $dow  = (int)date('w', strtotime($date));
 
-            $date2 = date('Y-m-d', $currentDate);
-            if ($date2 <= $endDate) {
-                $db->prepare(
-                    'INSERT INTO planned_workouts
-                     (plan_id, athlete_id, scheduled_date, workout_type,
-                      description, target_duration, intensity_load, visible_to_athlete)
-                     VALUES (?, ?, ?, "cross_train", ?, 30, ?, 0)'
-                )->execute([$planId, $athleteId, $date2, $crossDesc, round(30 * 0.4, 2)]);
+            $isRunDay = !in_array($dow, $mustOff, true)
+                && $runDaysUsed < $cap
+                && ($d - $lastRunOffset) >= 2;
+
+            if ($isRunDay) {
+                $instance = self::resolveRunWalkStage($selector, $stage, 0, 'base', '5K', 'insufficient');
+                if ($instance !== null) {
+                    self::insertResolvedWorkout($insert, $planId, $athleteId, $date, 'easy', $instance);
+                    $runDaysUsed++;
+                    $lastRunOffset = $d;
+                    continue;
+                }
             }
-            $currentDate = strtotime('+1 day', $currentDate);
+
+            // Non-run day: cross-train (if equipment) or rest, both with the drill note.
+            if ($hasEquipment) {
+                $desc = $crossDesc . $drillNote;
+                $insert->execute([
+                    $planId, $athleteId, $date, 'cross_train',
+                    null, null, null,
+                    $desc, 30, round(30 * 0.4, 2),
+                    null, null, null, null, 'Cross-Training', '30 min · low impact', $desc,
+                ]);
+            } else {
+                $desc = 'Rest day — keep movement gentle and let your body recover.' . $drillNote;
+                $insert->execute([
+                    $planId, $athleteId, $date, 'rest',
+                    null, null, null,
+                    $desc, null, 0,
+                    null, null, null, null, 'Rest', 'Rest + coach drills', $desc,
+                ]);
+            }
         }
 
         return $planId;
+    }
+
+    /** True when the athlete has any cross-training equipment available. */
+    private static function hasCrossTrainingEquipment(array $profile): bool
+    {
+        return ($profile['cross_training_bike'] ?? 'none') !== 'none'
+            || ($profile['cross_training_elliptical'] ?? 'none') !== 'none'
+            || !empty($profile['cross_training_pool']);
+    }
+
+    /**
+     * Resolve a run_walk_intervals instance at a specific stage (1-10), forcing the
+     * stage variant so the deterministic structure is used rather than a weighted
+     * random pick. Used by the return_to_running pathway (stage from
+     * rtr_current_stage) — the development insufficient-base path goes through the
+     * normal selector and defaults to stage 1 inside addDerivedParams.
+     */
+    private static function resolveRunWalkStage(
+        ArchetypeSelector $selector, int $stage, int $targetMinutes,
+        string $phase, string $goalDistance, string $classification
+    ): ?array {
+        $archetype = $selector->getByCode('run_walk_intervals');
+        if (!$archetype) return null;
+        $archetype = $selector->resolveParameters($archetype, $classification);
+        $archetype['resolved_variant'] = self::runWalkStageVariant($archetype, $stage);
+        return self::addDerivedParams($archetype, $targetMinutes, $phase, $goalDistance, $classification);
+    }
+
+    /**
+     * Render and insert a resolved archetype instance using a prepared statement
+     * matching the insertWeekWorkouts column order. Shared by the return_to_running
+     * pathway so its run/walk workouts carry full archetype/display fields and pass
+     * validateGeneratedDisplays().
+     */
+    private static function insertResolvedWorkout(
+        PDOStatement $insert, int $planId, int $athleteId, string $date,
+        string $slotWorkoutType, array $instance
+    ): void {
+        $display      = $instance['display'] ?? [];
+        $title        = self::renderTemplate($display['title_template'] ?? '', $instance);
+        $summary      = self::renderTemplate($display['summary_template'] ?? '', $instance);
+        $instructions = self::renderTemplate($display['description_template'] ?? '', $instance);
+        $instructions = self::normalizeInstructionText($instructions, $instance);
+        $instructions = self::appendPaceCitation($instructions, $instance);
+
+        $sig             = self::computeInstanceSignature($instance);
+        $variantCode     = $instance['resolved_variant']['code'] ?? null;
+        $params          = $instance['resolved_params'] ?? [];
+        $structure       = self::resolveStructure($instance);
+        $variantWorkout  = $instance['resolved_variant']['workout_type'] ?? null;
+        $workoutType     = $variantWorkout ?? $slotWorkoutType;
+        $variantIF       = $instance['resolved_variant']['intensity_factor'] ?? null;
+        $intensityFactor = (float)($variantIF ?? $instance['generation']['intensity_factor'] ?? 0.5);
+        $storedDuration  = self::computeActualDuration($instance) ?? (int)($params['duration_minutes'] ?? 0);
+        $load            = round($storedDuration * $intensityFactor, 2);
+
+        $insert->execute([
+            $planId, $athleteId, $date, $workoutType,
+            $instance['code'], $variantCode, json_encode($params),
+            $instructions ?: null, $storedDuration, $load,
+            $instance['id'] ?? null, $instance['version'] ?? null, $sig ?: null,
+            $structure ? json_encode($structure) : null,
+            $title ?: null, $summary ?: null, $instructions ?: null,
+        ]);
     }
 
     private static function generateRecoveryBlock(
@@ -854,6 +938,14 @@ class PlanGenerator
                 continue;
             }
 
+            // Deterministic beginner archetypes (run/walk, standalone strides) are the
+            // athlete's primary session and intentionally recur: they bypass both the
+            // per-slot quality-duration budget and the anti-repeat hard block.
+            if (in_array($candidate['code'], self::REPEATABLE_ARCHETYPES, true)) {
+                $result = $candidate;
+                break;
+            }
+
             // Week-allocation budget: reject a quality candidate whose honest sum-of-parts
             // duration would exceed this slot's volume budget (which reserves the easy-slot
             // floor). Continuous archetypes (null actual duration) are never rejected here, so
@@ -957,6 +1049,28 @@ class PlanGenerator
 
         // Volume-derived duration always overrides the archetype midpoint
         $params['duration_minutes'] = $targetMinutes;
+
+        // run_walk_intervals: deterministic staged run/walk. Force a fixed stage when
+        // none is preset (development insufficient-base → stage 1; return_to_running
+        // presets the stage from rtr_current_stage), then build the instance-specific,
+        // effort-only title + instruction and an honest fixed total duration.
+        if ($archetype['code'] === 'run_walk_intervals') {
+            if (!isset($archetype['resolved_variant'])) {
+                $archetype['resolved_variant'] = self::runWalkStageVariant($archetype, 1);
+            }
+            $params = self::buildRunWalkParams($params, $archetype['resolved_variant']);
+        }
+
+        // standalone_strides: honest short fixed duration (warmup + stride window +
+        // cooldown), not the slot allocation. Each stride is ~stride_duration plus
+        // ~60 sec full recovery.
+        if ($archetype['code'] === 'standalone_strides') {
+            $warm = (int)($params['warmup_minutes'] ?? 5);
+            $cool = (int)($params['cooldown_minutes'] ?? 5);
+            $sc   = (int)($params['stride_count'] ?? 5);
+            $sd   = (int)($params['stride_duration_seconds'] ?? 25);
+            $params['duration_minutes'] = $warm + (int)ceil($sc * ($sd + 60) / 60) + $cool;
+        }
 
         // easy_with_strides: main run duration excludes the stride window
         if ($archetype['code'] === 'easy_with_strides') {
@@ -1357,6 +1471,67 @@ class PlanGenerator
         return $variants[array_rand($variants)];
     }
 
+    /** Find the run_walk_intervals variant for a stage (1-10), defaulting to stage 1. */
+    private static function runWalkStageVariant(array $archetype, int $stage): array
+    {
+        foreach ($archetype['variants'] ?? [] as $v) {
+            if ((int)($v['stage'] ?? 0) === $stage) return $v;
+        }
+        return $archetype['variants'][0] ?? [
+            'code' => 'stage_1', 'name' => 'Stage 1', 'workout_type' => 'easy', 'stage' => 1,
+            'run_minutes' => 1, 'walk_minutes' => 3, 'rep_count' => 10,
+            'warmup_minutes' => 10, 'cooldown_minutes' => 5,
+        ];
+    }
+
+    /**
+     * Copy a run_walk stage variant's structure into resolved_params and build the
+     * instance-specific, effort-only title + instruction and the honest total
+     * duration. Stages 1-9 are N reps of (run X / walk Y) bookended by a brisk-walk
+     * warmup and a walk cooldown; stage 10 is the first continuous run.
+     */
+    private static function buildRunWalkParams(array $params, array $v): array
+    {
+        $stage = (int)($v['stage'] ?? 1);
+        $warm  = (int)($v['warmup_minutes'] ?? 0);
+        $cool  = (int)($v['cooldown_minutes'] ?? 0);
+        $params['stage']            = $stage;
+        $params['warmup_minutes']   = $warm;
+        $params['cooldown_minutes'] = $cool;
+
+        if (!empty($v['is_continuous'])) {
+            $cont = (int)($v['continuous_minutes'] ?? 45);
+            $params['run_minutes']      = $cont;
+            $params['walk_minutes']     = 0;
+            $params['rep_count']        = 0;
+            $params['duration_minutes'] = $cont;
+            $params['run_walk_title']   = "Stage {$stage}: {$cont} min continuous run";
+            $params['run_walk_instruction'] =
+                "Your first continuous run. Settle into an easy, conversational effort and stay relaxed for the "
+                . "full {$cont} minutes — no walk breaks. Keep it gentle; this is about time on your feet, not pace. "
+                . "Stop immediately and note any pain or unusual discomfort, and let your coach know how it felt.";
+            return $params;
+        }
+
+        $run  = (int)($v['run_minutes'] ?? 1);
+        $walk = (int)($v['walk_minutes'] ?? 1);
+        $reps = (int)($v['rep_count'] ?? 1);
+        $params['run_minutes']      = $run;
+        $params['walk_minutes']     = $walk;
+        $params['rep_count']        = $reps;
+        $params['duration_minutes'] = $warm + $reps * ($run + $walk) + $cool;
+
+        $runWord  = $run === 1 ? 'minute' : 'minutes';
+        $walkWord = $walk === 1 ? 'minute' : 'minutes';
+        $params['run_walk_title'] = "Stage {$stage}: {$reps} × {$run}min run / {$walk}min walk";
+        $params['run_walk_instruction'] =
+            "Warm up with {$warm} minutes of brisk walking. Then run {$run} {$runWord} at an easy, conversational "
+            . "effort and walk {$walk} {$walkWord} to recover; repeat that {$reps} times. Cool down with {$cool} "
+            . "minutes of easy walking. Keep every running segment relaxed — effort, not pace. Stop immediately and "
+            . "note any pain or unusual discomfort, and let your coach know how it felt.";
+        return $params;
+    }
+
     /**
      * Compute the main-set duration in minutes from resolved (and capped) parameters.
      * Returns null for archetypes where main-set time can't be derived from params alone
@@ -1404,6 +1579,14 @@ class PlanGenerator
     private static function computeActualDuration(array $archetype): ?int
     {
         $params   = $archetype['resolved_params'] ?? [];
+
+        // Fixed-duration archetypes store their honest total directly in duration_minutes
+        // (run/walk stage total; standalone-strides warmup + stride window + cooldown).
+        if (in_array($archetype['code'] ?? '', self::REPEATABLE_ARCHETYPES, true)) {
+            $d = (int)($params['duration_minutes'] ?? 0);
+            return $d > 0 ? $d : null;
+        }
+
         $warmup   = (int)($params['warmup_minutes']   ?? 0);
         $cooldown = (int)($params['cooldown_minutes'] ?? 0);
 

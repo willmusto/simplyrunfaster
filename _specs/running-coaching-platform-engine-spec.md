@@ -609,10 +609,12 @@ This is a simplified custom model appropriate for v1. It does not require power 
 
 Factors are stored in each archetype's `generation.intensity_factor` field in the `workout_archetypes` table. They are configurable per archetype — changing a factor in the database takes effect on the next plan generation without touching engine logic.
 
-**Archetype intensity factors (all 17 system archetypes):**
+**Archetype intensity factors (all 19 system archetypes):**
 
 | Archetype code | Intensity factor | Notes |
 |---|---|---|
+| `run_walk_intervals` | 0.40 | Staged run/walk for return-to-running and insufficient base |
+| `standalone_strides` | 0.45 | Short stride-only neuromuscular session |
 | `continuous_easy` | 0.50 | Base aerobic stimulus |
 | `easy_with_strides` | 0.55 | Slight neuromuscular addition from strides |
 | `plyometric_hill_circuits` | 0.60 | Short plyometric efforts, full circuit recovery |
@@ -633,14 +635,13 @@ Factors are stored in each archetype's `generation.intensity_factor` field in th
 
 **Variant-level intensity_factor override:** Archetype variants can specify their own `intensity_factor` that takes precedence over the parent archetype's `generation.intensity_factor`. The engine resolves the effective factor as `resolved_variant.intensity_factor` if present, otherwise `archetype.generation.intensity_factor`. The primary live example is the `recovery_easy` variant of `continuous_easy`, which carries **0.30** — vs. the archetype-level 0.50 — reflecting that a recovery-type easy run prescribes meaningfully lighter physiological load than a standard easy session of the same duration. Any variant that does not specify its own `intensity_factor` inherits the archetype-level default.
 
-**Non-archetype workout types** (used by return_to_running and recovery_block plan generators, written directly to planned_workouts without an archetype):
+**Non-archetype workout types** (used by recovery_block, and the cross-train/rest days of return_to_running, written directly to planned_workouts without an archetype):
 
 | Workout type | Intensity factor | Notes |
 |---|---|---|
 | Rest | 0 | No stimulus |
 | Cross training | 0.40 | Reduced impact stress vs. running |
 | Recovery run (recovery_block) | 0.30 | Very gentle active recovery |
-| Return-to-running easy session | 0.40 | Walk/run intervals and stage 10 continuous |
 | 5K race | 1.30 | All-out short effort |
 | 10K race | 1.35 | Sustained maximum effort |
 | Half marathon race | 1.40 | Long sustained maximum effort |
@@ -914,6 +915,30 @@ Implementation: `PaceZones::qualityCitation()` + formatters; `PlanGenerator::app
 
 ---
 
+### 18.10 Beginner / Return-to-Running Archetypes (foundation for §19 item 6)
+
+Two archetypes serve the `insufficient` classification tier (the first archetypes to use `min_classification: insufficient`) and the `return_to_running` plan type, which previously produced nothing but `continuous_easy` fallback (every system archetype weighted `return_to_running` at 0).
+
+**`run_walk_intervals`** — staged run/walk, ten variants (`stage_1`…`stage_10`), each a distinct stage. Stages 1-9 are N reps of (run X min / walk Y min) bookended by a 10-min brisk-walk warmup and 5-min walk cooldown; stage 10 is a 45-min first continuous run (warmup/cooldown folded into the continuous effort). Stage structure (run/walk minutes, rep count) is stored per-variant and copied into `resolved_params` by `PlanGenerator::buildRunWalkParams()`, which also builds the instance-specific, **effort-only** `{{run_walk_title}}` and `{{run_walk_instruction}}` (no pace numbers, ever — `PaceZones::qualityCitation()` returns null for this code regardless of `pace_zones_visible`). `instance_signature` includes the stage variant. `intensity_factor` 0.40.
+
+**`standalone_strides`** — short (~18 min) neuromuscular session: brief warmup, 4-6 × ~25 sec relaxed strides with full recovery, brief cooldown. No substantial continuous-running block (distinct from `easy_with_strides`, which appends strides to a full easy run). Honest fixed duration computed in `addDerivedParams` (warmup + stride window + cooldown), not the slot allocation. `intensity_factor` 0.45.
+
+**Stage selection (deterministic, not variety-seeking).** The stage/variant is never a weighted random pick:
+- **`return_to_running`** presets the stage from `training_plans.rtr_current_stage` via `resolveRunWalkStage()`.
+- **Development insufficient-base** goes through the normal selector; `addDerivedParams` forces a **fixed early stage (stage 1)** when no variant is preset.
+
+Because placement is deterministic and these sessions are meant to recur (a beginner repeats a stage until they progress), both codes are listed in `PlanGenerator::REPEATABLE_ARCHETYPES` and **bypass the anti-repeat hard block** and (for `run_walk_intervals`) the per-slot quality-duration budget — the run/walk session is the athlete's primary session, not budgeted quality work. `target_duration` is the honest fixed total (`computeActualDuration` reads `duration_minutes` for these codes).
+
+**Insufficient-only weighting.** Both carry `min_classification: insufficient` (so they are also *eligible* for workable/well_trained, since the floor is a minimum), but all of their `phase`/`goal_distance`/`plan_type` weights are 0 and only `classification.insufficient` is positive. Because `pickWeighted` sums the four weight dimensions, the total score is 0 for workable/well_trained athletes (excluded from the draw) and positive only for insufficient — cleanly restricting them to the insufficient tier without a `max_classification` mechanism. `run_walk_intervals` fills `easy` + quality slots; `standalone_strides` fills `easy` slots. (The existing classification-rank logic in `ArchetypeSelector` already treated `insufficient` as the lowest valid tier — rank 0 — so no enum/whitelist change was needed.)
+
+**Return-to-running generation pathway.** `generateReturnToRunning()` is a dedicated branch (separate from the phase/weight selection system). For this foundation it produces a **static initial 10-day rolling window at stage 1**: run days on an every-other-day cadence capped by `training_days_per_week` as an upper bound and never on `must_off_days`, each a stage-1 `run_walk_intervals`; non-run days are low-impact cross-training (if the athlete has `cross_training_*` equipment) or rest, both carrying a note pointing to coach-provided drills (rehab Phases I-III are handled by the coach off-platform). `rtr_current_stage` is set to 1 at creation; `plan_end_date` is the window end (start + 9 days). The **adaptive per-session stage progression** that advances the stage and extends the window is the follow-on (see §19 item 6).
+
+**Schema.** `training_plans.rtr_current_stage` — nullable `INT`, NULL for every non-`return_to_running` plan (migration_006; MariaDB-safe plain column).
+
+**Insufficient-base hold state.** The mandatory hold state (critical `insufficient_base` flag, week-one-only visibility) is raised in `generateRaceCycle` for goal-race plans. These archetype additions do not touch that mechanism: they add eligible options to the development-plan pool for insufficient athletes (who previously got only `continuous_easy`), and race-cycle insufficient generation is unchanged (the new archetypes are not in `race_cycle`'s `plan_types`, so that path still raises the flag and falls back as before).
+
+---
+
 ## 19. Open Items (Follow-On Specification Required)
 
 These items are intentionally deferred and must be resolved before the relevant engine components are built:
@@ -928,7 +953,7 @@ These items are intentionally deferred and must be resolved before the relevant 
 
 5. **Profile-influenced guardrails** — Deferred to v2. Universal guardrails hold for all athletes in v1 regardless of experience level.
 
-6. **Beginner-specific archetype gating** — Some archetypes have `min_classification: workable` but no beginner-only archetypes exist yet. Return-to-running and insufficient-base athletes need beginner-specific options (e.g. run/walk intervals, standalone stride sessions) as archetype entries, not just library templates.
+6. **Beginner-specific archetype gating** — 🟡 **Foundation built; adaptive progression pending.** Two beginner archetypes now exist as real entries: `run_walk_intervals` (10 deterministic stages) and `standalone_strides`, both `min_classification: insufficient` and insufficient-only weighted (see §18.10). `return_to_running` has a dedicated generation pathway (`generateReturnToRunning`) that no longer falls back to `continuous_easy` — it produces a static initial 10-day rolling window of stage-1 run/walk on an every-other-day cadence (capped by `training_days_per_week`, respecting `must_off_days`), with cross-training/rest + coach-drill notes on off days. `training_plans.rtr_current_stage` (migration_006) tracks the stage, initialised to 1. Development-plan insufficient-base athletes now draw `run_walk_intervals` (fixed stage 1) and `standalone_strides` for their quality/easy slots instead of `continuous_easy`-only. **Still pending (follow-on):** the adaptive per-session stage-progression mechanic that advances `rtr_current_stage` based on completed sessions and extends the plan window as the athlete climbs from stage 1 to the stage-10 first continuous run. This foundation deliberately generates only the static stage-1 initial state.
 
 7. **Post-marathon recovery block structure** — Coach has a written document detailing the full month-long recovery block week by week. Pending coach providing source document. Until then, recovery block duration is defined (4 weeks for marathon, scaling by distance) but internal week-by-week structure is a placeholder.
 

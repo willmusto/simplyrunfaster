@@ -1323,6 +1323,156 @@ $archetypes = [
         ],
     ],
 
+    // ----------------------------------------------------------
+    // run_walk_intervals  (return_to_running + insufficient-base; §19 item 6)
+    // ----------------------------------------------------------
+    [
+        'code'    => 'run_walk_intervals',
+        'version' => 1,
+        'status'  => 'active',
+        'metadata' => [
+            'name'             => 'Run/Walk Intervals',
+            'workout_type'     => 'easy',
+            'mapped_templates' => [],
+            'description'      => 'Staged run/walk session for return-to-running and insufficient-base athletes. Ten deterministic stages progress from short run segments with generous walk breaks to a first continuous run.',
+        ],
+        'selection' => [
+            'slot_types'               => ['easy', 'quality_primary', 'quality_secondary'],
+            'phases'                   => ['base', 'build', 'peak', 'taper'],
+            'plan_types'               => ['development_plan', 'return_to_running'],
+            'goal_distances'           => ['5K', '10K', 'half', 'marathon'],
+            'min_classification'       => 'insufficient',
+            'track_requirement'        => 'none',
+            'coach_clearance_required' => false,
+            'requires'                 => [],
+            'excludes'                 => [],
+        ],
+        'weights' => [
+            'phase'          => ['base' => 0, 'build' => 0, 'peak' => 0, 'taper' => 0],
+            'goal_distance'  => ['5K' => 0, '10K' => 0, 'half' => 0, 'marathon' => 0],
+            'classification' => ['insufficient' => 10],
+            'plan_type'      => ['race_cycle' => 0, 'development_plan' => 0, 'maintenance_plan' => 0, 'recovery_block' => 0, 'return_to_running' => 0],
+        ],
+        'generation' => [
+            'prescription_model' => 'time_based',
+            'duration_source'    => 'fixed_stage',
+            'progression_model'  => 'stage_progression',
+            'recovery_model'     => 'walk_break',
+            'intensity_factor'   => 0.4,
+            'minimum_session_duration_minutes' => 30,
+        ],
+        'variants' => [
+            ['code' => 'stage_1',  'name' => 'Stage 1',  'workout_type' => 'easy', 'stage' => 1,  'run_minutes' => 1, 'walk_minutes' => 3, 'rep_count' => 10, 'warmup_minutes' => 10, 'cooldown_minutes' => 5],
+            ['code' => 'stage_2',  'name' => 'Stage 2',  'workout_type' => 'easy', 'stage' => 2,  'run_minutes' => 2, 'walk_minutes' => 2, 'rep_count' => 10, 'warmup_minutes' => 10, 'cooldown_minutes' => 5],
+            ['code' => 'stage_3',  'name' => 'Stage 3',  'workout_type' => 'easy', 'stage' => 3,  'run_minutes' => 3, 'walk_minutes' => 1, 'rep_count' => 10, 'warmup_minutes' => 10, 'cooldown_minutes' => 5],
+            ['code' => 'stage_4',  'name' => 'Stage 4',  'workout_type' => 'easy', 'stage' => 4,  'run_minutes' => 4, 'walk_minutes' => 1, 'rep_count' => 8,  'warmup_minutes' => 10, 'cooldown_minutes' => 5],
+            ['code' => 'stage_5',  'name' => 'Stage 5',  'workout_type' => 'easy', 'stage' => 5,  'run_minutes' => 5, 'walk_minutes' => 1, 'rep_count' => 7,  'warmup_minutes' => 10, 'cooldown_minutes' => 5],
+            ['code' => 'stage_6',  'name' => 'Stage 6',  'workout_type' => 'easy', 'stage' => 6,  'run_minutes' => 6, 'walk_minutes' => 1, 'rep_count' => 6,  'warmup_minutes' => 10, 'cooldown_minutes' => 5],
+            ['code' => 'stage_7',  'name' => 'Stage 7',  'workout_type' => 'easy', 'stage' => 7,  'run_minutes' => 7, 'walk_minutes' => 1, 'rep_count' => 6,  'warmup_minutes' => 10, 'cooldown_minutes' => 5],
+            ['code' => 'stage_8',  'name' => 'Stage 8',  'workout_type' => 'easy', 'stage' => 8,  'run_minutes' => 8, 'walk_minutes' => 1, 'rep_count' => 6,  'warmup_minutes' => 10, 'cooldown_minutes' => 5],
+            ['code' => 'stage_9',  'name' => 'Stage 9',  'workout_type' => 'easy', 'stage' => 9,  'run_minutes' => 9, 'walk_minutes' => 1, 'rep_count' => 6,  'warmup_minutes' => 10, 'cooldown_minutes' => 5],
+            ['code' => 'stage_10', 'name' => 'Stage 10', 'workout_type' => 'easy', 'stage' => 10, 'is_continuous' => true, 'continuous_minutes' => 45, 'warmup_minutes' => 0, 'cooldown_minutes' => 0],
+        ],
+        'parameters' => [
+            'stage' => ['type' => 'integer', 'default' => 1],
+        ],
+        'structure_template' => [
+            'segments' => [
+                ['segment_type' => 'run_walk', 'stage' => '{{stage}}', 'run_minutes' => '{{run_minutes}}', 'walk_minutes' => '{{walk_minutes}}', 'rep_count' => '{{rep_count}}', 'warmup_minutes' => '{{warmup_minutes}}', 'cooldown_minutes' => '{{cooldown_minutes}}', 'effort' => 'easy'],
+            ],
+        ],
+        'display' => [
+            'lead_with'            => 'duration',
+            'show_distance_range'  => false,
+            'show_time_range'      => false,
+            'title_template'       => '{{run_walk_title}}',
+            'summary_template'     => '{{duration_minutes}} min · run/walk',
+            'description_template' => '{{run_walk_instruction}}',
+        ],
+        'instance_signature' => ['fields' => ['code', 'variant', 'stage']],
+        'coach_notes' => [
+            'intended_use'  => 'Return-to-running progression and insufficient-base entry point. Stage is deterministic, so the archetype is exempt from anti-repeat hard-blocking.',
+            'special_rules' => [
+                'Effort language only — never prescribe pace for run/walk.',
+                'Stages 1-9 are N reps of (run X / walk Y) with brisk-walk warmup and walk cooldown.',
+                'Stage 10 is the first continuous run.',
+            ],
+        ],
+    ],
+
+    // ----------------------------------------------------------
+    // standalone_strides  (insufficient-base + return_to_running; §19 item 6)
+    // ----------------------------------------------------------
+    [
+        'code'    => 'standalone_strides',
+        'version' => 1,
+        'status'  => 'active',
+        'metadata' => [
+            'name'             => 'Standalone Strides',
+            'workout_type'     => 'easy',
+            'mapped_templates' => [],
+            'description'      => 'Short neuromuscular session: brief warmup, a handful of relaxed strides with full recovery, brief cooldown. Distinct from easy_with_strides.',
+        ],
+        'selection' => [
+            'slot_types'               => ['easy'],
+            'phases'                   => ['base', 'build', 'peak', 'taper'],
+            'plan_types'               => ['development_plan', 'return_to_running'],
+            'goal_distances'           => ['5K', '10K', 'half', 'marathon'],
+            'min_classification'       => 'insufficient',
+            'track_requirement'        => 'none',
+            'coach_clearance_required' => false,
+            'requires'                 => [],
+            'excludes'                 => ['day_after_workout'],
+        ],
+        'weights' => [
+            'phase'          => ['base' => 0, 'build' => 0, 'peak' => 0, 'taper' => 0],
+            'goal_distance'  => ['5K' => 0, '10K' => 0, 'half' => 0, 'marathon' => 0],
+            'classification' => ['insufficient' => 8],
+            'plan_type'      => ['race_cycle' => 0, 'development_plan' => 0, 'maintenance_plan' => 0, 'recovery_block' => 0, 'return_to_running' => 0],
+        ],
+        'generation' => [
+            'prescription_model' => 'time_based',
+            'duration_source'    => 'fixed_short',
+            'progression_model'  => null,
+            'recovery_model'     => null,
+            'intensity_factor'   => 0.45,
+            'minimum_session_duration_minutes' => 15,
+        ],
+        'variants' => [
+            ['code' => 'standard', 'name' => 'Standalone Strides'],
+        ],
+        'parameters' => [
+            'stride_count'            => ['type' => 'integer', 'workable' => ['min' => 4, 'max' => 6], 'well_trained' => ['min' => 4, 'max' => 6]],
+            'stride_duration_seconds' => ['type' => 'integer', 'workable' => ['min' => 20, 'max' => 30], 'well_trained' => ['min' => 20, 'max' => 30]],
+            'warmup_minutes'          => ['type' => 'integer', 'default' => 5],
+            'cooldown_minutes'        => ['type' => 'integer', 'default' => 5],
+        ],
+        'structure_template' => [
+            'segments' => [
+                ['segment_type' => 'warmup',   'duration_minutes' => '{{warmup_minutes}}', 'effort' => 'easy'],
+                ['segment_type' => 'strides',  'repetitions' => '{{stride_count}}', 'duration_seconds' => '{{stride_duration_seconds}}', 'effort' => 'fast_relaxed', 'recovery' => 'full_walk_or_jog'],
+                ['segment_type' => 'cooldown', 'duration_minutes' => '{{cooldown_minutes}}', 'effort' => 'easy'],
+            ],
+        ],
+        'display' => [
+            'lead_with'            => 'duration',
+            'show_distance_range'  => false,
+            'show_time_range'      => false,
+            'title_template'       => 'Standalone Strides',
+            'summary_template'     => '{{duration_minutes}} min · {{stride_count}} strides',
+            'description_template' => 'A short, easy session focused on form. Warm up with {{warmup_minutes}} minutes of easy jogging or brisk walking, then run {{stride_count}} relaxed strides of about {{stride_duration_seconds}} seconds each, taking full recovery between every one. Cool down with {{cooldown_minutes}} minutes easy. Strides are smooth controlled accelerations, never sprints — focus on quick, relaxed turnover.',
+        ],
+        'instance_signature' => ['fields' => ['code', 'stride_count', 'stride_duration_seconds']],
+        'coach_notes' => [
+            'intended_use'  => 'Light neuromuscular stimulus for insufficient-base and return-to-running athletes who do not yet sustain a full easy run. Repeatable; exempt from anti-repeat hard-blocking.',
+            'special_rules' => [
+                'Effort language only — no pace prescription.',
+                'Full recovery between strides.',
+                'Distinct from easy_with_strides.',
+            ],
+        ],
+    ],
+
 ]; // end $archetypes
 
 
