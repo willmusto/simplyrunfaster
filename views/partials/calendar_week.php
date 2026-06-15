@@ -120,6 +120,7 @@ $_bubSize = function(int $m): int {
 
 <!-- Workout detail modal (rendered once per page) -->
 <div id="calWD" role="dialog" aria-modal="true" aria-label="Workout detail">
+    <?= Auth::csrfField() ?>
     <div id="calWD-bd"></div>
     <div id="calWD-sheet">
         <button id="calWD-close" aria-label="Close">×</button>
@@ -308,11 +309,11 @@ function saveEdit() {
     var desc = $id('calWD-e-desc').value.trim();
 
     var csrf = '';
-    var tokenEl = document.querySelector('input[name="_token"]');
+    var tokenEl = document.querySelector('input[name="srf_csrf"]');
     if (tokenEl) csrf = tokenEl.value;
 
     var body = new URLSearchParams();
-    body.set('_token',              csrf);
+    body.set('srf_csrf',            csrf);
     body.set('workout_type',        type);
     body.set('target_duration',     dur);
     body.set('athlete_instructions', desc);
