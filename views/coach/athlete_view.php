@@ -100,18 +100,32 @@ if ($activePlan && !empty($allWorkouts)) {
     $firstMondayTs = strtotime('-' . ($firstDow - 1) . ' days', $planStartTs);
     $lastSundayTs  = strtotime('+' . (7 - $lastDow) . ' days', $planEndTs);
     $macroTotalWeeks = (int)floor(($lastSundayTs - $firstMondayTs) / (7 * 86400)) + 1;
-    $internalTotalWeeks = max(1, (int)ceil(($planEndTs - $planStartTs + 86400) / (7 * 86400)));
     $planType = (string)($activePlan['plan_type'] ?? '');
+    $calendarAlignedTypes = ['development_plan', 'maintenance_plan', 'recovery_block'];
+    $codeWeekStartTs = $planStartTs;
+
+    $hasCalendarAlignedCodeWeeks = in_array($planType, $calendarAlignedTypes, true)
+        && ($firstDow === 1 || $lastDow === 7);
+
+    if ($hasCalendarAlignedCodeWeeks) {
+        $offsetToMonday = (8 - $firstDow) % 7;
+        $codeWeekStartTs = strtotime('+' . $offsetToMonday . ' days', $planStartTs);
+        if ($codeWeekStartTs > $planEndTs) {
+            $codeWeekStartTs = $planStartTs;
+        }
+    }
+
+    $codeTotalWeeks = max(1, (int)ceil(max(1, $planEndTs - $codeWeekStartTs + 86400) / (7 * 86400)));
 
     for ($weekIndex = 1, $weekStartTs = $firstMondayTs; $weekStartTs <= $lastSundayTs; $weekIndex++, $weekStartTs = strtotime('+7 days', $weekStartTs)) {
         $days = [];
-        $internalWeeks = [];
+        $codeWeeks = [];
         for ($iso = 1; $iso <= 7; $iso++) {
             $dayTs = strtotime('+' . ($iso - 1) . ' days', $weekStartTs);
             $date  = date('Y-m-d', $dayTs);
             $insidePlan = $dayTs >= $planStartTs && $dayTs <= $planEndTs;
-            if ($insidePlan) {
-                $internalWeeks[] = max(1, (int)floor(($dayTs - $planStartTs) / (7 * 86400)) + 1);
+            if ($insidePlan && $dayTs >= $codeWeekStartTs) {
+                $codeWeeks[] = max(1, (int)floor(($dayTs - $codeWeekStartTs) / (7 * 86400)) + 1);
             }
             $days[] = [
                 'date' => $date,
@@ -119,21 +133,24 @@ if ($activePlan && !empty($allWorkouts)) {
                 'workouts' => $insidePlan ? ($workoutsByDate[$date] ?? []) : [],
             ];
         }
-        $phaseWeek = $internalWeeks ? min($internalWeeks) : $weekIndex;
-        $phase = $phaseForWeek($planType, $phaseWeek, $internalTotalWeeks);
+        $phaseWeek = $codeWeeks ? min($codeWeeks) : null;
+        $phase = $phaseWeek === null ? 'Lead-in' : $phaseForWeek($planType, $phaseWeek, $codeTotalWeeks);
         $cutback = false;
-        foreach (array_unique($internalWeeks) as $internalWeek) {
-            if ($isCutbackWeek($planType, (int)$internalWeek, $phaseForWeek($planType, (int)$internalWeek, $internalTotalWeeks))) {
+        foreach (array_unique($codeWeeks) as $codeWeek) {
+            if ($isCutbackWeek($planType, (int)$codeWeek, $phaseForWeek($planType, (int)$codeWeek, $codeTotalWeeks))) {
                 $cutback = true;
                 break;
             }
         }
 
         $macroWeeks[] = [
-            'number' => $weekIndex,
-            'total' => $macroTotalWeeks,
+            'number' => $phaseWeek ?? $weekIndex,
+            'calendar_number' => $weekIndex,
+            'total' => $codeTotalWeeks,
+            'calendar_total' => $macroTotalWeeks,
             'phase' => $phase,
             'cutback' => $cutback,
+            'lead_in' => $phaseWeek === null,
             'days' => $days,
         ];
     }
@@ -455,9 +472,13 @@ if ($activePlan && !empty($allWorkouts)) {
             <section class="macro-week">
                 <div class="macro-week-header">
                     <span>
+                        <?php if (!empty($macroWeek['lead_in'])): ?>
+                        Lead-in
+                        <?php else: ?>
                         Week <?= (int)$macroWeek['number'] ?> of <?= (int)$macroWeek['total'] ?>
                         &middot;
                         <?= h($macroWeek['phase']) ?>
+                        <?php endif; ?>
                     </span>
                     <?php if (!empty($macroWeek['cutback'])): ?>
                     <span class="pill pill-warning" style="font-size:10px;">Cutback</span>

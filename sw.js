@@ -11,8 +11,8 @@
 // The activate event deletes all caches whose name differs from
 // CACHE_NAME. If this string never changes, stale CSS/HTML stays
 // cached indefinitely. Update to today's date (YYYYMMDD) before
-// committing, or automate: sed -i "s/srf-[0-9]*/srf-$(date +%Y%m%d)/" sw.js
-const CACHE_NAME    = 'srf-20260614';
+// committing; the deploy checklist runs the cache-bump command.
+const CACHE_NAME    = 'srf-20260615';
 const OFFLINE_URL   = '/app/offline';
 
 // Resources to pre-cache on install.
@@ -106,7 +106,7 @@ self.addEventListener('push', function (event) {
         icon:    data.icon    || '/assets/icons/icon-192.png',
         badge:   data.badge   || '/assets/icons/icon-192.png',
         data:    data.url     || '/',
-        tag:     data.tag     || 'srf-20260614notification',
+        tag:     data.tag     || 'srf-20260615notification',
         renotify: true,
         actions: data.actions || [],
     };

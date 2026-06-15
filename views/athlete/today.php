@@ -10,10 +10,30 @@ $today    = date('Y-m-d');
     <div style="margin-bottom:16px;">
         <div class="page-heading">Good <?= date('G') < 12 ? 'morning' : (date('G') < 17 ? 'afternoon' : 'evening') ?>, <?= $userName ?>.</div>
         <?php if ($plan): ?>
+        <?php
+        $planStartTs = strtotime($plan['plan_start_date']);
+        $planEndTs   = strtotime($plan['plan_end_date'] ?? $plan['plan_start_date']) ?: $planStartTs;
+        $todayTs     = strtotime($today);
+        $planTypeKey = str_replace(' ', '_', strtolower((string)($plan['plan_type'] ?? '')));
+        $codeWeekStartTs = $planStartTs;
+        $hasCalendarAlignedCodeWeeks = in_array($planTypeKey, ['development_plan', 'maintenance_plan', 'recovery_block'], true)
+            && ((int)date('N', $planStartTs) === 1 || (int)date('N', $planEndTs) === 7);
+        if ($hasCalendarAlignedCodeWeeks) {
+            $offsetToMonday = (8 - (int)date('N', $planStartTs)) % 7;
+            $codeWeekStartTs = strtotime('+' . $offsetToMonday . ' days', $planStartTs);
+            if ($codeWeekStartTs > $planEndTs) {
+                $codeWeekStartTs = $planStartTs;
+            }
+        }
+        $codeTotalWeeks = max(1, (int)ceil(max(1, $planEndTs - $codeWeekStartTs + 86400) / 604800));
+        $isLeadIn = $todayTs >= $planStartTs && $todayTs < $codeWeekStartTs;
+        $codeWeekNumber = max(1, (int)floor(($todayTs - $codeWeekStartTs) / 604800) + 1);
+        ?>
         <p class="body-text" style="margin-top:4px;">
-            Week <?= max(1, (int)ceil((strtotime($today) - strtotime($plan['plan_start_date'])) / 604800)) ?>
-            <?php if ($plan['plan_end_date']): ?>
-            of <?= (int)ceil((strtotime($plan['plan_end_date']) - strtotime($plan['plan_start_date'])) / 604800) ?>
+            <?php if ($isLeadIn): ?>
+            Lead-in
+            <?php else: ?>
+            Week <?= min($codeWeekNumber, $codeTotalWeeks) ?> of <?= $codeTotalWeeks ?>
             <?php endif; ?>
             · <?= h(ucfirst($plan['plan_type'] ?? 'Training')) ?>
         </p>

@@ -223,25 +223,37 @@ class PlanGenerator
 
     /**
      * Peak weekly volume reached by a prior plan: sum of stored target_duration per
-     * 7-day window from plan start, max across windows. Uses the peak (not the literal
-     * final week, which is typically a planned cutback/taper dip) so continuity
+     * code-week window, max across windows. Uses the peak (not the literal final
+     * week, which is typically a planned cutback/taper dip) so continuity
      * reflects the athlete's achieved trajectory rather than the wind-down.
      */
     private static function priorPlanPeakVolume(int $planId, PDO $db): ?int
     {
         $stmt = $db->prepare(
-            'SELECT pw.scheduled_date, pw.target_duration, tp.plan_start_date
-             FROM planned_workouts pw JOIN training_plans tp ON tp.id = pw.plan_id
-             WHERE pw.plan_id = ?'
+            'SELECT pw.scheduled_date, pw.target_duration, tp.plan_start_date, tp.plan_end_date, tp.plan_type
+              FROM planned_workouts pw JOIN training_plans tp ON tp.id = pw.plan_id
+              WHERE pw.plan_id = ?'
         );
         $stmt->execute([$planId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         if (!$rows) return null;
 
-        $start   = strtotime((string)$rows[0]['plan_start_date']);
+        $startDate = (string)$rows[0]['plan_start_date'];
+        if (self::hasCalendarAlignedCodeWeeks(
+            (string)($rows[0]['plan_type'] ?? ''),
+            $startDate,
+            (string)($rows[0]['plan_end_date'] ?? '')
+        )) {
+            $startDate = self::firstMondayOnOrAfter($startDate);
+        }
+
+        $start   = strtotime($startDate);
         $buckets = [];
         foreach ($rows as $r) {
-            $w = (int)floor((strtotime($r['scheduled_date']) - $start) / (7 * 86400));
+            $scheduledTs = strtotime($r['scheduled_date']);
+            if ($scheduledTs < $start) continue;
+
+            $w = (int)floor(($scheduledTs - $start) / (7 * 86400));
             $buckets[$w] = ($buckets[$w] ?? 0) + (int)($r['target_duration'] ?? 0);
         }
         return $buckets ? (int)max($buckets) : null;
@@ -384,9 +396,10 @@ class PlanGenerator
         int $athleteId, array $profile, string $trigger, PDO $db,
         ArchetypeSelector $selector, array &$antiRepeatHistory
     ): ?int {
-        $startDate  = date('Y-m-d', strtotime('+1 day'));
-        $totalWeeks = 12;
-        $endDate    = date('Y-m-d', strtotime($startDate . " +{$totalWeeks} weeks -1 day"));
+        $startDate     = date('Y-m-d', strtotime('+1 day'));
+        $totalWeeks    = 12;
+        $codeWeekStart = self::firstMondayOnOrAfter($startDate);
+        $endDate       = self::codeWeekEndDate($codeWeekStart, $totalWeeks);
 
         // Volume base resolved BEFORE the plan record is created so the cross-cycle
         // continuity query (Item 4) sees the prior plan, not this new empty one.
@@ -413,7 +426,7 @@ class PlanGenerator
 
             if ($week === 1) self::maybeRaiseScheduleRampFlag($athleteId, $weeklyMins, $profile, $db);
 
-            $weekStart  = date('Y-m-d', strtotime($startDate . ' +' . (($week - 1) * 7) . ' days'));
+            $weekStart  = date('Y-m-d', strtotime($codeWeekStart . ' +' . (($week - 1) * 7) . ' days'));
             $schedule   = self::buildDaySchedule($profile, 'base', $weeklyMins, false, false, $athleteId, $db, 'development_plan', $week, $isCutback);
             $maxLongRun = self::insertWeekWorkouts(
                 $planId, $athleteId, $weekStart, $endDate,
@@ -429,9 +442,10 @@ class PlanGenerator
         int $athleteId, array $profile, string $trigger, PDO $db,
         ArchetypeSelector $selector, array &$antiRepeatHistory
     ): ?int {
-        $startDate  = date('Y-m-d', strtotime('+1 day'));
-        $totalWeeks = 12;
-        $endDate    = date('Y-m-d', strtotime($startDate . " +{$totalWeeks} weeks -1 day"));
+        $startDate     = date('Y-m-d', strtotime('+1 day'));
+        $totalWeeks    = 12;
+        $codeWeekStart = self::firstMondayOnOrAfter($startDate);
+        $endDate       = self::codeWeekEndDate($codeWeekStart, $totalWeeks);
 
         $planId      = self::createPlanRecord($athleteId, 'maintenance_plan', $startDate, $endDate, null, $trigger, $db);
         $peakCeiling = max(120, (int)($profile['peak_volume_ceiling_mins'] ?? 240));
@@ -447,7 +461,7 @@ class PlanGenerator
         self::maybeRaiseScheduleRampFlag($athleteId, $weeklyMins, $profile, $db);
 
         for ($week = 1; $week <= $totalWeeks; $week++) {
-            $weekStart  = date('Y-m-d', strtotime($startDate . ' +' . (($week - 1) * 7) . ' days'));
+            $weekStart  = date('Y-m-d', strtotime($codeWeekStart . ' +' . (($week - 1) * 7) . ' days'));
             $schedule   = self::buildDaySchedule($profile, 'build', $weeklyMins, false, false, $athleteId, $db, 'maintenance_plan', $week, false);
             $maxLongRun = self::insertWeekWorkouts(
                 $planId, $athleteId, $weekStart, $endDate,
@@ -611,9 +625,10 @@ class PlanGenerator
     private static function generateRecoveryBlock(
         int $athleteId, array $profile, string $trigger, PDO $db
     ): ?int {
-        $startDate  = date('Y-m-d', strtotime('+1 day'));
-        $totalWeeks = 4;
-        $endDate    = date('Y-m-d', strtotime($startDate . " +{$totalWeeks} weeks -1 day"));
+        $startDate     = date('Y-m-d', strtotime('+1 day'));
+        $totalWeeks    = 4;
+        $codeWeekStart = self::firstMondayOnOrAfter($startDate);
+        $endDate       = self::codeWeekEndDate($codeWeekStart, $totalWeeks);
 
         $planId    = self::createPlanRecord($athleteId, 'recovery_block', $startDate, $endDate, null, $trigger, $db);
         $crossDesc = self::getCrossTrainDescription($profile);
@@ -625,7 +640,7 @@ class PlanGenerator
             $available  = array_values(array_diff([0,1,2,3,4,5,6], $mustOff));
             sort($available);
 
-            $weekStart = date('Y-m-d', strtotime($startDate . ' +' . (($week - 1) * 7) . ' days'));
+            $weekStart = date('Y-m-d', strtotime($codeWeekStart . ' +' . (($week - 1) * 7) . ' days'));
 
             for ($d = 0; $d < 7; $d++) {
                 $date      = date('Y-m-d', strtotime($weekStart . " +{$d} days"));
@@ -2196,6 +2211,32 @@ class PlanGenerator
     }
 
     // ── Utility ──────────────────────────────────────────────────────────────
+
+    private static function usesCalendarAlignedCodeWeeks(string $planType): bool
+    {
+        return in_array($planType, ['development_plan', 'maintenance_plan', 'recovery_block'], true);
+    }
+
+    private static function hasCalendarAlignedCodeWeeks(string $planType, string $startDate, ?string $endDate): bool
+    {
+        if (!self::usesCalendarAlignedCodeWeeks($planType)) return false;
+        if ((int)date('N', strtotime($startDate)) === 1) return true;
+        if ($endDate === null || $endDate === '') return false;
+        return (int)date('N', strtotime($endDate)) === 7;
+    }
+
+    private static function firstMondayOnOrAfter(string $date): string
+    {
+        $ts = strtotime($date);
+        $isoDow = (int)date('N', $ts); // 1=Mon ... 7=Sun
+        $offset = (8 - $isoDow) % 7;
+        return date('Y-m-d', strtotime("+{$offset} days", $ts));
+    }
+
+    private static function codeWeekEndDate(string $codeWeekStart, int $totalWeeks): string
+    {
+        return date('Y-m-d', strtotime($codeWeekStart . " +{$totalWeeks} weeks -1 day"));
+    }
 
     private static function normalizeDistance(string $d): string
     {

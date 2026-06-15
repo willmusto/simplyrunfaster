@@ -30,15 +30,36 @@ function check(string $label, bool $ok, string $detail = ''): void {
 
 $QUALITY = "'tempo_intervals','equal_distance_repeats','short_speed_repeats','sustained_hill_repeats','continuous_progression_tempo','mixed_distance_repeats','hill_sprints','high_volume_time_intervals','structured_fartlek_ladder'";
 
-// Per-plan weekly trace: [week => ['mins'=>, 'days'=>, 'quality'=>]]
-$weeklyTrace = function (int $planId) use ($db, $QUALITY): array {
-    $tp = $db->prepare('SELECT plan_start_date FROM training_plans WHERE id = ?');
-    $tp->execute([$planId]); $start = strtotime((string)$tp->fetchColumn());
+$firstMondayOnOrAfter = function (string $date): string {
+    $ts = strtotime($date);
+    $offset = (8 - (int)date('N', $ts)) % 7;
+    return date('Y-m-d', strtotime("+{$offset} days", $ts));
+};
+$codeWeekStartForPlan = function (array $plan) use ($firstMondayOnOrAfter): string {
+    $planType = (string)($plan['plan_type'] ?? '');
+    $startTs = strtotime((string)($plan['plan_start_date'] ?? ''));
+    $endTs = strtotime((string)($plan['plan_end_date'] ?? ''));
+    if (
+        in_array($planType, ['development_plan', 'maintenance_plan', 'recovery_block'], true)
+        && ((int)date('N', $startTs) === 1 || (int)date('N', $endTs) === 7)
+    ) {
+        return $firstMondayOnOrAfter((string)$plan['plan_start_date']);
+    }
+    return (string)$plan['plan_start_date'];
+};
+
+// Per-plan code-week trace: [week => ['mins'=>, 'days'=>, 'quality'=>]]
+$weeklyTrace = function (int $planId) use ($db, $QUALITY, $codeWeekStartForPlan): array {
+    $tp = $db->prepare('SELECT plan_start_date, plan_end_date, plan_type FROM training_plans WHERE id = ?');
+    $tp->execute([$planId]); $plan = $tp->fetch(PDO::FETCH_ASSOC) ?: [];
+    $start = strtotime($codeWeekStartForPlan($plan));
     $rows = $db->prepare("SELECT scheduled_date, target_duration, archetype_code, workout_type FROM planned_workouts WHERE plan_id = ?");
     $rows->execute([$planId]);
     $wk = [];
     foreach ($rows->fetchAll(PDO::FETCH_ASSOC) as $r) {
-        $w = (int)floor((strtotime($r['scheduled_date']) - $start) / (7*86400)) + 1;
+        $scheduledTs = strtotime($r['scheduled_date']);
+        if ($scheduledTs < $start) continue;
+        $w = (int)floor(($scheduledTs - $start) / (7*86400)) + 1;
         $wk[$w]['mins'] = ($wk[$w]['mins'] ?? 0) + (int)$r['target_duration'];
         $isTrain = !in_array($r['workout_type'], ['rest','cross_train'], true);
         $wk[$w]['days'] = ($wk[$w]['days'] ?? 0) + ($isTrain ? 1 : 0);
@@ -63,13 +84,49 @@ $liam = $db->query("SELECT a.id aid FROM athletes a JOIN users u ON u.id=a.user_
 $laid = (int)$liam['aid'];
 $db->prepare("DELETE FROM engine_flags WHERE athlete_id=? AND flag_type='schedule_day_ramp'")->execute([$laid]);
 $lpid = PlanGenerator::generate($laid, 'coach_manual');
+$planStmt = $db->prepare('SELECT plan_start_date, plan_end_date, plan_type FROM training_plans WHERE id = ?');
+$planStmt->execute([(int)$lpid]);
+$liamPlan = $planStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+$liamCodeStart = $codeWeekStartForPlan($liamPlan);
+$leadInDays = max(0, (int)(floor((strtotime($liamCodeStart) - strtotime((string)$liamPlan['plan_start_date'])) / 86400)));
+$codeSpanDays = (int)floor((strtotime((string)$liamPlan['plan_end_date']) - strtotime($liamCodeStart)) / 86400) + 1;
+$leadInWorkoutCount = 0;
+if ($leadInDays > 0) {
+    $leadStmt = $db->prepare('SELECT COUNT(*) FROM planned_workouts WHERE plan_id = ? AND scheduled_date < ?');
+    $leadStmt->execute([(int)$lpid, $liamCodeStart]);
+    $leadInWorkoutCount = (int)$leadStmt->fetchColumn();
+}
 $lt = $weeklyTrace((int)$lpid);
 $wk1 = $lt[1] ?? [];
+check('Liam lead-in is 0 days on Monday starts or 1-6 days otherwise', $leadInDays === 0 || ($leadInDays >= 1 && $leadInDays <= 6), 'lead_in_days='.$leadInDays);
+check('Liam code-week 1 starts on Monday', date('N', strtotime($liamCodeStart)) === '1', 'code_start='.$liamCodeStart);
+check('Liam plan ends on Sunday', date('N', strtotime((string)$liamPlan['plan_end_date'])) === '7', 'end='.$liamPlan['plan_end_date']);
+check('Liam has exactly 12 Mon-Sun code-weeks after lead-in', $codeSpanDays === 84, 'code_span_days='.$codeSpanDays);
+check('Liam lead-in is rest-only filler', $leadInWorkoutCount === 0, 'lead_in_workouts='.$leadInWorkoutCount);
 check('Liam week 1 schedules a reduced day count (< 5)', ($wk1['days'] ?? 9) < 5, 'days='.($wk1['days']??'?'));
 check('Liam week 1 has quality (not all continuous_easy)', ($wk1['quality'] ?? 0) > 0, 'quality='.($wk1['quality']??0));
 check('Liam total quality across plan > 0', array_sum(array_column($lt,'quality')) > 0, 'total='.array_sum(array_column($lt,'quality')));
 check('schedule_day_ramp flag raised for Liam', $flagOpen($laid, 'schedule_day_ramp'));
 check('validateGeneratedDisplays clean for Liam plan', $displayFlags((int)$lpid, $laid) === 0);
+$expectedLiamMins = [1=>130, 2=>140, 3=>151, 4=>121, 5=>163, 6=>176, 7=>190, 8=>152, 9=>203, 10=>220, 11=>238, 12=>190];
+$actualLiamMins = [];
+foreach ($lt as $w => $d) $actualLiamMins[(int)$w] = (int)$d['mins'];
+check('Liam 12-code-week volume trajectory unchanged', $actualLiamMins === $expectedLiamMins, 'actual='.json_encode($actualLiamMins));
+$macroCutbackLabels = [];
+$displayStartTs = strtotime('-' . ((int)date('N', strtotime((string)$liamPlan['plan_start_date'])) - 1) . ' days', strtotime((string)$liamPlan['plan_start_date']));
+$displayEndTs = strtotime('+' . (7 - (int)date('N', strtotime((string)$liamPlan['plan_end_date']))) . ' days', strtotime((string)$liamPlan['plan_end_date']));
+for ($weekStartTs = $displayStartTs; $weekStartTs <= $displayEndTs; $weekStartTs = strtotime('+7 days', $weekStartTs)) {
+    $codes = [];
+    for ($d = 0; $d < 7; $d++) {
+        $dayTs = strtotime("+{$d} days", $weekStartTs);
+        if ($dayTs < strtotime((string)$liamPlan['plan_start_date']) || $dayTs > strtotime((string)$liamPlan['plan_end_date']) || $dayTs < strtotime($liamCodeStart)) continue;
+        $codes[] = (int)floor(($dayTs - strtotime($liamCodeStart)) / (7*86400)) + 1;
+    }
+    foreach (array_unique($codes) as $codeWeek) {
+        if ($codeWeek > 1 && $codeWeek % 4 === 0) $macroCutbackLabels[] = $codeWeek;
+    }
+}
+check('Liam macro cutback labels are single code-weeks 4/8/12', $macroCutbackLabels === [4,8,12], 'labels='.json_encode($macroCutbackLabels));
 echo "    week | mins | days | quality\n";
 foreach ($lt as $w => $d) printf("    %4d | %4d | %4d | %d\n", $w, $d['mins'], $d['days'], $d['quality']);
 
