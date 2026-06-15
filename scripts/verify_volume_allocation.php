@@ -123,7 +123,27 @@ check('Liam lead-in is 0 days on Monday starts or 1-6 days otherwise', $leadInDa
 check('Liam code-week 1 starts on Monday', date('N', strtotime($liamCodeStart)) === '1', 'code_start='.$liamCodeStart);
 check('Liam plan ends on Sunday', date('N', strtotime((string)$liamPlan['plan_end_date'])) === '7', 'end='.$liamPlan['plan_end_date']);
 check('Liam has exactly 12 Mon-Sun code-weeks after lead-in', $codeSpanDays === 84, 'code_span_days='.$codeSpanDays);
-check('Liam lead-in is rest-only filler', $leadInWorkoutCount === 0, 'lead_in_workouts='.$leadInWorkoutCount);
+// Lead-in now carries real mirrored content (no longer rest-only filler).
+$leadRowsStmt = $db->prepare('SELECT scheduled_date, workout_type FROM planned_workouts WHERE plan_id = ? AND scheduled_date < ? ORDER BY scheduled_date');
+$leadRowsStmt->execute([(int)$lpid, $liamCodeStart]);
+$leadRows = $leadRowsStmt->fetchAll(PDO::FETCH_ASSOC);
+$leadRunCount = 0;
+foreach ($leadRows as $lr) { if (!in_array($lr['workout_type'], ['rest','cross_train'], true)) $leadRunCount++; }
+check('Liam lead-in is populated with real workouts (not rest-only)', $leadInDays === 0 || $leadInWorkoutCount > 0, 'lead_in_workouts='.$leadInWorkoutCount);
+check('Liam lead-in mirrors week-1 rhythm (has running days)', $leadInDays === 0 || $leadRunCount > 0, 'lead_in_run_days='.$leadRunCount);
+// Day-1 guarantee: plan_start_date carries a real run unless its day-of-week is a must_off day.
+$liamMustOff = json_decode((string)($db->query('SELECT must_off_days FROM athlete_profiles WHERE athlete_id='.(int)$laid.' LIMIT 1')->fetchColumn() ?: '[]'), true) ?: [];
+$day1Dow = (int)date('w', strtotime((string)$liamPlan['plan_start_date']));
+$day1Row = null;
+foreach ($leadRows as $lr) { if ($lr['scheduled_date'] === (string)$liamPlan['plan_start_date']) { $day1Row = $lr; break; } }
+$day1IsRun = $day1Row !== null && !in_array($day1Row['workout_type'], ['rest','cross_train'], true);
+if ($leadInDays === 0) {
+    check('Liam day-1 guarantee N/A (Monday start, no lead-in)', true);
+} elseif (in_array($day1Dow, $liamMustOff, true)) {
+    check('Liam day-1 is Rest (plan_start_date is a must_off day)', $day1Row === null || !$day1IsRun, 'day1_type='.($day1Row['workout_type'] ?? 'rest'));
+} else {
+    check('Liam day-1 has a real running assignment (day-1 guarantee)', $day1IsRun, 'day1_type='.($day1Row['workout_type'] ?? 'none'));
+}
 check('Liam week 1 schedules a reduced day count (< 5)', ($wk1['days'] ?? 9) < 5, 'days='.($wk1['days']??'?'));
 check('Liam week 1 has quality (not all continuous_easy)', ($wk1['quality'] ?? 0) > 0, 'quality='.($wk1['quality']??0));
 check('Liam total quality across plan > 0', array_sum(array_column($lt,'quality')) > 0, 'total='.array_sum(array_column($lt,'quality')));
@@ -259,6 +279,57 @@ try {
     check('Item 4: manual current_weekly_minutes edit since prior plan overrides continuity',
         $editWk1 < 120, "editWk1={$editWk1} (manual baseline 90 → week1 ~97, not the prior trajectory)");
 } finally { $cleanup($daid, $duid); }
+
+// ════════════════════════════════════════════════════════════════════════════
+// PART E — lead-in content edge cases (Monday start; must_off day-1)
+// ════════════════════════════════════════════════════════════════════════════
+echo "\nPART E — lead-in edge cases\n";
+$planLeadInfo = function (int $planId) use ($db, $codeWeekStartForPlan): array {
+    $tp = $db->prepare('SELECT plan_start_date, plan_end_date, plan_type FROM training_plans WHERE id=?');
+    $tp->execute([$planId]); $plan = $tp->fetch(PDO::FETCH_ASSOC) ?: [];
+    $codeStart = $codeWeekStartForPlan($plan);
+    $days = max(0, (int)floor((strtotime($codeStart) - strtotime((string)$plan['plan_start_date'])) / 86400));
+    $cnt = $db->prepare('SELECT COUNT(*) FROM planned_workouts WHERE plan_id=? AND scheduled_date < ?');
+    $cnt->execute([$planId, $codeStart]);
+    return ['start' => (string)$plan['plan_start_date'], 'codeStart' => $codeStart, 'leadInDays' => $days, 'preCount' => (int)$cnt->fetchColumn()];
+};
+$tomorrowDow = (int)date('w', strtotime('+1 day'));
+
+// E1 — normal athlete: lead-in is populated iff there are lead-in days (covers the Monday-start
+// no-lead-in case whenever "tomorrow" is a Monday, and the populated case otherwise).
+[$f1aid, $f1uid] = $makeAthlete([
+    'plan_type' => 'development_plan', 'goal_race_distance' => '10K',
+    'training_days_per_week' => 4, 'current_weekly_minutes' => 160,
+    'longest_recent_run_mins' => 70, 'peak_volume_ceiling_mins' => 360, 'months_at_current_volume' => 12,
+]);
+try {
+    $info = $planLeadInfo((int)PlanGenerator::generate($f1aid, 'onboarding'));
+    check('lead-in populated iff lead-in days exist', ($info['leadInDays'] > 0) === ($info['preCount'] > 0),
+        "lead_in_days={$info['leadInDays']} pre_code_week_workouts={$info['preCount']}");
+    if ($info['leadInDays'] === 0) {
+        check('Monday start → zero lead-in workouts', $info['preCount'] === 0, 'start='.$info['start'].' (Monday)');
+    }
+} finally { $cleanup($f1aid, $f1uid); }
+
+// E2 — plan_start_date IS a must_off day: day-1 stays Rest (guarantee does not override, no shift).
+[$f2aid, $f2uid] = $makeAthlete([
+    'plan_type' => 'development_plan', 'goal_race_distance' => '10K',
+    'training_days_per_week' => 4, 'current_weekly_minutes' => 160,
+    'longest_recent_run_mins' => 70, 'peak_volume_ceiling_mins' => 360, 'months_at_current_volume' => 12,
+    'must_off_days' => json_encode([$tomorrowDow]),
+]);
+try {
+    $info = $planLeadInfo((int)PlanGenerator::generate($f2aid, 'onboarding'));
+    $d1 = $db->prepare('SELECT workout_type FROM planned_workouts WHERE plan_id=? AND scheduled_date=? LIMIT 1');
+    $d1->execute([(int)$db->query("SELECT id FROM training_plans WHERE athlete_id=$f2aid ORDER BY id DESC LIMIT 1")->fetchColumn(), $info['start']]);
+    $d1type = $d1->fetchColumn();
+    if ($info['leadInDays'] === 0) {
+        check('must_off day-1 case N/A (Monday start, no lead-in)', true, 'start='.$info['start']);
+    } else {
+        check('must_off plan_start_date → day-1 is Rest (no override, no shift)',
+            $d1type === false || in_array($d1type, ['rest','cross_train'], true), 'day1_type='.($d1type ?: 'rest'));
+    }
+} finally { $cleanup($f2aid, $f2uid); }
 
 echo "\n=====================================\n";
 echo ($fail === 0 ? "ALL PASS" : "FAILURES: {$fail}") . "  ({$pass} passed, {$fail} failed)\n";

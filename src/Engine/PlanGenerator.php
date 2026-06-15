@@ -428,12 +428,30 @@ class PlanGenerator
 
             $weekStart  = date('Y-m-d', strtotime($codeWeekStart . ' +' . (($week - 1) * 7) . ' days'));
             $schedule   = self::buildDaySchedule($profile, 'base', $weeklyMins, false, false, $athleteId, $db, 'development_plan', $week, $isCutback);
+            // Capture code-week-1's pattern/volume so the lead-in can mirror it (below).
+            // $maxLongRun here is the pre-week-1 value, reproducing week 1's long-run scale.
+            if ($week === 1) {
+                $leadInSchedule   = $schedule;
+                $leadInMins       = $weeklyMins;
+                $leadInMaxLongRun = $maxLongRun;
+            }
             $maxLongRun = self::insertWeekWorkouts(
                 $planId, $athleteId, $weekStart, $endDate,
                 $schedule, 'base', $goalDist, $classification, 'development_plan',
                 $weeklyMins, $maxLongRun, $constraints, $db, $selector, $antiRepeatHistory
             );
         }
+
+        // Lead-in (days between plan_start_date and the first Monday) mirrors code-week 1's
+        // day-type pattern. Uncounted toward the 12-week progression; generated last so the
+        // code-week trajectory is unaffected. No-op when plan_start_date is a Monday.
+        self::insertLeadInWorkouts(
+            $planId, $athleteId, $startDate, $codeWeekStart, $endDate,
+            $leadInSchedule ?? [], $leadInMins ?? 0, 'base',
+            $goalDist, $classification, 'development_plan',
+            $leadInMaxLongRun ?? $maxLongRun, $constraints, $profile,
+            $db, $selector, $antiRepeatHistory
+        );
 
         return $planId;
     }
@@ -463,12 +481,25 @@ class PlanGenerator
         for ($week = 1; $week <= $totalWeeks; $week++) {
             $weekStart  = date('Y-m-d', strtotime($codeWeekStart . ' +' . (($week - 1) * 7) . ' days'));
             $schedule   = self::buildDaySchedule($profile, 'build', $weeklyMins, false, false, $athleteId, $db, 'maintenance_plan', $week, false);
+            if ($week === 1) {
+                $leadInSchedule   = $schedule;
+                $leadInMaxLongRun = $maxLongRun;
+            }
             $maxLongRun = self::insertWeekWorkouts(
                 $planId, $athleteId, $weekStart, $endDate,
                 $schedule, 'build', $goalDist, $classification, 'maintenance_plan',
                 $weeklyMins, $maxLongRun, $constraints, $db, $selector, $antiRepeatHistory
             );
         }
+
+        // Lead-in mirrors code-week 1's pattern (uncounted). No-op on Monday starts.
+        self::insertLeadInWorkouts(
+            $planId, $athleteId, $startDate, $codeWeekStart, $endDate,
+            $leadInSchedule ?? [], $weeklyMins, 'build',
+            $goalDist, $classification, 'maintenance_plan',
+            $leadInMaxLongRun ?? $maxLongRun, $constraints, $profile,
+            $db, $selector, $antiRepeatHistory
+        );
 
         return $planId;
     }
@@ -852,7 +883,8 @@ class PlanGenerator
         string $classification, string $planType,
         int $weeklyMins, int $maxLongRun,
         array $constraints, PDO $db,
-        ArchetypeSelector $selector, array &$antiRepeatHistory
+        ArchetypeSelector $selector, array &$antiRepeatHistory,
+        ?string $rangeStart = null, ?string $rangeEnd = null
     ): int {
         // Count slot types for volume allocation
         $longCount = count(array_filter($schedule, fn($t) => $t === 'long_run'));
@@ -918,6 +950,9 @@ class PlanGenerator
         for ($d = 0; $d < 7; $d++) {
             $date = date('Y-m-d', strtotime($weekStart . " +{$d} days"));
             if ($date > $planEnd) continue;
+            // Optional window (used by the lead-in: only insert dates in [rangeStart, rangeEnd]).
+            if ($rangeStart !== null && $date < $rangeStart) continue;
+            if ($rangeEnd   !== null && $date > $rangeEnd)   continue;
             $dow      = (int)date('w', strtotime($date));
             $slotType = $schedule[$dow] ?? 'rest';
             if ($slotType === 'rest') continue;
@@ -1040,6 +1075,70 @@ class PlanGenerator
         }
 
         return $maxLongRun;
+    }
+
+    /**
+     * Generate lead-in workouts — the days between plan_start_date and the first Monday
+     * (code-week 1's start). The lead-in sits OUTSIDE the 12-week accounting (it never counts
+     * toward weeklyMins, cutback cadence, quality selection, or cross-cycle continuity — the
+     * verification weeklyTrace and the cutback math both anchor on the Monday code-week start),
+     * but its days are populated with real content rather than blanket rest.
+     *
+     * Approach: mirror code-week 1's day-type pattern onto the matching days-of-week. We reuse
+     * insertWeekWorkouts with the week-1 schedule, anchored on the Monday one week before
+     * code-week 1 so each lead-in date's day-of-week maps to week 1's slot for that day, and a
+     * [rangeStart, rangeEnd] window restricted to the lead-in dates. Per-slot durations are
+     * therefore week-1-scale (a lead-in long run looks like week 1's long run, etc.). Because the
+     * lead-in spans < 7 days, each day-of-week appears at most once, so it is a faithful slice of
+     * week 1's rhythm. Generated after the main loop, so it cannot perturb the code-week
+     * trajectory; the anti-repeat history only nudges the lead-in toward different *variants* of
+     * the same slot types (the day TYPES are preserved).
+     *
+     * Day-1 guarantee: plan_start_date (the first lead-in day, i.e. "tomorrow") must carry a real
+     * running assignment — at minimum an easy run — UNLESS its day-of-week is one of the athlete's
+     * must_off_days, in which case Rest is correct and the guarantee does NOT shift to a later day.
+     * If week 1's pattern would place rest on that day-of-week, we override it to 'easy' for the
+     * lead-in only. Since that day-of-week is unique within the lead-in, the override affects only
+     * day 1. The must_off_days case resolves to Rest (no override, no shift): a forced-off day is a
+     * hard athlete constraint that outranks the day-1 guarantee.
+     *
+     * Relationship to the schedule_day_ramp flag (Item 2): that flag describes code-week 1's
+     * scheduled day count vs. the requested training_days_per_week, and is raised inside the main
+     * loop from week 1's volume alone. The lead-in is uncounted and generated separately, so it
+     * neither feeds nor alters that assessment — the flag continues to mean strictly "week 1 runs
+     * fewer days than requested," regardless of how many days the lead-in happens to populate.
+     *
+     * No-op when plan_start_date is a Monday (codeWeekStart === plan_start_date → no lead-in).
+     */
+    private static function insertLeadInWorkouts(
+        int $planId, int $athleteId, string $startDate, string $codeWeekStart, string $planEnd,
+        array $week1Schedule, int $weeklyMins, string $phase,
+        string $goalDistance, string $classification, string $planType,
+        int $maxLongRun, array $constraints, array $profile, PDO $db,
+        ArchetypeSelector $selector, array &$antiRepeatHistory
+    ): void {
+        // No lead-in on Monday starts (or any degenerate case where the code-week is not later).
+        if (strtotime($codeWeekStart) <= strtotime($startDate) || empty($week1Schedule)) {
+            return;
+        }
+
+        $leadInEnd  = date('Y-m-d', strtotime($codeWeekStart . ' -1 day'));   // the Sunday before
+        $anchorWeek = date('Y-m-d', strtotime($codeWeekStart . ' -7 days'));  // Monday day-of-week anchor
+
+        // Mirror week 1's pattern, then apply the day-1 guarantee.
+        $schedule = $week1Schedule;
+        $startDow = (int)date('w', strtotime($startDate));
+        $mustOff  = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
+        if (!in_array($startDow, $mustOff, true) && ($schedule[$startDow] ?? 'rest') === 'rest') {
+            $schedule[$startDow] = 'easy';
+        }
+
+        self::insertWeekWorkouts(
+            $planId, $athleteId, $anchorWeek, $planEnd,
+            $schedule, $phase, $goalDistance, $classification, $planType,
+            $weeklyMins, $maxLongRun, $constraints, $db, $selector, $antiRepeatHistory,
+            $startDate, $leadInEnd
+        );
     }
 
     // ── Archetype instance resolution ────────────────────────────────────────
