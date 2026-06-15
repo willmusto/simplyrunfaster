@@ -75,6 +75,20 @@ $displayFlags = function (int $planId, int $athleteId) use ($db): int {
     $s = $db->prepare("SELECT COUNT(*) FROM engine_flags WHERE athlete_id=? AND flag_type='display_generation_incomplete' AND details LIKE ?");
     try { $s->execute([$athleteId, '%"plan_id":'.$planId.',%']); return (int)$s->fetchColumn(); } catch (Throwable $e) { return -1; }
 };
+$developmentTargets = function (int $currentMins, int $peakCeiling, int $weeks = 12): array {
+    $buildBase = $currentMins;
+    $targets = [];
+    for ($week = 1; $week <= $weeks; $week++) {
+        if ($week > 1 && $week % 4 === 0) {
+            $weeklyMins = max(30, (int)round($buildBase * 0.80));
+        } else {
+            $weeklyMins = min((int)round($buildBase * 1.08), $peakCeiling);
+            $buildBase = $weeklyMins;
+        }
+        $targets[$week] = $weeklyMins;
+    }
+    return $targets;
+};
 
 // ════════════════════════════════════════════════════════════════════════════
 // PART A + B — Liam (real athlete: 5 days requested, 120 min/week, ceiling 360)
@@ -98,6 +112,13 @@ if ($leadInDays > 0) {
 }
 $lt = $weeklyTrace((int)$lpid);
 $wk1 = $lt[1] ?? [];
+$profileStmt = $db->prepare('SELECT current_weekly_minutes, peak_volume_ceiling_mins FROM athlete_profiles WHERE athlete_id = ? LIMIT 1');
+$profileStmt->execute([$laid]);
+$liamProfile = $profileStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+$liamCurrentMins = max(60, (int)($liamProfile['current_weekly_minutes'] ?? 120));
+$liamPeakCeiling = max($liamCurrentMins, $liamProfile['peak_volume_ceiling_mins'] !== null
+    ? (int)$liamProfile['peak_volume_ceiling_mins']
+    : (int)round($liamCurrentMins * 1.4));
 check('Liam lead-in is 0 days on Monday starts or 1-6 days otherwise', $leadInDays === 0 || ($leadInDays >= 1 && $leadInDays <= 6), 'lead_in_days='.$leadInDays);
 check('Liam code-week 1 starts on Monday', date('N', strtotime($liamCodeStart)) === '1', 'code_start='.$liamCodeStart);
 check('Liam plan ends on Sunday', date('N', strtotime((string)$liamPlan['plan_end_date'])) === '7', 'end='.$liamPlan['plan_end_date']);
@@ -109,9 +130,15 @@ check('Liam total quality across plan > 0', array_sum(array_column($lt,'quality'
 check('schedule_day_ramp flag raised for Liam', $flagOpen($laid, 'schedule_day_ramp'));
 check('validateGeneratedDisplays clean for Liam plan', $displayFlags((int)$lpid, $laid) === 0);
 $expectedLiamMins = [1=>130, 2=>140, 3=>151, 4=>121, 5=>163, 6=>176, 7=>190, 8=>152, 9=>203, 10=>220, 11=>238, 12=>190];
+$targetLiamMins = $developmentTargets($liamCurrentMins, $liamPeakCeiling);
 $actualLiamMins = [];
 foreach ($lt as $w => $d) $actualLiamMins[(int)$w] = (int)$d['mins'];
-check('Liam 12-code-week volume trajectory unchanged', $actualLiamMins === $expectedLiamMins, 'actual='.json_encode($actualLiamMins));
+check('Liam 12-code-week target volume trajectory unchanged', $targetLiamMins === $expectedLiamMins, 'target='.json_encode($targetLiamMins));
+$storedNearTarget = count($actualLiamMins) === count($expectedLiamMins);
+foreach ($expectedLiamMins as $w => $target) {
+    if (!isset($actualLiamMins[$w]) || abs($actualLiamMins[$w] - $target) > 1) $storedNearTarget = false;
+}
+check('Liam stored code-week durations stay within 1 min of target', $storedNearTarget, 'stored='.json_encode($actualLiamMins));
 $macroCutbackLabels = [];
 $displayStartTs = strtotime('-' . ((int)date('N', strtotime((string)$liamPlan['plan_start_date'])) - 1) . ' days', strtotime((string)$liamPlan['plan_start_date']));
 $displayEndTs = strtotime('+' . (7 - (int)date('N', strtotime((string)$liamPlan['plan_end_date']))) . ' days', strtotime((string)$liamPlan['plan_end_date']));

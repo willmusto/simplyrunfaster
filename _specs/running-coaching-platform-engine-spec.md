@@ -1013,7 +1013,7 @@ These items are intentionally deferred and must be resolved before the relevant 
     - Fixed-week generators (`development_plan`, `maintenance_plan`, `recovery_block`) now start week iteration at the first Monday on or after `plan_start_date`. Development and maintenance plans still generate 12 code-weeks; the plan span is `lead-in days + 84 days`, ending on Sunday. Recovery blocks use the same alignment with their 4 code-weeks.
     - Lead-in days are rest-only filler: no `planned_workouts` rows are inserted before code-week 1, matching the app's existing convention that empty in-plan days render as rest and do not count toward `weeklyMins`, cutback cadence, quality selection, or cross-cycle continuity.
     - The coach macro view now derives phase/cutback labels from the Monday code-week anchor. The lead-in calendar row is labeled "Lead-in"; subsequent rows are numbered as code weeks (`Week 1 of 12`, etc.), so development cutbacks map one-to-one to code weeks 4/8/12 with no straddling or doubled "Cutback" labels.
-    - Liam verification after implementation preserves the item 15 volume trajectory for the 12 code-weeks: 130, 140, 151, **121**, 163, 176, 190, **152**, 203, 220, 238, **190**. The only change is calendar placement.
+    - Liam verification after implementation preserves the item 15 target volume trajectory for the 12 code-weeks: 130, 140, 151, **121**, 163, 176, 190, **152**, 203, 220, 238, **190**. The only change is calendar placement.
 
 ---
 
