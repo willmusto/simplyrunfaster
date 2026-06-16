@@ -722,6 +722,38 @@ img { max-width: 100%; display: block; }
     transform: translateX(18px);
 }
 
+/* ── Connected devices (Settings) ───────────────────────────── */
+.device-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 0;
+}
+.device-row + .device-row { border-top: 1px solid var(--divider); }
+.device-row:first-child { padding-top: 0; }
+.device-row:last-child  { padding-bottom: 0; }
+
+.device-name {
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.device-row-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.badge-soon {
+    border: 1px solid #1D9E75;
+    color: #1D9E75;
+    border-radius: 12px;
+    font-size: 11px;
+    padding: 2px 8px;
+    white-space: nowrap;
+}
+
 /* Day picker (availability) */
 .day-picker {
     display: flex;

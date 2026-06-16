@@ -273,6 +273,9 @@ class AthleteController
         $db = Database::get();
         $unreadMessages = $athlete ? self::getUnreadCount((int)$athlete['id'], $db) : 0;
 
+        // Connected-devices "notify me when available" opt-ins (brand => true).
+        $deviceNotify = self::loadDeviceNotifyPrefs(Auth::userId(), $db);
+
         $pageTitle = 'Settings';
         $activeTab = 'settings';
         include __DIR__ . '/../../views/layout/html_open.php';
@@ -319,6 +322,61 @@ class AthleteController
             $in['value'] ?? null
         );
         echo json_encode(['ok' => $ok]);
+        exit;
+    }
+
+    /** Wearable brands an athlete can ask to be notified about. */
+    private const DEVICE_BRANDS = ['garmin', 'coros', 'polar', 'suunto'];
+
+    /** brand => true for each brand the user has opted into notifications for. */
+    public static function loadDeviceNotifyPrefs(int $userId, PDO $db): array
+    {
+        $stmt = $db->prepare(
+            'SELECT brand FROM device_notify_preferences WHERE user_id = ? AND notify = 1'
+        );
+        $stmt->execute([$userId]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $brand) {
+            $out[$brand] = true;
+        }
+        return $out;
+    }
+
+    /**
+     * POST /app/settings/devices/notify — toggle a device-availability opt-in.
+     * Body: { brand, enabled }. Enabling upserts the row; disabling removes it.
+     * Returns JSON {success: bool}.
+     */
+    public static function saveDeviceNotifyPreference(): void
+    {
+        Auth::requireRole('athlete');
+        Auth::verifyCsrf();
+        header('Content-Type: application/json');
+
+        $in    = json_decode(file_get_contents('php://input'), true) ?: [];
+        $brand = strtolower(trim((string)($in['brand'] ?? '')));
+        $enabled = !empty($in['enabled']) && $in['enabled'] !== 'false';
+
+        if (!in_array($brand, self::DEVICE_BRANDS, true)) {
+            http_response_code(422);
+            echo json_encode(['success' => false, 'error' => 'invalid_brand']);
+            exit;
+        }
+
+        $db  = Database::get();
+        $now = gmdate('Y-m-d H:i:s');
+        if ($enabled) {
+            $db->prepare(
+                'INSERT INTO device_notify_preferences (user_id, brand, notify, updated_at)
+                 VALUES (?, ?, 1, ?)
+                 ON DUPLICATE KEY UPDATE notify = 1, updated_at = VALUES(updated_at)'
+            )->execute([Auth::userId(), $brand, $now]);
+        } else {
+            $db->prepare('DELETE FROM device_notify_preferences WHERE user_id = ? AND brand = ?')
+               ->execute([Auth::userId(), $brand]);
+        }
+
+        echo json_encode(['success' => true]);
         exit;
     }
 

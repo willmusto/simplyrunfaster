@@ -76,6 +76,45 @@
         <span style="color:var(--text-muted);font-size:20px;">›</span>
     </a>
 
+    <?php $deviceNotify = $deviceNotify ?? []; ?>
+    <div class="section-label" style="margin-top:24px;">CONNECTED DEVICES</div>
+    <div class="card" style="margin-bottom:16px;" data-device-form>
+        <?php foreach (['garmin' => 'Garmin', 'coros' => 'COROS', 'polar' => 'Polar', 'suunto' => 'Suunto'] as $brandKey => $brandName):
+            $on = !empty($deviceNotify[$brandKey]); ?>
+        <div class="device-row">
+            <span class="device-name"><?= h($brandName) ?></span>
+            <div class="device-row-right">
+                <span class="badge-soon">Coming soon</span>
+                <label class="toggle" title="Notify me when <?= h($brandName) ?> is available">
+                    <input type="checkbox" data-device-brand="<?= h($brandKey) ?>" <?= $on ? 'checked' : '' ?>>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+        </div>
+        <?php endforeach; ?>
+    </div>
+
+    <script>
+    (function () {
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        var csrf = meta ? meta.content : '';
+        document.addEventListener('change', function (e) {
+            var input = e.target.closest('[data-device-brand]');
+            if (!input) return;
+            var enabled = input.checked;
+            input.disabled = true;
+            fetch('/app/settings/devices/notify', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+                body:    JSON.stringify({ brand: input.getAttribute('data-device-brand'), enabled: enabled }),
+            }).then(function (r) { return r.json(); })
+              .then(function (res) { if (!res || !res.success) input.checked = !enabled; })
+              .catch(function () { input.checked = !enabled; })
+              .finally(function () { input.disabled = false; });
+        });
+    })();
+    </script>
+
     <div class="section-label" style="margin-top:24px;">BILLING</div>
     <a href="/app/billing" class="card" style="display:flex;align-items:center;justify-content:space-between;
        text-decoration:none;color:inherit;margin-bottom:16px;">

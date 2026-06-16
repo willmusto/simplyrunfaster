@@ -103,6 +103,7 @@ $router->get('/settings',          [AthleteController::class, 'settings']);
 $router->post('/settings',         [AthleteController::class, 'settingsSave']);
 $router->get('/settings/notifications',  [AthleteController::class, 'notifications']);
 $router->post('/settings/notifications', [AthleteController::class, 'notificationsSave']);
+$router->post('/settings/devices/notify', [AthleteController::class, 'saveDeviceNotifyPreference']);
 $router->post('/settings/password',[AthleteController::class, 'changePasswordSubmit']);
 $router->get('/settings/training', [AthleteController::class, 'trainingSettings']);
 $router->post('/settings/training',[AthleteController::class, 'trainingSettingsSave']);
