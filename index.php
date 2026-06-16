@@ -92,6 +92,7 @@ $router->post('/coach/athlete/:id/edit',        [CoachController::class, 'editPr
 $router->get('/coach/athlete/:id/messages',         [CoachController::class, 'coachMessages']);
 $router->get('/coach/athlete/:id/messages/poll',    [CoachController::class, 'coachMessagesPoll']);
 $router->post('/coach/athlete/:id/messages/send',   [CoachController::class, 'coachMessagesSend']);
+$router->post('/coach/athlete/:id/session-note',     [CoachController::class, 'coachSessionNoteSave']);
 $router->post('/coach/athlete/:id/generate-plan',   [CoachController::class, 'generatePlan']);
 $router->get('/coach/approvals',                    [CoachController::class, 'approvals']);
 $router->post('/coach/plans/:planId/approve',       [CoachController::class, 'approvePlan']);

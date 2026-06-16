@@ -69,6 +69,21 @@ $lastMessageId = $messages ? (int)end($messages)['id'] : 0;
                     <div class="msg-session-card-body">
                         <?= h(mb_substr($msg['body'], 0, 200) . (mb_strlen($msg['body']) > 200 ? '…' : '')) ?>
                     </div>
+                    <?php if (!empty($msg['completed_workout_id'])): ?>
+                    <button type="button" class="msg-session-comment-toggle"
+                            onclick="this.style.display='none';document.getElementById('sc-<?= (int)$msg['id'] ?>').style.display='block'">
+                        + Comment on this session
+                    </button>
+                    <div id="sc-<?= (int)$msg['id'] ?>" class="msg-session-comment-form" style="display:none;">
+                        <form method="POST" action="/app/coach/athlete/<?= $athleteId ?>/session-note">
+                            <?= Auth::csrfField() ?>
+                            <input type="hidden" name="completed_workout_id" value="<?= (int)$msg['completed_workout_id'] ?>">
+                            <textarea name="body" class="form-textarea" rows="2" maxlength="1000" required
+                                      placeholder="Comment on this session…"></textarea>
+                            <button type="submit" class="btn btn-primary btn-sm">Save comment</button>
+                        </form>
+                    </div>
+                    <?php endif; ?>
                 </div>
                 <?php else: ?>
                 <div class="msg-bubble"><?= nl2br(h($msg['body'])) ?></div>

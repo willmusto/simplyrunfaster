@@ -721,6 +721,68 @@ class CoachController
     }
 
     /**
+     * Coach (or assistant coach) comments on an athlete's completed workout
+     * session. The coach-side mirror of AthleteController::sessionNoteSave:
+     * stores a session_notes row, posts a session_note_reply card into the
+     * thread, and notifies the athlete (coach_session_comment).
+     */
+    public static function coachSessionNoteSave(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId   = Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+        $db        = Database::get();
+        $back      = '/app/coach/athlete/' . $athleteId . '/messages';
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        $cwId    = (int)($_POST['completed_workout_id'] ?? 0);
+        $body    = trim($_POST['body'] ?? '');
+        if (!$athlete || !$cwId || !$body || mb_strlen($body) > 1000) {
+            header('Location: ' . ($athlete ? $back : '/app/coach/athletes'));
+            exit;
+        }
+
+        // Verify the completed workout belongs to this athlete.
+        $check = $db->prepare(
+            'SELECT workout_type, activity_date FROM completed_workouts WHERE id = ? AND athlete_id = ? LIMIT 1'
+        );
+        $check->execute([$cwId, $athleteId]);
+        $cw = $check->fetch();
+        if (!$cw) {
+            header('Location: ' . $back);
+            exit;
+        }
+
+        $role = Auth::role() === 'assistant_coach' ? 'assistant_coach' : 'coach';
+
+        // Save session note + post to thread as a session reply card.
+        $db->prepare(
+            'INSERT INTO session_notes (completed_workout_id, athlete_id, author_id, author_role, body)
+             VALUES (?, ?, ?, ?, ?)'
+        )->execute([$cwId, $athleteId, $coachId, $role, $body]);
+
+        $db->prepare(
+            'INSERT INTO messages (athlete_id, sender_id, sender_role, body, message_type, completed_workout_id)
+             VALUES (?, ?, ?, ?, "session_note_reply", ?)'
+        )->execute([$athleteId, $coachId, $role, $body, $cwId]);
+
+        // Notify the athlete a coach comment was added (controllable, default on).
+        $ctx = Notifications::athleteContext($athleteId);
+        if ($ctx['athlete_user_id']) {
+            $label = trim(($cw['workout_type'] ?? '') . ' session on ' . ($cw['activity_date'] ?? '')) ?: 'your workout';
+            Notifications::send($ctx['athlete_user_id'], 'coach_session_comment', [
+                'workout_name' => $label,
+                'workout_id'   => $cwId,
+            ]);
+        }
+
+        header('Location: ' . $back);
+        exit;
+    }
+
+    /**
      * Lightweight poll: JSON array of messages newer than ?after=<id> for an
      * athlete's thread. Same auth/scope as coachMessages().
      */
