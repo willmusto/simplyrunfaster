@@ -42,8 +42,13 @@
 
         <!-- Calendar preview -->
         <?php
-        $calWorkouts = $planWorkouts[(int)$plan['plan_id']] ?? [];
-        $calMode     = 'preview';
+        $calWorkouts  = $planWorkouts[(int)$plan['plan_id']] ?? [];
+        $calMode      = 'preview';
+        // Plan context lets the bubble partial mark the lead-in week and number code
+        // weeks exactly like the macro view (views/coach/athlete_view.php).
+        $calPlanStart = $plan['plan_start_date'] ?? null;
+        $calPlanEnd   = $plan['plan_end_date']   ?? null;
+        $calPlanType  = $plan['plan_type']       ?? null;
         if (!empty($calWorkouts)):
         ?>
         <div style="margin-bottom:16px;">

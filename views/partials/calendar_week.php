@@ -21,6 +21,39 @@ foreach ($calWorkouts as $_w) {
 }
 ksort($_weekMap);
 
+// ── Lead-in / code-week awareness (optional) ─────────────────────────────────
+// When the caller passes plan context ($calPlanStart/$calPlanEnd/$calPlanType), the
+// partial labels the partial first week "Lead-in", numbers the remaining rows by
+// CODE week, and blanks out-of-plan day cells — matching the macro view's lead-in
+// rendering (views/coach/athlete_view.php). Without context it falls back to plain
+// sequential "Wk N" labels and rest-dots.
+$_planStartTs = isset($calPlanStart) && $calPlanStart ? strtotime((string)$calPlanStart) : null;
+$_planEndTs   = isset($calPlanEnd)   && $calPlanEnd   ? strtotime((string)$calPlanEnd)   : null;
+$_leadAware   = $_planStartTs !== null && $_planEndTs !== null;
+
+$_codeWeekMondayTs = null;
+$_codeTotalWeeks   = null;
+if ($_leadAware) {
+    $_firstDow = (int)date('N', $_planStartTs);
+    $_lastDow  = (int)date('N', $_planEndTs);
+    // Same code-week anchoring as athlete_view.php / today.php: calendar-aligned plan
+    // types start code-week 1 on the first Monday on/after plan_start; others anchor on
+    // plan_start itself (no lead-in).
+    $_aligned  = in_array((string)($calPlanType ?? ''), ['development_plan', 'maintenance_plan', 'recovery_block'], true)
+        && ($_firstDow === 1 || $_lastDow === 7);
+    $_codeWeekStartTs = $_planStartTs;
+    if ($_aligned) {
+        $_offset = (8 - $_firstDow) % 7;
+        $_cws    = strtotime('+' . $_offset . ' days', $_planStartTs);
+        if ($_cws <= $_planEndTs) {
+            $_codeWeekStartTs = $_cws;
+        }
+    }
+    $_cwsDow            = (int)date('N', $_codeWeekStartTs);
+    $_codeWeekMondayTs = strtotime('-' . ($_cwsDow - 1) . ' days', $_codeWeekStartTs);
+    $_codeTotalWeeks   = max(1, (int)ceil(max(1, $_planEndTs - $_codeWeekStartTs + 86400) / (7 * 86400)));
+}
+
 $_bubbleColor = [
     'easy'        => ['#E1F5EE', '#085041'],
     'long'        => ['#0F6E56', '#FFFFFF'],
@@ -83,6 +116,9 @@ $_bubSize = function(int $m): int {
 .cal-bubble[data-workout]:hover { transform: scale(1.1); }
 .cal-bub-lbl   { font-size: 10px; font-weight: 700; line-height: 1;
                  user-select: none; pointer-events: none; }
+.cal-lock      { position: absolute; top: -3px; right: -3px; font-size: 10px;
+                 line-height: 1; background: var(--card-bg); border-radius: 50%;
+                 padding: 1px; pointer-events: none; }
 .cal-rest-dot  { width: 8px; height: 8px; border-radius: 50%;
                  background: var(--border-strong); flex-shrink: 0; }
 .cal-vol-lbl   { width: 52px; flex-shrink: 0; text-align: right; font-size: 11px;
@@ -441,13 +477,29 @@ document.addEventListener('keydown', function(e) {
             $_weekTotal += max(0, (int)($_slot[$_durKey] ?? 0));
         }
     ?>
+    <?php
+        // Week label: "Lead-in" for the partial first week, else CODE-week number —
+        // matching the macro view. Falls back to sequential "Wk N" without plan context.
+        if ($_leadAware) {
+            $_monTs        = strtotime($_monDate);
+            $_isLeadInWeek = $_monTs < $_codeWeekMondayTs;
+            $_codeWeekNum  = (int)floor(($_monTs - $_codeWeekMondayTs) / (7 * 86400)) + 1;
+            $_wkLabel      = $_isLeadInWeek ? 'Lead-in' : ('Wk ' . $_codeWeekNum);
+        } else {
+            $_wkLabel = 'Wk ' . $_wn;
+        }
+    ?>
     <div class="cal-data-row">
 
-        <div class="cal-wk-lbl" style="white-space:pre-line;"><?= 'Wk ' . $_wn . "\n" . date('M j', strtotime($_monDate)) ?></div>
+        <div class="cal-wk-lbl" style="white-space:pre-line;"><?= h($_wkLabel) . "\n" . date('M j', strtotime($_monDate)) ?></div>
 
         <div class="cal-days-grid">
             <?php for ($_iso = 1; $_iso <= 7; $_iso++):
-                $_slot = $_slots[$_iso] ?? null;
+                // Days outside [plan_start, plan_end] render blank (matching the macro
+                // view's out-of-plan cells), so the lead-in week shows its partial shape.
+                $_cellTs   = strtotime('+' . ($_iso - 1) . ' days', strtotime($_monDate));
+                $_inPlan   = !$_leadAware || ($_cellTs >= $_planStartTs && $_cellTs <= $_planEndTs);
+                $_slot = $_inPlan ? ($_slots[$_iso] ?? null) : null;
                 $_dur  = $_slot ? max(0, (int)($_slot[$_durKey] ?? 0)) : 0;
                 $_type = $_slot['workout_type'] ?? null;
                 $_sz   = $_bubSize($_dur);
@@ -469,13 +521,18 @@ document.addEventListener('keydown', function(e) {
                 }
             ?>
             <div class="cal-day-col">
-                <?php if ($_slot && $_sz > 0): ?>
+                <?php if (!$_inPlan): ?>
+                <!-- outside the plan window — blank cell, matching the macro view -->
+                <?php elseif ($_slot && $_sz > 0): ?>
                 <div class="cal-bubble"
                      style="width:min(<?= $_sz ?>px,100%);aspect-ratio:1;
                             background:<?= $_clr[0] ?>;color:<?= $_clr[1] ?>;"
                      <?= $_wjson !== null ? 'data-workout="' . $_wjson . '"' : '' ?>
                      title="<?= h(($_slot['display_title'] ?? $_slot['template_name'] ?? ucfirst(str_replace('_', ' ', $_type ?? ''))) . ($_dur > 0 ? ' · ' . $_dur . ' min' : '')) ?>">
                     <span class="cal-bub-lbl"><?= $_bubLabel($_dur) ?></span>
+                    <?php if (!empty($_slot['coach_locked'])): ?>
+                    <span class="cal-lock" title="Coach-locked">&#128274;</span>
+                    <?php endif; ?>
                 </div>
                 <?php else: ?>
                 <div class="cal-rest-dot" title="Rest"></div>
