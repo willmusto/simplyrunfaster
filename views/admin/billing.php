@@ -14,6 +14,19 @@ $statusColor = [
 <div class="page-content">
     <div class="page-heading" style="margin-bottom:12px;">Billing overview</div>
 
+    <?php if (!empty($flashSuccess)): ?>
+    <div class="alert alert-success" style="margin-bottom:16px;padding:10px 14px;border-radius:var(--radius-card);
+         background:var(--color-success-bg,#d1fae5);color:var(--color-success-text,#065f46);font-size:13px;">
+        <?= h($flashSuccess) ?>
+    </div>
+    <?php endif; ?>
+    <?php if (!empty($flashError)): ?>
+    <div class="alert alert-error" style="margin-bottom:16px;padding:10px 14px;border-radius:var(--radius-card);
+         background:#fdecea;color:#991b1b;font-size:13px;">
+        <?= h($flashError) ?>
+    </div>
+    <?php endif; ?>
+
     <!-- Status filter -->
     <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
         <a href="/app/admin/billing"
@@ -44,6 +57,7 @@ $statusColor = [
                     <th style="padding:10px 12px;">Ends / Grace</th>
                     <th style="padding:10px 12px;">Discount</th>
                     <th style="padding:10px 12px;">Stripe</th>
+                    <th style="padding:10px 12px;"></th>
                 </tr>
             </thead>
             <tbody>
@@ -68,8 +82,22 @@ $statusColor = [
                     <td style="padding:10px 12px;">
                         <?php if (!empty($r['stripe_customer_id'])): ?>
                         <a href="https://dashboard.stripe.com/customers/<?= h($r['stripe_customer_id']) ?>"
-                           target="_blank" rel="noopener" style="color:var(--accent-mid);">View →</a>
+                           target="_blank" rel="noopener" style="color:var(--accent-mid);">View in Stripe →</a>
                         <?php else: ?>—<?php endif; ?>
+                    </td>
+                    <td style="padding:10px 12px;text-align:right;">
+                        <?php if ($st === 'comped'): ?>
+                        <span style="color:var(--text-muted);font-size:12px;">Comped</span>
+                        <?php else: ?>
+                        <form method="post" action="/app/admin/billing/comp" style="margin:0;"
+                              onsubmit="return confirm('Comp this athlete? This cancels any active Stripe subscription immediately.');">
+                            <?= Auth::csrfField() ?>
+                            <input type="hidden" name="user_id" value="<?= (int)$r['id'] ?>">
+                            <button type="submit"
+                                    style="font-size:12px;padding:5px 12px;border-radius:6px;border:1px solid var(--divider);
+                                           background:var(--recessed-bg);color:var(--text-secondary);cursor:pointer;">Comp</button>
+                        </form>
+                        <?php endif; ?>
                     </td>
                 </tr>
                 <?php endforeach; ?>

@@ -145,6 +145,7 @@ $router->post('/coach/invites', [CoachController::class, 'createInvite']);
 
 // ── Admin billing overview ───────────────────────────────────
 $router->get('/admin/billing', [AdminController::class, 'billing']);
+$router->post('/admin/billing/comp', [AdminController::class, 'comp']);
 
 // ── Theme toggle (POST, returns to referrer) ─────────────────
 $router->post('/theme', function () {
