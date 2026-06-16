@@ -86,6 +86,14 @@ class PlanGenerator
     // primary session, not budgeted quality work). See engine spec §19 item 6.
     const REPEATABLE_ARCHETYPES = ['run_walk_intervals', 'standalone_strides'];
 
+    // Return-to-running adaptive progression bounds (engine spec §18.10 / §19 item 6).
+    // Stage 1 is the gentlest run/walk; stage 10 is the first 45-min continuous run.
+    const RTR_MIN_STAGE   = 1;
+    const RTR_MAX_STAGE   = 10;
+    // Rolling visibility horizon for the run/walk window, in days. Mirrors the
+    // ATHLETE_WINDOW_DAYS used by cron_update_visibility / approvePlan.
+    const RTR_WINDOW_DAYS = 10;
+
     /** @var array|null Cached engine settings from config/engine_settings.php. */
     private static ?array $settings = null;
 
@@ -542,17 +550,9 @@ class PlanGenerator
         $mustOff      = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
         $hasEquipment = self::hasCrossTrainingEquipment($profile);
         $crossDesc    = self::getCrossTrainDescription($profile);
-        $drillNote    = ' Complete your coach-provided mobility and strength drills (rehab Phases I–III) on this day as well.';
+        $drillNote    = self::RTR_DRILL_NOTE;
 
-        $insert = $db->prepare(
-            'INSERT INTO planned_workouts
-             (plan_id, athlete_id, scheduled_date, workout_type,
-              archetype_code, archetype_variant, archetype_params,
-              description, target_duration, intensity_load, visible_to_athlete,
-              workout_archetype_id, archetype_version_snapshot, instance_signature,
-              structure, display_title, display_summary, athlete_instructions)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)'
-        );
+        $insert = self::rtrInsertStatement($db);
 
         $runDaysUsed   = 0;
         $lastRunOffset = -2; // allow day 0 to be a run day (every-other-day spacing)
@@ -576,26 +576,283 @@ class PlanGenerator
             }
 
             // Non-run day: cross-train (if equipment) or rest, both with the drill note.
-            if ($hasEquipment) {
-                $desc = $crossDesc . $drillNote;
-                $insert->execute([
-                    $planId, $athleteId, $date, 'cross_train',
-                    null, null, null,
-                    $desc, 30, round(30 * 0.4, 2),
-                    null, null, null, null, 'Cross-Training', '30 min · low impact', $desc,
-                ]);
-            } else {
-                $desc = 'Rest day — keep movement gentle and let your body recover.' . $drillNote;
-                $insert->execute([
-                    $planId, $athleteId, $date, 'rest',
-                    null, null, null,
-                    $desc, null, 0,
-                    null, null, null, null, 'Rest', 'Rest + coach drills', $desc,
-                ]);
-            }
+            self::insertReturnToRunningOffDay($insert, $planId, $athleteId, $date, $hasEquipment, $crossDesc, $drillNote);
         }
 
         return $planId;
+    }
+
+    /** Coach-drill reminder appended to every return-to-running off day. */
+    const RTR_DRILL_NOTE = ' Complete your coach-provided mobility and strength drills (rehab Phases I–III) on this day as well.';
+
+    /**
+     * Prepared INSERT matching insertWeekWorkouts' column order, with
+     * visible_to_athlete defaulted to 0 (the rolling-window cron / approval opens
+     * the window). Shared by every return_to_running insertion path.
+     */
+    private static function rtrInsertStatement(PDO $db): PDOStatement
+    {
+        return $db->prepare(
+            'INSERT INTO planned_workouts
+             (plan_id, athlete_id, scheduled_date, workout_type,
+              archetype_code, archetype_variant, archetype_params,
+              description, target_duration, intensity_load, visible_to_athlete,
+              workout_archetype_id, archetype_version_snapshot, instance_signature,
+              structure, display_title, display_summary, athlete_instructions)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)'
+        );
+    }
+
+    /**
+     * Insert a return-to-running off day: low-impact cross-training when the
+     * athlete has equipment, otherwise a gentle rest day. Both carry the coach
+     * drill note (rehab Phases I–III are handled by the coach off-platform).
+     */
+    private static function insertReturnToRunningOffDay(
+        PDOStatement $insert, int $planId, int $athleteId, string $date,
+        bool $hasEquipment, string $crossDesc, string $drillNote
+    ): void {
+        if ($hasEquipment) {
+            $desc = $crossDesc . $drillNote;
+            $insert->execute([
+                $planId, $athleteId, $date, 'cross_train',
+                null, null, null,
+                $desc, 30, round(30 * 0.4, 2),
+                null, null, null, null, 'Cross-Training', '30 min · low impact', $desc,
+            ]);
+        } else {
+            $desc = 'Rest day — keep movement gentle and let your body recover.' . $drillNote;
+            $insert->execute([
+                $planId, $athleteId, $date, 'rest',
+                null, null, null,
+                $desc, null, 0,
+                null, null, null, null, 'Rest', 'Rest + coach drills', $desc,
+            ]);
+        }
+    }
+
+    /**
+     * Adaptive return-to-running stage progression (engine spec §18.10 / §19 item 6).
+     *
+     * Called after an athlete logs completion of a run_walk_intervals workout. Reads
+     * the modified-RPE response (effort_descriptor) and:
+     *   - discomfort                       → regress one stage (floor 1), raise the
+     *                                         existing return_to_running_discomfort flag
+     *   - clean, current stage < 10        → advance one stage
+     *   - clean, current stage == 10       → do NOT advance; raise a plan_rebuild_needed
+     *                                         (info) flag so the coach transitions the
+     *                                         athlete out of return_to_running
+     * It then patches the next scheduled run/walk session to the new stage and keeps the
+     * rolling visibility window populated (see regenerateReturnToRunningWindow), and runs
+     * validateGeneratedDisplays() on the patched plan.
+     *
+     * Returns a short status string for logging, or null when the workout is not a
+     * run/walk session inside an active return_to_running plan (a safe no-op for every
+     * other completed-workout log).
+     */
+    public static function onRunWalkCompletion(
+        int $athleteId, int $plannedWorkoutId, string $effortDescriptor, ?PDO $db = null
+    ): ?string {
+        $db = $db ?? Database::get();
+
+        // The completed workout must be a run/walk session.
+        $pw = $db->prepare(
+            'SELECT id, plan_id, scheduled_date, archetype_code
+             FROM planned_workouts WHERE id = ? AND athlete_id = ? LIMIT 1'
+        );
+        $pw->execute([$plannedWorkoutId, $athleteId]);
+        $workout = $pw->fetch(PDO::FETCH_ASSOC);
+        if (!$workout || ($workout['archetype_code'] ?? '') !== 'run_walk_intervals') {
+            return null;
+        }
+
+        // …inside an active return_to_running plan.
+        $pl = $db->prepare(
+            'SELECT id, plan_type, status, rtr_current_stage
+             FROM training_plans WHERE id = ? AND athlete_id = ? LIMIT 1'
+        );
+        $pl->execute([(int)$workout['plan_id'], $athleteId]);
+        $plan = $pl->fetch(PDO::FETCH_ASSOC);
+        if (!$plan || $plan['plan_type'] !== 'return_to_running' || $plan['status'] !== 'active') {
+            return null;
+        }
+
+        $planId        = (int)$plan['id'];
+        $currentStage  = max(self::RTR_MIN_STAGE, min(self::RTR_MAX_STAGE, (int)($plan['rtr_current_stage'] ?? 1)));
+        $completedDate = (string)$workout['scheduled_date'];
+        $isDiscomfort  = ($effortDescriptor === 'discomfort');
+
+        $newStage     = $currentStage;
+        $scheduleNext = true;  // schedule a next run/walk session unless the progression is complete
+        $outcome      = '';
+
+        if ($isDiscomfort) {
+            // Auto-regress so the athlete never stalls, AND flag the coach for review.
+            $newStage = max(self::RTR_MIN_STAGE, $currentStage - 1);
+            self::raiseFlag(
+                $athleteId, 'return_to_running_discomfort', 'warning',
+                "Athlete reported discomfort after a stage {$currentStage} run/walk session. "
+                . "Progression auto-regressed to stage {$newStage}; review before the next session.",
+                $db,
+                ['plan_id' => $planId, 'from_stage' => $currentStage, 'to_stage' => $newStage,
+                 'completed_date' => $completedDate],
+                false  // each discomfort report is its own signal — do not dedupe against an open flag
+            );
+            $outcome = "discomfort → regressed {$currentStage}→{$newStage}";
+        } elseif ($currentStage >= self::RTR_MAX_STAGE) {
+            // Stage 10 (45-min continuous run) completed cleanly: progression is done.
+            // Mirror the recovery_block transition pattern — the coach decides the next
+            // plan type (development_plan / maintenance_plan / race_cycle).
+            $scheduleNext = false;
+            self::raiseFlag(
+                $athleteId, 'plan_rebuild_needed', 'info',
+                'Athlete has completed the return-to-running progression — the stage 10 first '
+                . 'continuous run was completed cleanly. Ready for a goal-setting conversation and '
+                . 'transition to the next plan type (development plan, maintenance plan, or race cycle).',
+                $db,
+                ['plan_id' => $planId, 'reason' => 'return_to_running_complete',
+                 'stage' => $currentStage, 'completed_date' => $completedDate]
+            );
+            $outcome = 'stage 10 clean → transition flag raised (no further advance)';
+        } else {
+            $newStage = $currentStage + 1;
+            $outcome  = "clean → advanced {$currentStage}→{$newStage}";
+        }
+
+        if ($newStage !== $currentStage) {
+            $db->prepare('UPDATE training_plans SET rtr_current_stage = ? WHERE id = ?')
+               ->execute([$newStage, $planId]);
+        }
+
+        // Patch the next scheduled run/walk session to the new stage and keep the
+        // rolling window populated (extends the plan as the athlete climbs the stages).
+        self::regenerateReturnToRunningWindow($planId, $athleteId, $newStage, $completedDate, $scheduleNext, $db);
+
+        // The patch wrote fresh display fields — re-validate, mirroring generate().
+        self::validateGeneratedDisplays($planId, $athleteId, $db);
+
+        return "rtr plan {$planId}: {$outcome}";
+    }
+
+    /**
+     * Rebuild the forward (future) portion of a return_to_running plan's rolling
+     * window after a stage change. Wipes uncompleted planned workouts dated after the
+     * just-completed session, then regenerates: the NEXT eligible run day becomes a
+     * single run_walk_intervals session at $stage (every-other-day cadence from the
+     * completed session, never on must-off days), and all other days in the window are
+     * cross-training/rest with the coach drill note. Exactly one pending run/walk
+     * session is kept ahead at any time — when the athlete completes it, the stage
+     * updates again and the window is rebuilt from there.
+     *
+     * When $scheduleRun is false (clean stage-10 completion), no further run is
+     * scheduled — the window holds only gentle cross/rest days until the coach
+     * transitions the athlete to a new plan type.
+     *
+     * Newly generated days inside the live [today, horizon] window are made visible
+     * immediately (the same window the daily cron / approval opens), so the athlete
+     * sees their next session without waiting for the nightly cron.
+     */
+    private static function regenerateReturnToRunningWindow(
+        int $planId, int $athleteId, int $stage, string $fromDate, bool $scheduleRun, PDO $db
+    ): void {
+        $profile = self::loadProfile($athleteId, $db);
+        if (!$profile) return;
+
+        $selector     = new ArchetypeSelector($db);
+        $mustOff      = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
+        $hasEquipment = self::hasCrossTrainingEquipment($profile);
+        $crossDesc    = self::getCrossTrainDescription($profile);
+        $drillNote    = self::RTR_DRILL_NOTE;
+
+        $tz       = self::athleteTimezone($athleteId, $db);
+        $today    = Timezone::dateInZone($tz, 'now');
+        $todayTs  = strtotime($today);
+        $fromTs   = strtotime($fromDate);
+
+        // Regenerate from the day after the completed session, but never into the past.
+        $startTs = strtotime('+1 day', $fromTs);
+        if ($startTs < $todayTs) $startTs = $todayTs;
+        $startGen = date('Y-m-d', $startTs);
+
+        // Wipe future, uncompleted planned workouts so we never leave a stale-stage run
+        // or a duplicate day — but PRESERVE coach-locked sessions (explicit overrides;
+        // §24 lets the coach hold/advance/regress stages). The completed session (on
+        // $fromDate) and everything before $startGen are untouched.
+        $db->prepare('DELETE FROM planned_workouts WHERE plan_id = ? AND scheduled_date >= ? AND coach_locked = 0')
+           ->execute([$planId, $startGen]);
+
+        $insert = self::rtrInsertStatement($db);
+
+        // The completed session anchors the every-other-day cadence for the next run.
+        $lastRunTs  = $fromTs;
+        $runPlaced  = false;
+
+        // Dates still holding a surviving (coach-locked) workout: don't double up on
+        // them, and if one is a run/walk session, treat the next-run slot as already
+        // filled so we respect the coach's pinned session instead of competing with it.
+        $locked = $db->prepare(
+            'SELECT scheduled_date, archetype_code FROM planned_workouts
+             WHERE plan_id = ? AND scheduled_date >= ?'
+        );
+        $locked->execute([$planId, $startGen]);
+        $lockedDates = [];
+        foreach ($locked->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $lockedDates[$r['scheduled_date']] = true;
+            if (($r['archetype_code'] ?? '') === 'run_walk_intervals') {
+                $runPlaced = true;
+            }
+        }
+
+        $horizonTs  = strtotime('+' . self::RTR_WINDOW_DAYS . ' days', max($todayTs, $fromTs));
+        $hardCapTs  = strtotime('+14 days', $horizonTs); // bound the search for the next run day
+        $lastGenTs  = $startTs;
+
+        for ($ts = $startTs; ; $ts = strtotime('+1 day', $ts)) {
+            $reachedHorizon = $ts > $horizonTs;
+            $stillNeedRun   = $scheduleRun && !$runPlaced;
+            // Run to the horizon; continue past it only until the next run lands (bounded).
+            if ($reachedHorizon && (!$stillNeedRun || $ts > $hardCapTs)) break;
+
+            $date = date('Y-m-d', $ts);
+            $dow  = (int)date('w', $ts);
+
+            // A surviving coach-locked workout already occupies this date — leave it.
+            if (isset($lockedDates[$date])) {
+                $lastGenTs = $ts;
+                continue;
+            }
+
+            $isRunDay = $scheduleRun && !$runPlaced
+                && !in_array($dow, $mustOff, true)
+                && (($ts - $lastRunTs) / 86400) >= 2;
+
+            if ($isRunDay) {
+                $instance = self::resolveRunWalkStage($selector, $stage, 0, 'base', '5K', 'insufficient');
+                if ($instance !== null) {
+                    self::insertResolvedWorkout($insert, $planId, $athleteId, $date, 'easy', $instance);
+                    $runPlaced = true;
+                    $lastRunTs = $ts;
+                    $lastGenTs = $ts;
+                    continue;
+                }
+            }
+
+            self::insertReturnToRunningOffDay($insert, $planId, $athleteId, $date, $hasEquipment, $crossDesc, $drillNote);
+            $lastGenTs = $ts;
+        }
+
+        $windowEnd = date('Y-m-d', $lastGenTs);
+
+        // Extend the plan to cover the new window end (never shrink it).
+        $db->prepare(
+            'UPDATE training_plans SET plan_end_date = GREATEST(COALESCE(plan_end_date, ?), ?) WHERE id = ?'
+        )->execute([$windowEnd, $windowEnd, $planId]);
+
+        // Open visibility for the live window immediately (same horizon the cron uses).
+        $db->prepare(
+            'UPDATE planned_workouts SET visible_to_athlete = 1
+             WHERE plan_id = ? AND scheduled_date BETWEEN ? AND ? AND visible_to_athlete = 0'
+        )->execute([$planId, $today, $windowEnd]);
     }
 
     /** True when the athlete has any cross-training equipment available. */

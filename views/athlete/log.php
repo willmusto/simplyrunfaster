@@ -53,12 +53,21 @@
 
             <div class="form-group">
                 <label class="form-label">How did it feel?</label>
-                <div class="pill-choices">
+                <div class="pill-choices" style="flex-wrap:wrap;">
                     <label class="pill-choice"><input type="radio" name="effort_descriptor" value="easy"> Easy</label>
                     <label class="pill-choice selected"><input type="radio" name="effort_descriptor" value="moderate" checked> Moderate</label>
                     <label class="pill-choice"><input type="radio" name="effort_descriptor" value="hard"> Hard</label>
                     <label class="pill-choice"><input type="radio" name="effort_descriptor" value="very_hard"> Very Hard</label>
+                    <?php if (!empty($rtrActive)): ?>
+                    <label class="pill-choice"><input type="radio" name="effort_descriptor" value="discomfort"> I felt some discomfort</label>
+                    <?php endif; ?>
                 </div>
+                <?php if (!empty($rtrActive)): ?>
+                <div class="form-hint">
+                    Returning from a break? If anything hurt or felt off, choose “I felt some discomfort.”
+                    We’ll ease your progression back a step and let your coach know.
+                </div>
+                <?php endif; ?>
             </div>
 
             <div class="form-group">

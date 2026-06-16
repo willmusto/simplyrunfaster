@@ -105,6 +105,15 @@ class AthleteController
         $stmt->execute([(int)$athlete['id']]);
         $recentLog = $stmt->fetchAll();
 
+        // Athletes in an active return-to-running plan get the 5-option modified RPE
+        // prompt (adds "I felt some discomfort" — architecture §24).
+        $rtrCheck = $db->prepare(
+            "SELECT 1 FROM training_plans
+             WHERE athlete_id = ? AND status = 'active' AND plan_type = 'return_to_running' LIMIT 1"
+        );
+        $rtrCheck->execute([(int)$athlete['id']]);
+        $rtrActive = (bool)$rtrCheck->fetchColumn();
+
         $unreadMessages = self::getUnreadCount((int)$athlete['id'], $db);
 
         $pageTitle = 'Training Log';
@@ -132,8 +141,11 @@ class AthleteController
             ? $_POST['workout_type'] : 'easy';
         $duration    = max(0, (int)($_POST['actual_duration'] ?? 0));
         $rpeMap      = ['easy' => 2, 'moderate' => 4, 'hard' => 7, 'very_hard' => 9, 'discomfort' => 5];
-        $effortDesc  = $_POST['effort_descriptor'] ?? 'moderate';
+        $effortDesc  = in_array($_POST['effort_descriptor'] ?? '', ['easy','moderate','hard','very_hard','discomfort'], true)
+            ? $_POST['effort_descriptor'] : 'moderate';
         $rpe         = $rpeMap[$effortDesc] ?? 4;
+        // Return-to-running "I felt some discomfort" (modified RPE prompt, architecture §24).
+        $rpeDiscomfort = $effortDesc === 'discomfort' ? 1 : 0;
         $notes       = substr(trim($_POST['notes'] ?? ''), 0, 1000);
         $actDate     = $_POST['activity_date'] ?? Timezone::dateInZone($athlete['timezone'] ?? Timezone::DEFAULT_TZ, 'now');
         $complStatus = in_array($_POST['completion_status'] ?? '', ['full','partial','no'], true)
@@ -164,10 +176,10 @@ class AthleteController
         $stmt = $db->prepare(
             'INSERT INTO completed_workouts
              (athlete_id, planned_workout_id, source, activity_date, workout_type,
-              actual_duration, completion_status, rpe, effort_descriptor, compliance_score, synced_at)
-             VALUES (?, ?, "manual", ?, ?, ?, ?, ?, ?, ?, NOW())'
+              actual_duration, completion_status, rpe, rpe_discomfort, effort_descriptor, compliance_score, synced_at)
+             VALUES (?, ?, "manual", ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
         );
-        $stmt->execute([$athleteId, $plannedId, $actDate, $type, $duration, $complStatus, $rpe, $effortDesc, $compliance]);
+        $stmt->execute([$athleteId, $plannedId, $actDate, $type, $duration, $complStatus, $rpe, $rpeDiscomfort, $effortDesc, $compliance]);
         $cwId = (int)$db->lastInsertId();
 
         // Save notes to session_notes + messages thread
@@ -188,6 +200,17 @@ class AthleteController
             TrainingLoad::recompute($athleteId);
         } catch (Throwable $e) {
             error_log('TrainingLoad::recompute failed for athlete ' . $athleteId . ': ' . $e->getMessage());
+        }
+
+        // Return-to-running adaptive stage progression (engine spec §18.10 / §19 item 6).
+        // No-op unless the matched planned workout is a run/walk session in an active
+        // return_to_running plan; the engine reads $effortDesc (incl. "discomfort").
+        if ($plannedId) {
+            try {
+                PlanGenerator::onRunWalkCompletion($athleteId, (int)$plannedId, $effortDesc, $db);
+            } catch (Throwable $e) {
+                error_log('RTR progression failed for athlete ' . $athleteId . ': ' . $e->getMessage());
+            }
         }
 
         header('Location: /app/log');

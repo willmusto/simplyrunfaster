@@ -800,16 +800,18 @@ Sessions are every other day. Off days are cross-training or rest based on avail
 Minimum 9 sessions (18 days) before continuous running is scheduled. For significant break: approximately 2.5 weeks. For extended break: approximately 5 weeks.
 
 ### Progression Rules
-- Progression advances only on a clean session — no reported pain or discomfort
-- If athlete reports pain or discomfort (via post-session note or modified RPE prompt): engine holds progression at current stage, flags coach immediately
-- If athlete skips a session: engine repeats current stage on next scheduled run day — not a compliance flag, just a hold
-- Progression never skips stages regardless of how the athlete feels
-- Coach can manually advance or hold stages from athlete plan view
+- Progression advances only on a clean session — no reported pain or discomfort. A clean session below stage 10 advances `rtr_current_stage` by one.
+- If athlete reports discomfort (via the modified RPE prompt): engine **auto-regresses one stage** (floor of stage 1) and raises the `return_to_running_discomfort` flag for the coach immediately. This combines automatic de-load — so the athlete never stalls waiting on coach action — with coach awareness. (This refines the original "hold at current stage" intent: a regression is gentler than holding when something hurt, and the coach is still notified and can re-adjust.)
+- If athlete skips a session: engine repeats current stage on next scheduled run day — not a compliance flag, just a hold (the stage is unchanged until a session is actually completed).
+- Progression never skips stages regardless of how the athlete feels (one stage per completed session, up or down).
+- Coach can manually advance, hold, or regress stages from the athlete plan view. A coach-locked future run/walk session is preserved by the engine's window regeneration (the coach override wins).
+- **Implementation:** the per-session mechanic is `PlanGenerator::onRunWalkCompletion`, invoked after an athlete logs a run/walk completion. It re-stages the next scheduled run/walk session and keeps one pending session ahead inside the rolling visibility window, extending the plan as the athlete climbs. See engine spec §18.11.
 
 ### Modified RPE Prompt During Return-to-Running
 Post-session prompt adds a fifth option:
 - Easy / Moderate / Hard / Very Hard / **I felt some discomfort**
-"I felt some discomfort" immediately flags coach and holds progression.
+
+"I felt some discomfort" immediately flags the coach (`return_to_running_discomfort`) and auto-regresses the athlete one stage (floor of stage 1). **Implemented** by extending the existing effort-descriptor flow rather than building a separate mechanism: the manual-log "How did it feel?" control renders the fifth pill only for athletes in an active return-to-running plan (otherwise the standard 4 options), writing `effort_descriptor = 'discomfort'` and setting the `completed_workouts.rpe_discomfort` flag. See engine spec §18.11.
 
 ### Coach Involvement
 - Every completed session in the first two weeks surfaces to coach automatically (elevated monitoring, not just exception-based)
@@ -833,7 +835,7 @@ Duration starts short (20-30 min) and increases gradually alongside run progress
 
 ### Transition Out of Return-to-Running
 After stage 10 (first continuous run) is completed cleanly:
-- Engine raises info flag: "[Athlete] has completed return-to-running progression — ready to discuss next plan type"
+- Engine raises an info flag (`plan_rebuild_needed`, with `details.reason = 'return_to_running_complete'`): "Athlete has completed the return-to-running progression — ready to discuss the next plan type." It does **not** advance the stage further and schedules no further run/walk session (the rolling window holds gentle cross/rest days until the coach acts) — mirroring the recovery_block transition pattern.
 - Coach schedules goal-setting conversation
 - Coach selects next plan type: development_plan, maintenance_plan, or race_cycle
 - New plan generates per normal approval flow
