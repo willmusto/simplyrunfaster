@@ -235,13 +235,12 @@ $hasRace    = !empty($p['most_recent_race_time']);
     var input  = document.getElementById('mustOffInput');
     if (picker && input) {
         picker.querySelectorAll('.day-btn').forEach(function (btn) {
+            // app.js owns the .selected toggle and the hidden-input sync for every
+            // .day-picker; here we only add the cosmetic .must-off modifier in sync
+            // (matching the onboarding day picker). Toggling .selected here too would
+            // double-toggle against app.js and silently revert the selection.
             btn.addEventListener('click', function () {
-                btn.classList.toggle('selected');
                 btn.classList.toggle('must-off');
-                var sel = Array.from(picker.querySelectorAll('.day-btn.selected'))
-                               .map(function (b) { return parseInt(b.dataset.day, 10); })
-                               .sort(function (a, b) { return a - b; });
-                input.value = JSON.stringify(sel);
             });
         });
     }
