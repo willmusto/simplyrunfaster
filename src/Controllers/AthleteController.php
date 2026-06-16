@@ -303,6 +303,14 @@ class AthleteController
         $db->prepare('UPDATE users SET theme_preference = ? WHERE id = ?')->execute([$theme, $userId]);
         $_SESSION['theme'] = $theme;
 
+        // Timezone (users column; athlete sets their own). Invalid values fall back silently.
+        if (array_key_exists('timezone', $_POST)) {
+            $tz = Timezone::isValid($_POST['timezone']) ? $_POST['timezone'] : Timezone::DEFAULT_TZ;
+            $db->prepare('UPDATE users SET timezone = ? WHERE id = ?')->execute([$tz, $userId]);
+            $_SESSION['timezone'] = $tz;
+            Timezone::clearCache($userId);
+        }
+
         // Units
         $athlete = Auth::getAthlete();
         if ($athlete) {
@@ -367,14 +375,6 @@ class AthleteController
             'actor_role'   => 'athlete',
             'athlete_name' => $athlete['name'],
         ], $db);
-
-        // Timezone (users column; athlete sets their own). Invalid values fall back silently.
-        if (array_key_exists('timezone', $_POST)) {
-            $tz = Timezone::isValid($_POST['timezone']) ? $_POST['timezone'] : Timezone::DEFAULT_TZ;
-            $db->prepare('UPDATE users SET timezone = ? WHERE id = ?')->execute([$tz, Auth::userId()]);
-            $_SESSION['timezone'] = $tz;
-            Timezone::clearCache(Auth::userId());
-        }
 
         $_SESSION['flash_success'] = 'Training profile saved.';
         header('Location: /app/settings/training');

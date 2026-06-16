@@ -22,16 +22,6 @@
         <?= Auth::csrfField() ?>
         <?php include __DIR__ . '/../partials/profile_form_fields.php'; ?>
 
-        <div class="section-label">TIMEZONE</div>
-        <div class="card" style="margin-bottom:16px;">
-            <?php
-            $selectedTz   = $athlete['timezone'] ?? Timezone::DEFAULT_TZ;
-            $tzFieldLabel = 'Your timezone';
-            $tzFieldHint  = 'Workout dates and times are shown in this timezone, and new plans start "tomorrow" in your local time.';
-            include __DIR__ . '/../partials/timezone_field.php';
-            ?>
-        </div>
-
         <div style="display:flex;gap:10px;margin-top:8px;">
             <button type="submit" class="btn btn-primary">Save changes</button>
             <a href="<?= h($cancelUrl) ?>" class="btn btn-secondary">Cancel</a>

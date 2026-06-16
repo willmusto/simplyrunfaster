@@ -51,6 +51,16 @@
         </div>
         <?php endif; ?>
 
+        <div class="section-label">TIMEZONE</div>
+        <div class="card" style="margin-bottom:16px;">
+            <?php
+            $selectedTz   = $athlete['timezone'] ?? Timezone::DEFAULT_TZ;
+            $tzFieldLabel = 'Your timezone';
+            $tzFieldHint  = 'Workout dates and times are shown in this timezone, and new plans start "tomorrow" in your local time.';
+            include __DIR__ . '/../partials/timezone_field.php';
+            ?>
+        </div>
+
         <div class="section-label">NOTIFICATIONS</div>
         <div class="card" style="margin-bottom:16px;">
             <p class="body-text">Notification preferences coming soon.</p>
