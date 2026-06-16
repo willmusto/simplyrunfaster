@@ -18,12 +18,12 @@
     <div class="flash flash-error"><?= h($error) ?></div>
     <?php endif; ?>
 
-    <form method="POST" action="<?= h($formAction) ?>">
+    <form method="POST" action="<?= h($formAction) ?>" data-dirty-watch>
         <?= Auth::csrfField() ?>
         <?php include __DIR__ . '/../partials/profile_form_fields.php'; ?>
 
         <div style="display:flex;gap:10px;margin-top:8px;">
-            <button type="submit" class="btn btn-primary">Save changes</button>
+            <button type="submit" class="btn btn-primary" data-dirty-save>Save changes</button>
             <a href="<?= h($cancelUrl) ?>" class="btn btn-secondary">Cancel</a>
         </div>
     </form>

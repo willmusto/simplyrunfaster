@@ -564,6 +564,13 @@ img { max-width: 100%; display: block; }
 
 .btn-full { width: 100%; }
 
+.btn:disabled,
+.btn[disabled] {
+    opacity: 0.45;
+    cursor: default;
+    pointer-events: none;
+}
+
 /* Icon buttons */
 .btn-icon {
     background: transparent;

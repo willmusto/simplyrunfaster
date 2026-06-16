@@ -9,7 +9,7 @@
     <div class="flash flash-success"><?= h($success) ?></div>
     <?php endif; ?>
 
-    <form method="POST" action="/app/coach/settings">
+    <form method="POST" action="/app/coach/settings" data-dirty-watch>
         <?= Auth::csrfField() ?>
 
         <div class="section-label">DISPLAY</div>
@@ -43,7 +43,7 @@
             <p class="body-text">Notification preferences are available in Milestone 2.</p>
         </div>
 
-        <button type="submit" class="btn btn-primary">Save settings</button>
+        <button type="submit" class="btn btn-primary" data-dirty-save>Save settings</button>
     </form>
 
     <div class="divider" style="margin:24px 0;"></div>

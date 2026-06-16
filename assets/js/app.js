@@ -92,6 +92,38 @@
         input.closest('.pill-choice').classList.toggle('selected', input.checked);
     });
 
+    // ── Dirty-state Save buttons ─────────────────────────────
+    // A form marked [data-dirty-watch] keeps its [data-dirty-save] button
+    // disabled until at least one field differs from its on-load value, and
+    // re-disables it if the user reverts everything back to the original.
+    function serializeForm(form) {
+        var parts = [];
+        Array.prototype.forEach.call(form.elements, function (el) {
+            if (!el.name) return;
+            var t = el.type;
+            if (t === 'submit' || t === 'button' || t === 'reset' || t === 'file') return;
+            if (t === 'checkbox' || t === 'radio') {
+                parts.push(el.name + '\x1f' + el.value + '\x1f' + (el.checked ? '1' : '0'));
+            } else {
+                parts.push(el.name + '\x1f' + el.value);
+            }
+        });
+        return parts.join('\x1e');
+    }
+
+    document.querySelectorAll('form[data-dirty-watch]').forEach(function (form) {
+        var btn = form.querySelector('[data-dirty-save]');
+        if (!btn) return;
+        var initial = serializeForm(form);
+        function refresh() { btn.disabled = (serializeForm(form) === initial); }
+        btn.disabled = true; // start disabled on load
+        form.addEventListener('input',  refresh);
+        form.addEventListener('change', refresh);
+        // Some fields (e.g. the must-off day picker's hidden input) are updated by
+        // click handlers; re-check on the next tick so those updates are captured.
+        form.addEventListener('click', function () { setTimeout(refresh, 0); });
+    });
+
     // ── Auto-dismiss flash messages ──────────────────────────
     document.querySelectorAll('.flash').forEach(function (el) {
         setTimeout(function () {
