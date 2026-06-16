@@ -23,6 +23,8 @@ function render_page(string $title, string $content, string $nav = 'athlete'): v
         'race'        => 'pill-race',
         'cross_train' => 'pill-cross_train',
         'race_pace'   => 'pill-interval',
+        'speed'       => 'pill-speed',
+        'plyometric'  => 'pill-plyometric',
     ];
     ob_start();
     include __DIR__ . '/html_open.php';
@@ -40,6 +42,7 @@ function pill_class(string $type): string
         'recovery' => 'pill-recovery', 'rest' => 'pill-rest',
         'race' => 'pill-race', 'cross_train' => 'pill-cross_train',
         'race_pace' => 'pill-interval',
+        'speed' => 'pill-speed', 'plyometric' => 'pill-plyometric',
     ];
     return $map[$type] ?? 'pill-rest';
 }
@@ -53,6 +56,7 @@ function pill_label(string $type): string
         'recovery' => 'Recovery run', 'rest' => 'Rest day',
         'race' => 'Race', 'cross_train' => 'Cross-training',
         'race_pace' => 'Race pace',
+        'speed' => 'Speed', 'plyometric' => 'Plyometric',
     ];
     return $map[$type] ?? ucfirst($type);
 }

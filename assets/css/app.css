@@ -492,6 +492,8 @@ img { max-width: 100%; display: block; }
 .pill-tempo     { background: #185FA5; color: #FFFFFF; }
 .pill-hill      { background: #3B6D11; color: #FFFFFF; }
 .pill-fartlek   { background: #639922; color: #FFFFFF; }
+.pill-speed     { background: #042C53; color: #FFFFFF; }
+.pill-plyometric { background: #3B6D11; color: #FFFFFF; }
 .pill-recovery  { background: #D3D1C7; color: #444441; }
 .pill-rest      { background: #F1EFE8; color: #5F5E5A; }
 .pill-race      { background: #993C1D; color: #FFFFFF; }

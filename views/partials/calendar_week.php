@@ -30,6 +30,9 @@ $_bubbleColor = [
     'fartlek'     => ['#639922', '#FFFFFF'],
     'recovery'    => ['#D3D1C7', '#444441'],
     'race'        => ['#993C1D', '#FFFFFF'],
+    'race_pace'   => ['#042C53', '#FFFFFF'],
+    'speed'       => ['#042C53', '#FFFFFF'],
+    'plyometric'  => ['#3B6D11', '#FFFFFF'],
     'cross_train' => ['#4A3B8A', '#FFFFFF'],
 ];
 
@@ -41,6 +44,9 @@ $_legend = [
     'hill'       => 'Hill session',
     'fartlek'    => 'Fartlek',
     'recovery'   => 'Recovery',
+    'race_pace'  => 'Race pace',
+    'speed'      => 'Speed',
+    'plyometric' => 'Plyometric',
 ];
 
 $_bubLabel = function(int $m): string {
@@ -193,23 +199,33 @@ var TYPE_META = [
     {v:'hill',        l:'Hill'},
     {v:'fartlek',     l:'Fartlek'},
     {v:'recovery',    l:'Recovery'},
+    {v:'race_pace',   l:'Race pace'},
+    {v:'speed',       l:'Speed'},
+    {v:'plyometric',  l:'Plyometric'},
     {v:'cross_train', l:'Cross-train'},
     {v:'race',        l:'Race'},
 ];
 var TYPE_BG = {
     easy:'#E1F5EE', long:'#0F6E56',  interval:'#042C53', tempo:'#185FA5',
     hill:'#3B6D11', fartlek:'#639922',recovery:'#D3D1C7', race:'#993C1D',
-    cross_train:'#4A3B8A'
+    race_pace:'#042C53', speed:'#042C53', plyometric:'#3B6D11', cross_train:'#4A3B8A'
 };
 var TYPE_FG = {
     easy:'#085041', long:'#fff', interval:'#fff', tempo:'#fff',
     hill:'#fff',    fartlek:'#fff', recovery:'#444441', race:'#fff',
-    cross_train:'#fff'
+    race_pace:'#fff', speed:'#fff', plyometric:'#fff', cross_train:'#fff'
 };
 var TYPE_LABEL = {
     easy:'Easy run', long:'Long run', interval:'Workout', tempo:'Tempo',
     hill:'Hill session', fartlek:'Fartlek', recovery:'Recovery',
-    race:'Race', cross_train:'Cross-train'
+    race:'Race', race_pace:'Race pace', speed:'Speed', plyometric:'Plyometric',
+    cross_train:'Cross-train'
+};
+var TYPE_CLASS = {
+    easy:'pill-easy', long:'pill-long', interval:'pill-interval', tempo:'pill-tempo',
+    hill:'pill-hill', fartlek:'pill-fartlek', recovery:'pill-recovery',
+    race:'pill-race', race_pace:'pill-interval', speed:'pill-speed',
+    plyometric:'pill-plyometric', cross_train:'pill-cross_train'
 };
 
 function fmtDur(m) {
@@ -246,7 +262,7 @@ function openModal(bubble) {
     var mode = (bubble.closest('[data-calmode]') || {dataset:{}}).dataset.calmode || 'preview';
 
     $id('calWD-type-pill').textContent = TYPE_LABEL[data.workout_type] || data.workout_type;
-    $id('calWD-type-pill').className   = 'pill pill-' + data.workout_type;
+    $id('calWD-type-pill').className   = 'pill ' + (TYPE_CLASS[data.workout_type] || 'pill-rest');
     $id('calWD-date').textContent      = data.scheduled_date
         ? new Date(data.scheduled_date + 'T00:00:00').toLocaleDateString('en-US', {weekday:'short',month:'short',day:'numeric'})
         : '';

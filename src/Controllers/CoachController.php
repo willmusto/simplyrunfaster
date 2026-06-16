@@ -260,7 +260,7 @@ class CoachController
             exit;
         }
 
-        $validTypes   = ['easy','long','interval','hill','fartlek','tempo','race','recovery','cross_train'];
+        $validTypes   = ['easy','long','interval','hill','fartlek','tempo','race','race_pace','speed','plyometric','recovery','cross_train'];
         $type         = in_array($_POST['workout_type'] ?? '', $validTypes, true) ? $_POST['workout_type'] : null;
         $duration     = isset($_POST['target_duration']) && (int)$_POST['target_duration'] > 0
             ? (int)$_POST['target_duration'] : null;

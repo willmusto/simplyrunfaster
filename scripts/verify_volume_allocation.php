@@ -131,19 +131,28 @@ $leadRunCount = 0;
 foreach ($leadRows as $lr) { if (!in_array($lr['workout_type'], ['rest','cross_train'], true)) $leadRunCount++; }
 check('Liam lead-in is populated with real workouts (not rest-only)', $leadInDays === 0 || $leadInWorkoutCount > 0, 'lead_in_workouts='.$leadInWorkoutCount);
 check('Liam lead-in mirrors week-1 rhythm (has running days)', $leadInDays === 0 || $leadRunCount > 0, 'lead_in_run_days='.$leadRunCount);
-// Day-1 guarantee: plan_start_date carries a real run unless its day-of-week is a must_off day.
-$liamMustOff = json_decode((string)($db->query('SELECT must_off_days FROM athlete_profiles WHERE athlete_id='.(int)$laid.' LIMIT 1')->fetchColumn() ?: '[]'), true) ?: [];
-$day1Dow = (int)date('w', strtotime((string)$liamPlan['plan_start_date']));
-$day1Row = null;
-foreach ($leadRows as $lr) { if ($lr['scheduled_date'] === (string)$liamPlan['plan_start_date']) { $day1Row = $lr; break; } }
-$day1IsRun = $day1Row !== null && !in_array($day1Row['workout_type'], ['rest','cross_train'], true);
-if ($leadInDays === 0) {
-    check('Liam day-1 guarantee N/A (Monday start, no lead-in)', true);
-} elseif (in_array($day1Dow, $liamMustOff, true)) {
-    check('Liam day-1 is Rest (plan_start_date is a must_off day)', $day1Row === null || !$day1IsRun, 'day1_type='.($day1Row['workout_type'] ?? 'rest'));
-} else {
-    check('Liam day-1 has a real running assignment (day-1 guarantee)', $day1IsRun, 'day1_type='.($day1Row['workout_type'] ?? 'none'));
-}
+// Day-1 guarantee: plan_start_date is always a standard continuous_easy run.
+$day1Stmt = $db->prepare('SELECT workout_type, archetype_code, archetype_variant FROM planned_workouts WHERE plan_id = ? AND scheduled_date = ? LIMIT 1');
+$day1Stmt->execute([(int)$lpid, (string)$liamPlan['plan_start_date']]);
+$day1Row = $day1Stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+$day1Ok = ($day1Row['workout_type'] ?? '') === 'easy'
+    && ($day1Row['archetype_code'] ?? '') === 'continuous_easy'
+    && ($day1Row['archetype_variant'] ?? '') === 'standard_easy';
+check('Liam day-1 is standard continuous_easy', $day1Ok, 'day1='.json_encode($day1Row));
+$typeMapStmt = $db->prepare(
+    "SELECT archetype_code, workout_type
+     FROM planned_workouts
+     WHERE plan_id = ?
+       AND (
+            (archetype_code IN ('sustained_hill_repeats','hill_sprints') AND workout_type <> 'hill')
+         OR (archetype_code = 'plyometric_hill_circuits' AND workout_type <> 'plyometric')
+         OR (archetype_code IN ('tempo_intervals','continuous_progression_tempo') AND workout_type <> 'tempo')
+         OR (archetype_code = 'short_speed_repeats' AND workout_type <> 'speed')
+       )"
+);
+$typeMapStmt->execute([(int)$lpid]);
+$typeMapMismatches = $typeMapStmt->fetchAll(PDO::FETCH_ASSOC);
+check('Liam archetype workout_type metadata maps to approval badges', empty($typeMapMismatches), 'mismatches='.json_encode($typeMapMismatches));
 check('Liam week 1 schedules a reduced day count (< 5)', ($wk1['days'] ?? 9) < 5, 'days='.($wk1['days']??'?'));
 check('Liam week 1 has quality (not all continuous_easy)', ($wk1['quality'] ?? 0) > 0, 'quality='.($wk1['quality']??0));
 check('Liam total quality across plan > 0', array_sum(array_column($lt,'quality')) > 0, 'total='.array_sum(array_column($lt,'quality')));
@@ -291,7 +300,7 @@ $planLeadInfo = function (int $planId) use ($db, $codeWeekStartForPlan): array {
     $days = max(0, (int)floor((strtotime($codeStart) - strtotime((string)$plan['plan_start_date'])) / 86400));
     $cnt = $db->prepare('SELECT COUNT(*) FROM planned_workouts WHERE plan_id=? AND scheduled_date < ?');
     $cnt->execute([$planId, $codeStart]);
-    return ['start' => (string)$plan['plan_start_date'], 'codeStart' => $codeStart, 'leadInDays' => $days, 'preCount' => (int)$cnt->fetchColumn()];
+    return ['planId' => $planId, 'start' => (string)$plan['plan_start_date'], 'codeStart' => $codeStart, 'leadInDays' => $days, 'preCount' => (int)$cnt->fetchColumn()];
 };
 $tomorrowDow = (int)date('w', strtotime('+1 day'));
 
@@ -311,7 +320,7 @@ try {
     }
 } finally { $cleanup($f1aid, $f1uid); }
 
-// E2 — plan_start_date IS a must_off day: day-1 stays Rest (guarantee does not override, no shift).
+// E2 — plan_start_date IS a must_off day: the strengthened guarantee still forces standard easy.
 [$f2aid, $f2uid] = $makeAthlete([
     'plan_type' => 'development_plan', 'goal_race_distance' => '10K',
     'training_days_per_week' => 4, 'current_weekly_minutes' => 160,
@@ -320,15 +329,13 @@ try {
 ]);
 try {
     $info = $planLeadInfo((int)PlanGenerator::generate($f2aid, 'onboarding'));
-    $d1 = $db->prepare('SELECT workout_type FROM planned_workouts WHERE plan_id=? AND scheduled_date=? LIMIT 1');
-    $d1->execute([(int)$db->query("SELECT id FROM training_plans WHERE athlete_id=$f2aid ORDER BY id DESC LIMIT 1")->fetchColumn(), $info['start']]);
-    $d1type = $d1->fetchColumn();
-    if ($info['leadInDays'] === 0) {
-        check('must_off day-1 case N/A (Monday start, no lead-in)', true, 'start='.$info['start']);
-    } else {
-        check('must_off plan_start_date → day-1 is Rest (no override, no shift)',
-            $d1type === false || in_array($d1type, ['rest','cross_train'], true), 'day1_type='.($d1type ?: 'rest'));
-    }
+    $d1 = $db->prepare('SELECT workout_type, archetype_code, archetype_variant FROM planned_workouts WHERE plan_id=? AND scheduled_date=? LIMIT 1');
+    $d1->execute([(int)$info['planId'], $info['start']]);
+    $d1row = $d1->fetch(PDO::FETCH_ASSOC) ?: [];
+    $d1ok = ($d1row['workout_type'] ?? '') === 'easy'
+        && ($d1row['archetype_code'] ?? '') === 'continuous_easy'
+        && ($d1row['archetype_variant'] ?? '') === 'standard_easy';
+    check('must_off plan_start_date still forces standard continuous_easy', $d1ok, 'day1='.json_encode($d1row));
 } finally { $cleanup($f2aid, $f2uid); }
 
 echo "\n=====================================\n";

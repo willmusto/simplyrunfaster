@@ -302,6 +302,7 @@ class PlanGenerator
         };
 
         if ($planId) {
+            self::ensurePlanStartEasyRun($planId, $athleteId, $profile, $db, $selector);
             self::validateGeneratedDisplays($planId, $athleteId, $db);
             self::createApprovalQueueEntry($planId, $athleteId, $trigger, $db);
         }
@@ -644,7 +645,8 @@ class PlanGenerator
         $params          = $instance['resolved_params'] ?? [];
         $structure       = self::resolveStructure($instance);
         $variantWorkout  = $instance['resolved_variant']['workout_type'] ?? null;
-        $workoutType     = $variantWorkout ?? $slotWorkoutType;
+        $metadataWorkout = $instance['metadata']['workout_type'] ?? null;
+        $workoutType     = $variantWorkout ?? $metadataWorkout ?? $slotWorkoutType;
         $variantIF       = $instance['resolved_variant']['intensity_factor'] ?? null;
         $intensityFactor = (float)($variantIF ?? $instance['generation']['intensity_factor'] ?? 0.5);
         $storedDuration  = self::computeActualDuration($instance) ?? (int)($params['duration_minutes'] ?? 0);
@@ -658,6 +660,75 @@ class PlanGenerator
             $structure ? json_encode($structure) : null,
             $title ?: null, $summary ?: null, $instructions ?: null,
         ]);
+    }
+
+    private static function ensurePlanStartEasyRun(
+        int $planId, int $athleteId, array $profile, PDO $db, ArchetypeSelector $selector
+    ): void {
+        $plan = $db->prepare('SELECT plan_start_date FROM training_plans WHERE id = ? LIMIT 1');
+        $plan->execute([$planId]);
+        $startDate = (string)($plan->fetchColumn() ?: '');
+        if ($startDate === '') return;
+
+        $existing = $db->prepare(
+            'SELECT target_duration
+             FROM planned_workouts
+             WHERE plan_id = ? AND scheduled_date = ?
+             ORDER BY id ASC
+             LIMIT 1'
+        );
+        $existing->execute([$planId, $startDate]);
+        $existingDuration = $existing->fetchColumn();
+
+        $settings  = self::settings();
+        $easyFloor = (int)($settings['easy_run_min_minutes'] ?? 30);
+        $easyCap   = (int)($settings['easy_run_max_minutes'] ?? 70);
+        $target    = (int)($existingDuration ?: $easyFloor);
+        $target    = max($easyFloor, min($easyCap, $target));
+
+        $goalDistance   = self::normalizeDistance($profile['goal_race_distance'] ?? '5K');
+        $classification = self::classifyAthlete($profile, $goalDistance);
+        $instance       = self::resolveStandardEasyRun($selector, $target, 'base', $goalDistance, $classification);
+        if ($instance === null) return;
+
+        $db->prepare('DELETE FROM planned_workouts WHERE plan_id = ? AND scheduled_date = ?')
+            ->execute([$planId, $startDate]);
+
+        $insert = $db->prepare(
+            'INSERT INTO planned_workouts
+             (plan_id, athlete_id, scheduled_date, workout_type,
+              archetype_code, archetype_variant, archetype_params,
+              description, target_duration, intensity_load, visible_to_athlete,
+              workout_archetype_id, archetype_version_snapshot, instance_signature,
+              structure, display_title, display_summary, athlete_instructions)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        self::insertResolvedWorkout($insert, $planId, $athleteId, $startDate, 'easy', $instance);
+    }
+
+    private static function resolveStandardEasyRun(
+        ArchetypeSelector $selector, int $targetMinutes,
+        string $phase, string $goalDistance, string $classification
+    ): ?array {
+        $archetype = $selector->getByCode('continuous_easy');
+        if (!$archetype) return null;
+
+        $archetype = $selector->resolveParameters($archetype, $classification);
+        $standardVariant = null;
+        foreach (($archetype['variants'] ?? []) as $variant) {
+            if (($variant['code'] ?? '') === 'standard_easy') {
+                $standardVariant = $variant;
+                break;
+            }
+        }
+        $archetype['resolved_variant'] = $standardVariant ?? [
+            'code' => 'standard_easy',
+            'name' => 'Standard Easy Run',
+            'workout_type' => 'easy',
+            'intensity_factor' => 0.5,
+        ];
+
+        return self::addDerivedParams($archetype, $targetMinutes, $phase, $goalDistance, $classification);
     }
 
     private static function generateRecoveryBlock(
@@ -1055,7 +1126,8 @@ class PlanGenerator
             // stores workout_type='easy' (not 'interval') when filling a quality-slot fallback,
             // and recovery_easy stores 'recovery' in any context.
             $variantWorkoutType = $instance['resolved_variant']['workout_type'] ?? null;
-            $workoutType        = $variantWorkoutType ?? (self::SLOT_WORKOUT_TYPE[$slotType] ?? 'easy');
+            $metadataWorkoutType = $instance['metadata']['workout_type'] ?? null;
+            $workoutType        = $variantWorkoutType ?? $metadataWorkoutType ?? (self::SLOT_WORKOUT_TYPE[$slotType] ?? 'easy');
             $variantIF       = $instance['resolved_variant']['intensity_factor'] ?? null;
             $intensityFactor = (float)($variantIF ?? $instance['generation']['intensity_factor'] ?? 0.5);
             // Use actual sum-of-parts (warmup + main + cooldown) as the stored duration so
@@ -1105,13 +1177,8 @@ class PlanGenerator
      * (e.g. a long-run slot collapsing to a recovery run). Using the pre-loop snapshot keeps the
      * day TYPES faithful to week 1; the snapshot is passed by value, so its mutations are discarded.
      *
-     * Day-1 guarantee: plan_start_date (the first lead-in day, i.e. "tomorrow") must carry a real
-     * running assignment — at minimum an easy run — UNLESS its day-of-week is one of the athlete's
-     * must_off_days, in which case Rest is correct and the guarantee does NOT shift to a later day.
-     * If week 1's pattern would place rest on that day-of-week, we override it to 'easy' for the
-     * lead-in only. Since that day-of-week is unique within the lead-in, the override affects only
-     * day 1. The must_off_days case resolves to Rest (no override, no shift): a forced-off day is a
-     * hard athlete constraint that outranks the day-1 guarantee.
+     * The absolute plan-start easy-run guarantee is enforced centrally after generation by
+     * ensurePlanStartEasyRun(), so this lead-in mirror can stay faithful to code-week 1's rhythm.
      *
      * Relationship to the schedule_day_ramp flag (Item 2): that flag describes code-week 1's
      * scheduled day count vs. the requested training_days_per_week, and is raised inside the main
@@ -1136,13 +1203,8 @@ class PlanGenerator
         $leadInEnd  = date('Y-m-d', strtotime($codeWeekStart . ' -1 day'));   // the Sunday before
         $anchorWeek = date('Y-m-d', strtotime($codeWeekStart . ' -7 days'));  // Monday day-of-week anchor
 
-        // Mirror week 1's pattern, then apply the day-1 guarantee.
+        // Mirror week 1's pattern. The plan-start easy-run guarantee is applied after generation.
         $schedule = $week1Schedule;
-        $startDow = (int)date('w', strtotime($startDate));
-        $mustOff  = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
-        if (!in_array($startDow, $mustOff, true) && ($schedule[$startDow] ?? 'rest') === 'rest') {
-            $schedule[$startDow] = 'easy';
-        }
 
         self::insertWeekWorkouts(
             $planId, $athleteId, $anchorWeek, $planEnd,
