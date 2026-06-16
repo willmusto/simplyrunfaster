@@ -52,6 +52,26 @@ defined('MAIL_FROM_ADDRESS') || define('MAIL_FROM_ADDRESS', 'noreply@simplyrunfa
 defined('INVITE_DEFAULT_EXPIRY_DAYS') || define('INVITE_DEFAULT_EXPIRY_DAYS', 7);
 defined('INVITE_DEFAULT_MAX_USES')    || define('INVITE_DEFAULT_MAX_USES',    1);
 
+// Stripe billing (Milestone 8). Real keys live in config/config.local.php on the
+// server (git-ignored); these placeholders document the constants for deploys.
+// Use TEST keys (sk_test_…/pk_test_…) until going live.
+defined('STRIPE_SECRET_KEY')      || define('STRIPE_SECRET_KEY',      getenv('SRF_STRIPE_SECRET')      ?: '');
+defined('STRIPE_PUBLISHABLE_KEY') || define('STRIPE_PUBLISHABLE_KEY', getenv('SRF_STRIPE_PUBLISHABLE') ?: '');
+defined('STRIPE_WEBHOOK_SECRET')  || define('STRIPE_WEBHOOK_SECRET',  getenv('SRF_STRIPE_WEBHOOK')     ?: '');
+// Recurring price IDs created in the Stripe dashboard (one product, two prices).
+defined('STRIPE_PRICE_MONTHLY')   || define('STRIPE_PRICE_MONTHLY',   getenv('SRF_STRIPE_PRICE_MONTHLY') ?: '');
+defined('STRIPE_PRICE_ANNUAL')    || define('STRIPE_PRICE_ANNUAL',    getenv('SRF_STRIPE_PRICE_ANNUAL')  ?: '');
+// Display prices (cents) — purely cosmetic for the billing/admin UI.
+defined('STRIPE_PRICE_MONTHLY_DISPLAY') || define('STRIPE_PRICE_MONTHLY_DISPLAY', '$39/month');
+defined('STRIPE_PRICE_ANNUAL_DISPLAY')  || define('STRIPE_PRICE_ANNUAL_DISPLAY',  '$396/year');
+// Grace window (days) after a first failed payment before access is cut off.
+defined('BILLING_GRACE_DAYS')     || define('BILLING_GRACE_DAYS',     7);
+// When true, athletes with subscription_status='none' are also gated (full
+// enforcement). Default false so existing/grandfathered athletes keep access
+// and onboarding (pre-checkout) is never locked out. Flip on once every active
+// athlete has a live subscription.
+defined('BILLING_GATE_STRICT')    || define('BILLING_GATE_STRICT',    false);
+
 // Training engine
 defined('ATHLETE_WINDOW_DAYS') || define('ATHLETE_WINDOW_DAYS', 10);  // rolling days visible to athlete
 defined('PUSH_AHEAD_DAYS')     || define('PUSH_AHEAD_DAYS',     1);   // push workout to watch T-1 day before

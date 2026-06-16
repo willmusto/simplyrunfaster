@@ -56,6 +56,30 @@ $unreadMessages = $unreadMessages ?? 0;
     </div>
 </nav>
 
+<?php $srfCancelBanner = Billing::cancellationBanner(Auth::userId()); ?>
+<?php if ($srfCancelBanner): ?>
+<div id="srf-cancel-banner" style="display:none;border:1px solid var(--accent-mid);background:var(--recessed-bg);
+     border-radius:8px;padding:10px 14px;margin:10px 16px;font-size:13px;display:flex;align-items:center;
+     justify-content:space-between;gap:10px;flex-wrap:wrap;">
+    <span>
+        Your subscription is cancelled. You have access until
+        <strong><?= h(date('M j, Y', strtotime($srfCancelBanner['end_date']))) ?></strong>.
+        <a href="/app/billing/portal" style="color:var(--accent-mid);font-weight:600;">Reactivate</a>
+    </span>
+    <button type="button" aria-label="Dismiss"
+            onclick="sessionStorage.setItem('srfCancelDismissed','1');this.parentElement.style.display='none';"
+            style="background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer;line-height:1;">×</button>
+</div>
+<script>
+(function () {
+    if (sessionStorage.getItem('srfCancelDismissed') !== '1') {
+        var b = document.getElementById('srf-cancel-banner');
+        if (b) b.style.display = 'flex';
+    }
+})();
+</script>
+<?php endif; ?>
+
 <nav class="bottom-nav">
     <a href="/app" class="bottom-nav-item <?= $activeTab === 'today' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"

@@ -153,6 +153,14 @@ class AuthController
         // Update invite_code on user record
         $db->prepare('UPDATE users SET invite_code = ? WHERE id = ?')->execute([$code, $userId]);
 
+        // A 100%-forever invite is a permanent comp: mark the user comped now so
+        // the subscription gate passes and onboarding skips Stripe checkout.
+        if ((int)($invite['discount_percent'] ?? 0) === 100 && ($invite['discount_duration'] ?? '') === 'forever') {
+            $db->prepare(
+                "UPDATE users SET subscription_status = 'comped', subscription_end_date = NULL WHERE id = ?"
+            )->execute([$userId]);
+        }
+
         header('Location: /app/onboarding');
         exit;
     }

@@ -76,6 +76,18 @@
         <span style="color:var(--text-muted);font-size:20px;">›</span>
     </a>
 
+    <div class="section-label" style="margin-top:24px;">BILLING</div>
+    <a href="/app/billing" class="card" style="display:flex;align-items:center;justify-content:space-between;
+       text-decoration:none;color:inherit;margin-bottom:16px;">
+        <div>
+            <div style="font-size:14px;font-weight:500;">Subscription &amp; billing</div>
+            <div style="font-size:13px;color:var(--text-muted);margin-top:2px;">
+                Plan, payment method, invoices
+            </div>
+        </div>
+        <span style="color:var(--text-muted);font-size:20px;">›</span>
+    </a>
+
     <div class="divider" style="margin:24px 0;"></div>
 
     <div class="section-label">TRAINING</div>

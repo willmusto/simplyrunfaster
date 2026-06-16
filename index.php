@@ -23,11 +23,14 @@ require_once __DIR__ . '/src/EmailTemplates.php';
 require_once __DIR__ . '/src/Notifications.php';
 require_once __DIR__ . '/src/Timezone.php';
 require_once __DIR__ . '/src/Auth.php';
+require_once __DIR__ . '/src/Billing.php';
+require_once __DIR__ . '/src/StripeWebhook.php';
 require_once __DIR__ . '/src/ProfileForm.php';
 require_once __DIR__ . '/src/Controllers/AuthController.php';
 require_once __DIR__ . '/src/Controllers/OnboardingController.php';
 require_once __DIR__ . '/src/Controllers/AthleteController.php';
 require_once __DIR__ . '/src/Controllers/CoachController.php';
+require_once __DIR__ . '/src/Controllers/AdminController.php';
 require_once __DIR__ . '/src/Engine/TrainingLoad.php';
 require_once __DIR__ . '/src/Engine/RecoveryModel.php';
 require_once __DIR__ . '/src/Engine/EffortMapper.php';
@@ -35,14 +38,36 @@ require_once __DIR__ . '/src/Engine/PaceZones.php';
 require_once __DIR__ . '/src/Engine/ArchetypeSelector.php';
 require_once __DIR__ . '/src/Engine/PlanGenerator.php';
 
+$uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
+
+// ── Stripe webhook ───────────────────────────────────────────
+// Public, session-less, BEFORE auth: Stripe calls this directly and the
+// payload is signature-verified inside the handler.
+if ($uri === '/webhook/stripe') {
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+        StripeWebhook::handle();
+    } else {
+        http_response_code(405);
+        echo 'method not allowed';
+    }
+    exit;
+}
+
 // Start session
 Auth::startSession();
 
 // ── Marketing / root ─────────────────────────────────────────
-$uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 if ($uri === '/' || $uri === '') {
     include __DIR__ . '/views/marketing/placeholder.php';
     exit;
+}
+
+// ── Athlete subscription gate ────────────────────────────────
+// Lapsed athletes are funnelled to the billing/reactivation flow; allowlisted
+// areas (onboarding, billing, logout, offline) always pass. Coaches/admins are
+// never gated.
+if (Auth::check() && Auth::role() === 'athlete') {
+    Billing::enforceAthleteAccess($uri);
 }
 
 $router = new Router('/app');
@@ -82,6 +107,13 @@ $router->post('/settings/password',[AthleteController::class, 'changePasswordSub
 $router->get('/settings/training', [AthleteController::class, 'trainingSettings']);
 $router->post('/settings/training',[AthleteController::class, 'trainingSettingsSave']);
 
+// ── Athlete billing (Milestone 8) ────────────────────────────
+$router->get('/billing',          [AthleteController::class, 'billing']);
+$router->get('/billing/portal',   [AthleteController::class, 'billingPortal']);
+$router->get('/billing/success',  [AthleteController::class, 'billingSuccess']);
+$router->get('/billing/cancel',   [AthleteController::class, 'billingCheckoutCancelled']);
+$router->post('/billing/cancel',  [AthleteController::class, 'billingCancel']);
+
 // ── Coach dashboard ──────────────────────────────────────────
 $router->get('/coach/dashboard',          [CoachController::class, 'dashboard']);
 $router->get('/coach',                    [CoachController::class, 'dashboard']);
@@ -106,6 +138,13 @@ $router->get('/coach/settings',           [CoachController::class, 'settings']);
 $router->post('/coach/settings',          [CoachController::class, 'settingsSave']);
 $router->get('/coach/settings/notifications',  [CoachController::class, 'notifications']);
 $router->post('/coach/settings/notifications', [CoachController::class, 'notificationsSave']);
+
+// ── Invite links (coach/admin) ───────────────────────────────
+$router->get('/coach/invites',  [CoachController::class, 'invites']);
+$router->post('/coach/invites', [CoachController::class, 'createInvite']);
+
+// ── Admin billing overview ───────────────────────────────────
+$router->get('/admin/billing', [AdminController::class, 'billing']);
 
 // ── Theme toggle (POST, returns to referrer) ─────────────────
 $router->post('/theme', function () {

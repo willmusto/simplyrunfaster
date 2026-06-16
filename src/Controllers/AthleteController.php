@@ -708,6 +708,82 @@ class AthleteController
         exit;
     }
 
+    // ── Billing (Milestone 8) ──────────────────────────────────
+
+    public static function billing(): void
+    {
+        Auth::requireRole('athlete');
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db      = Database::get();
+        $athlete = Auth::getAthlete();
+        $userId  = Auth::userId();
+
+        $billing        = Billing::athleteBillingView($userId, $db);
+        $unreadMessages = $athlete ? self::getUnreadCount((int)$athlete['id'], $db) : 0;
+        $success        = $_SESSION['flash_success'] ?? null;
+        $error          = $_SESSION['flash_error']   ?? null;
+        unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
+        $pageTitle = 'Billing';
+        $activeTab = 'settings';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_athlete.php';
+        include __DIR__ . '/../../views/athlete/billing.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    /** GET /app/billing/portal — open the Stripe Billing Portal. */
+    public static function billingPortal(): void
+    {
+        Auth::requireRole('athlete');
+        $db  = Database::get();
+        $url = Billing::createBillingPortalSession(Auth::userId(), $db);
+        if (!$url) {
+            $_SESSION['flash_error'] = 'Billing management is temporarily unavailable. Please try again later.';
+            header('Location: /app/billing');
+            exit;
+        }
+        header('Location: ' . $url);
+        exit;
+    }
+
+    /** GET /app/billing/success — return from Stripe Checkout. */
+    public static function billingSuccess(): void
+    {
+        Auth::requireRole('athlete');
+        $db        = Database::get();
+        $sessionId = $_GET['session_id'] ?? '';
+        Billing::syncFromCheckoutSession($sessionId, Auth::userId(), $db);
+        $_SESSION['flash_success'] = "You're all set — your subscription is active.";
+        header('Location: /app/billing');
+        exit;
+    }
+
+    /** GET /app/billing/cancel — athlete abandoned Stripe Checkout. */
+    public static function billingCheckoutCancelled(): void
+    {
+        Auth::requireRole('athlete');
+        $_SESSION['flash_error'] = 'Checkout was cancelled. You can subscribe any time from this page.';
+        header('Location: /app/billing');
+        exit;
+    }
+
+    /** POST /app/billing/cancel — cancel the subscription at period end. */
+    public static function billingCancel(): void
+    {
+        Auth::requireRole('athlete');
+        Auth::verifyCsrf();
+        $db = Database::get();
+        if (Billing::cancelAtPeriodEnd(Auth::userId(), $db)) {
+            $_SESSION['flash_success'] = 'Your subscription will not renew. You keep access until the end of the current period.';
+        } else {
+            $_SESSION['flash_error'] = "We couldn't cancel your subscription. Please use Manage billing or contact support.";
+        }
+        header('Location: /app/billing');
+        exit;
+    }
+
     // ── Helpers ────────────────────────────────────────────────
 
     private static function getUnreadCount(int $athleteId, PDO $db): int

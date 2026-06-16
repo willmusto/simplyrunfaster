@@ -630,6 +630,99 @@ class CoachController
         exit;
     }
 
+    // ── Invite links (Milestone 8: billing options) ───────────
+
+    public static function invites(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db               = Database::get();
+        $coachId          = Auth::userId();
+        $athletes         = self::getRosterAthletes($coachId, $db);
+        $openFlags        = self::getOpenFlagsCount($coachId, $db);
+        $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
+
+        $success = $_SESSION['flash_success'] ?? null;
+        $error   = $_SESSION['flash_error']   ?? null;
+        $newLink = $_SESSION['flash_invite_url'] ?? null;
+        unset($_SESSION['flash_success'], $_SESSION['flash_error'], $_SESSION['flash_invite_url']);
+
+        $stmt = $db->prepare(
+            'SELECT * FROM invite_links WHERE created_by = ? ORDER BY created_at DESC LIMIT 25'
+        );
+        $stmt->execute([$coachId]);
+        $links = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $stripeReady = Billing::isConfigured();
+
+        $pageTitle = 'Invite athletes';
+        $activeNav = 'athletes';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_coach.php';
+        include __DIR__ . '/../../views/coach/invites.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    public static function createInvite(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $db      = Database::get();
+        $coachId = Auth::userId();
+
+        $discount  = (int)($_POST['discount_percent'] ?? 0);
+        if (!in_array($discount, [0, 25, 50, 100], true)) $discount = 0;
+
+        $duration  = $_POST['discount_duration'] ?? '';
+        $validDurations = ['30d','60d','90d','120d','365d','forever'];
+        if ($discount === 0 || !in_array($duration, $validDurations, true)) {
+            $duration = null;
+        }
+
+        $interval = in_array($_POST['billing_interval'] ?? '', ['monthly','annual'], true)
+            ? $_POST['billing_interval'] : 'monthly';
+
+        $expiryDays = (int)($_POST['expiry_days'] ?? INVITE_DEFAULT_EXPIRY_DAYS);
+        if ($expiryDays < 1 || $expiryDays > 90) $expiryDays = INVITE_DEFAULT_EXPIRY_DAYS;
+        $maxUses = (int)($_POST['max_uses'] ?? INVITE_DEFAULT_MAX_USES);
+        if ($maxUses < 1 || $maxUses > 100) $maxUses = INVITE_DEFAULT_MAX_USES;
+
+        $notes = trim((string)($_POST['notes'] ?? '')) ?: null;
+
+        // A 100%-forever invite is a pure comp (no Stripe checkout, no coupon).
+        $isComp   = ($discount === 100 && $duration === 'forever');
+        $couponId = null;
+        if ($discount > 0 && !$isComp) {
+            $couponId = Billing::createCoupon($discount, (string)$duration);
+            if ($couponId === null && Billing::isConfigured()) {
+                $_SESSION['flash_error'] = "Couldn't create the Stripe coupon. Link not generated.";
+                header('Location: /app/coach/invites');
+                exit;
+            }
+        }
+
+        $code      = bin2hex(random_bytes(8));
+        $expiresAt = gmdate('Y-m-d H:i:s', strtotime('+' . $expiryDays . ' days'));
+
+        $db->prepare(
+            'INSERT INTO invite_links
+                (code, created_by, assigned_coach_id, discount_percent, discount_duration,
+                 stripe_coupon_id, billing_interval, expires_at, max_uses, use_count, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)'
+        )->execute([
+            $code, $coachId, $coachId,
+            $discount ?: null, $duration, $couponId, $interval,
+            $expiresAt, $maxUses, $notes,
+        ]);
+
+        $_SESSION['flash_success']    = 'Invite link created.';
+        $_SESSION['flash_invite_url'] = rtrim(APP_URL, '/') . '/invite/' . $code;
+        header('Location: /app/coach/invites');
+        exit;
+    }
+
     public static function coachMessages(array $params): void
     {
         Auth::requireRole(['coach','assistant_coach','admin']);

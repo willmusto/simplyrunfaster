@@ -53,6 +53,20 @@
         <span style="color:var(--text-muted);font-size:20px;">›</span>
     </a>
 
+    <?php if (Auth::isAdmin()): ?>
+    <div class="section-label" style="margin-top:24px;">ADMIN</div>
+    <a href="/app/admin/billing" class="card" style="display:flex;align-items:center;justify-content:space-between;
+       text-decoration:none;color:inherit;margin-bottom:16px;">
+        <div>
+            <div style="font-size:14px;font-weight:500;">Billing overview</div>
+            <div style="font-size:13px;color:var(--text-muted);margin-top:2px;">
+                Subscription status across all athletes
+            </div>
+        </div>
+        <span style="color:var(--text-muted);font-size:20px;">›</span>
+    </a>
+    <?php endif; ?>
+
     <div class="divider" style="margin:24px 0;"></div>
 
     <div class="section-label">ACCOUNT</div>

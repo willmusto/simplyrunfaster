@@ -94,6 +94,20 @@ class EmailTemplates
                     . ($n === 1 ? '' : 's') . ' away. Trust your training.</p>',
                     'View my plan', '/plan');
 
+            case 'payment_failed_athlete':
+                return self::compose($audience, 'There was a problem with your payment',
+                    'Payment problem',
+                    '<p>There was a problem with your most recent payment. Please update your billing '
+                    . 'information to keep your access to SimplyRunFaster.</p>',
+                    'Update billing', '/billing');
+
+            case 'payment_failed_coach':
+                return self::compose($audience, $name . "'s payment failed",
+                    'A payment failed',
+                    '<p><strong>' . self::h($name) . "</strong>'s subscription payment failed. "
+                    . 'They have been asked to update their billing information.</p>',
+                    'View athlete', '/coach/athlete/' . (int)($data['athlete_id'] ?? 0));
+
             default:
                 // Generic single-CTA fallback for any other emailable type.
                 return self::compose($audience, $data['subject'] ?? 'SimplyRunFaster',

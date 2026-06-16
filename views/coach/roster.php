@@ -10,6 +10,7 @@ $sort = $_GET['sort'] ?? 'alerts';
                 (<?= count($athletes) ?>)
             </span>
         </div>
+        <a href="/app/coach/invites" class="btn btn-secondary btn-sm">+ Invite athlete</a>
     </div>
 
     <!-- Sort bar -->

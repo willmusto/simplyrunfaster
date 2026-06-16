@@ -25,8 +25,8 @@ class Notifications
      * fallback to push if the user somehow turned every channel off).
      */
     public const ALWAYS_ON = [
-        'athlete' => ['plan_approved', 'message_from_coach'],
-        'coach'   => ['plan_pending_approval', 'critical_flag', 'message_from_athlete'],
+        'athlete' => ['plan_approved', 'message_from_coach', 'payment_failed_athlete'],
+        'coach'   => ['plan_pending_approval', 'critical_flag', 'message_from_athlete', 'payment_failed_coach'],
     ];
 
     /**
@@ -41,6 +41,7 @@ class Notifications
             // Always-on (rows seeded so channels stay configurable)
             'plan_approved'         => ['enabled' => 1, 'push' => 1, 'email' => 1],
             'message_from_coach'    => ['enabled' => 1, 'push' => 1, 'email' => 0],
+            'payment_failed_athlete' => ['enabled' => 1, 'push' => 1, 'email' => 1],
             // Controllable
             'tomorrow_plan'         => ['enabled' => 1, 'push' => 1, 'email' => 0, 'time' => '20:00:00'],
             'rpe_prompt'            => ['enabled' => 1, 'push' => 1, 'email' => 0],
@@ -54,6 +55,7 @@ class Notifications
             'plan_pending_approval'      => ['enabled' => 1, 'push' => 1, 'email' => 1],
             'critical_flag'              => ['enabled' => 1, 'push' => 1, 'email' => 1],
             'message_from_athlete'       => ['enabled' => 1, 'push' => 1, 'email' => 0],
+            'payment_failed_coach'       => ['enabled' => 1, 'push' => 1, 'email' => 1],
             // Controllable
             'warning_flag'               => ['enabled' => 1, 'push' => 1, 'email' => 0],
             'info_flag'                  => ['enabled' => 0, 'push' => 1, 'email' => 0],
@@ -450,6 +452,15 @@ class Notifications
 
             case 'message_from_coach':
                 return self::push('Message from ' . $sender, $sender . ': ' . $snippet, '/app/messages', false, true);
+
+            case 'payment_failed_athlete':
+                return self::push('Payment problem',
+                    'There was a problem with your payment. Please update your billing information to keep your access.',
+                    '/app/billing', true, true);
+
+            case 'payment_failed_coach':
+                return self::push('Payment failed', $name . "'s payment failed.",
+                    '/app/coach/athlete/' . (int)($data['athlete_id'] ?? 0), true);
 
             case 'message_from_athlete':
                 return self::push('Message from ' . $name, $name . ': ' . $snippet,

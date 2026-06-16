@@ -209,8 +209,47 @@ class OnboardingController
             }
         }
 
-        header('Location: /app');
+        // Billing: comped athletes (and any non-Stripe environment) go straight
+        // to the app; everyone else is sent to Stripe Checkout to subscribe.
+        $checkoutUrl = self::checkoutRedirectUrl();
+        header('Location: ' . ($checkoutUrl ?: '/app'));
         exit;
+    }
+
+    /**
+     * After onboarding, decide where to send the athlete. Returns a Stripe
+     * Checkout URL when a subscription is required, or null to enter the app
+     * (comped, already subscribed, or Stripe not configured).
+     */
+    private static function checkoutRedirectUrl(): ?string
+    {
+        $db     = Database::get();
+        $userId = Auth::userId();
+
+        $row = Billing::userBillingRow($userId, $db);
+        if (!$row) return null;
+        if (in_array($row['subscription_status'] ?? 'none', ['comped', 'active', 'trialing'], true)) {
+            return null;
+        }
+        if (!Billing::isConfigured()) return null;
+
+        // Pull discount/interval from the invite the athlete signed up with.
+        $couponId = null;
+        $interval = 'monthly';
+        $inv = $db->prepare(
+            'SELECT il.stripe_coupon_id, il.billing_interval
+             FROM invite_links il JOIN users u ON u.invite_code = il.code
+             WHERE u.id = ? LIMIT 1'
+        );
+        $inv->execute([$userId]);
+        if ($r = $inv->fetch(PDO::FETCH_ASSOC)) {
+            $couponId = $r['stripe_coupon_id'] ?: null;
+            if (in_array($r['billing_interval'] ?? '', ['monthly', 'annual'], true)) {
+                $interval = $r['billing_interval'];
+            }
+        }
+
+        return Billing::createCheckoutSession($userId, $interval, $couponId, $db);
     }
 
     // ── DB write ───────────────────────────────────────────────
