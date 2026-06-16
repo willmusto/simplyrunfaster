@@ -43,6 +43,11 @@ defined('VAPID_PUBLIC_KEY')  || define('VAPID_PUBLIC_KEY',  getenv('SRF_VAPID_PU
 defined('VAPID_PRIVATE_KEY') || define('VAPID_PRIVATE_KEY', getenv('SRF_VAPID_PRIVATE') ?: '');
 defined('VAPID_SUBJECT')     || define('VAPID_SUBJECT',     'mailto:hello@simplyrunfaster.com');
 
+// Transactional email (Resend). Real key lives in config/config.local.php on the
+// server (git-ignored). This placeholder documents the constant for deploys.
+defined('RESEND_API_KEY')    || define('RESEND_API_KEY',    getenv('SRF_RESEND_API_KEY') ?: '');
+defined('MAIL_FROM_ADDRESS') || define('MAIL_FROM_ADDRESS', 'noreply@simplyrunfaster.com');
+
 // Invite links
 defined('INVITE_DEFAULT_EXPIRY_DAYS') || define('INVITE_DEFAULT_EXPIRY_DAYS', 7);
 defined('INVITE_DEFAULT_MAX_USES')    || define('INVITE_DEFAULT_MAX_USES',    1);

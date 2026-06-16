@@ -9,10 +9,16 @@ ini_set('log_errors', 1);
 ini_set('error_log', '/home/private/php_errors.log');
 error_reporting(E_ALL);
 
+// Composer autoload (Resend SDK, etc.) — present once `composer install` has run.
+if (is_file(__DIR__ . '/vendor/autoload.php')) {
+    require_once __DIR__ . '/vendor/autoload.php';
+}
+
 // Bootstrap
 require_once __DIR__ . '/config/config.php';
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/src/Router.php';
+require_once __DIR__ . '/src/Mailer.php';
 require_once __DIR__ . '/src/Timezone.php';
 require_once __DIR__ . '/src/Auth.php';
 require_once __DIR__ . '/src/ProfileForm.php';
