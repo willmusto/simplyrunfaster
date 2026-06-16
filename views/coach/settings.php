@@ -28,6 +28,16 @@
             </div>
         </div>
 
+        <div class="section-label">TIMEZONE</div>
+        <div class="card" style="margin-bottom:16px;">
+            <?php
+            $selectedTz   = $coachUser['timezone'] ?? Timezone::DEFAULT_TZ;
+            $tzFieldLabel = 'Your timezone';
+            $tzFieldHint  = 'Timestamps (messages, alerts) display in this timezone. Athlete plan dates use the athlete\'s own timezone.';
+            include __DIR__ . '/../partials/timezone_field.php';
+            ?>
+        </div>
+
         <div class="section-label">NOTIFICATIONS</div>
         <div class="card" style="margin-bottom:16px;">
             <p class="body-text">Notification preferences are available in Milestone 2.</p>

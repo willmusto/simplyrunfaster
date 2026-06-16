@@ -129,7 +129,7 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
                 </div>
             </div>
             <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;flex-shrink:0;">
-                <?= date('M j', strtotime($msg['sent_at'])) ?>
+                <?= h(Timezone::format($msg['sent_at'], 'M j')) ?>
             </span>
         </div>
     </a>

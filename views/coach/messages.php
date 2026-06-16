@@ -25,13 +25,14 @@
         <?php
         $prevTime = null;
         foreach ($messages as $msg):
-            $sentAt        = strtotime($msg['sent_at']);
+            $sentDt        = Timezone::toLocal($msg['sent_at']);   // coach's local time
+            $sentAt        = $sentDt->getTimestamp();
             $isSessionNote = in_array($msg['message_type'], ['session_note', 'session_note_reply'], true);
             $rowClass      = ((int)$msg['sender_id'] === (int)Auth::userId()) ? 'athlete' : 'coach';
 
             if ($prevTime === null || ($sentAt - $prevTime) > 3600):
         ?>
-        <div class="msg-timestamp"><?= date('M j · g:ia', $sentAt) ?></div>
+        <div class="msg-timestamp"><?= h($sentDt->format('M j · g:ia')) ?></div>
         <?php endif; ?>
 
         <?php if ($isSessionNote): ?>
@@ -47,12 +48,12 @@
                     <?= h(mb_substr($msg['body'], 0, 200) . (mb_strlen($msg['body']) > 200 ? '…' : '')) ?>
                 </div>
             </div>
-            <div class="msg-meta"><?= date('g:ia', $sentAt) ?></div>
+            <div class="msg-meta"><?= h($sentDt->format('g:ia')) ?></div>
         </div>
         <?php else: ?>
         <div class="msg-row <?= h($rowClass) ?>">
             <div class="msg-bubble"><?= nl2br(h($msg['body'])) ?></div>
-            <div class="msg-meta"><?= date('g:ia', $sentAt) ?></div>
+            <div class="msg-meta"><?= h($sentDt->format('g:ia')) ?></div>
         </div>
         <?php endif; ?>
 

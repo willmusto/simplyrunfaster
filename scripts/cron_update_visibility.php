@@ -13,6 +13,9 @@
 define('SCRIPT_ROOT', dirname(__DIR__));
 define('ATHLETE_WINDOW_DAYS', 10);
 
+date_default_timezone_set('UTC');
+require_once SCRIPT_ROOT . '/src/Timezone.php';
+
 foreach ([
     SCRIPT_ROOT . '/config/config.local.php',
     '/home/public/config/config.local.php',
@@ -31,19 +34,41 @@ $db = new PDO(
     [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
 );
 
-$today   = date('Y-m-d');
-$horizon = date('Y-m-d', strtotime('+' . ATHLETE_WINDOW_DAYS . ' days'));
+// The rolling window is anchored on each athlete's LOCAL "today": a single UTC run
+// (hour 5 UTC) covers athletes across timezones, so we group active-plan athletes by
+// their timezone and open each group's window using that zone's local today/horizon.
+$athleteZones = $db->query(
+    "SELECT a.id AS athlete_id, COALESCE(u.timezone, 'America/New_York') AS tz
+     FROM training_plans tp
+     JOIN athletes a ON a.id = tp.athlete_id
+     JOIN users u    ON u.id = a.user_id
+     WHERE tp.status = 'active'
+     GROUP BY a.id, tz"
+)->fetchAll(PDO::FETCH_ASSOC);
 
-// Open window: approved/active plans only
-$stmt = $db->prepare(
-    'UPDATE planned_workouts pw
-     INNER JOIN training_plans tp ON tp.id = pw.plan_id
-     SET pw.visible_to_athlete = 1
-     WHERE pw.visible_to_athlete = 0
-       AND pw.scheduled_date BETWEEN ? AND ?
-       AND tp.status = "active"'
-);
-$stmt->execute([$today, $horizon]);
-$opened = $stmt->rowCount();
+$byTz = [];
+foreach ($athleteZones as $row) {
+    $tz = Timezone::isValid($row['tz']) ? $row['tz'] : Timezone::DEFAULT_TZ;
+    $byTz[$tz][] = (int)$row['athlete_id'];
+}
 
-echo date('Y-m-d H:i:s') . " — visibility window updated. Opened: {$opened} workouts.\n";
+$opened = 0;
+foreach ($byTz as $tz => $athleteIds) {
+    $today   = Timezone::dateInZone($tz, 'now');
+    $horizon = Timezone::dateInZone($tz, '+' . ATHLETE_WINDOW_DAYS . ' days');
+    $placeholders = implode(',', array_fill(0, count($athleteIds), '?'));
+
+    $stmt = $db->prepare(
+        "UPDATE planned_workouts pw
+         INNER JOIN training_plans tp ON tp.id = pw.plan_id
+         SET pw.visible_to_athlete = 1
+         WHERE pw.visible_to_athlete = 0
+           AND pw.athlete_id IN ($placeholders)
+           AND pw.scheduled_date BETWEEN ? AND ?
+           AND tp.status = 'active'"
+    );
+    $stmt->execute([...$athleteIds, $today, $horizon]);
+    $opened += $stmt->rowCount();
+}
+
+echo date('Y-m-d H:i:s') . " — visibility window updated (per athlete timezone). Opened: {$opened} workouts.\n";

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/PaceZones.php';
+require_once __DIR__ . '/../Timezone.php';
 
 /**
  * PlanGenerator — archetype-based training plan generation.
@@ -323,7 +324,7 @@ class PlanGenerator
             return self::generateDevelopmentPlan($athleteId, $profile, $trigger, $db, $selector, $antiRepeatHistory);
         }
 
-        $startDate  = date('Y-m-d', strtotime('+1 day'));
+        $startDate  = self::planStartDate($athleteId, $db); // "tomorrow" in the athlete's timezone
         $totalWeeks = (int)ceil((strtotime($raceDate) - strtotime($startDate)) / (7 * 86400));
         $minWeeks   = self::MIN_CYCLE[$distance] ?? 8;
 
@@ -397,7 +398,7 @@ class PlanGenerator
         int $athleteId, array $profile, string $trigger, PDO $db,
         ArchetypeSelector $selector, array &$antiRepeatHistory
     ): ?int {
-        $startDate     = date('Y-m-d', strtotime('+1 day'));
+        $startDate     = self::planStartDate($athleteId, $db); // "tomorrow" in the athlete's timezone
         $totalWeeks    = 12;
         $codeWeekStart = self::firstMondayOnOrAfter($startDate);
         $endDate       = self::codeWeekEndDate($codeWeekStart, $totalWeeks);
@@ -465,7 +466,7 @@ class PlanGenerator
         int $athleteId, array $profile, string $trigger, PDO $db,
         ArchetypeSelector $selector, array &$antiRepeatHistory
     ): ?int {
-        $startDate     = date('Y-m-d', strtotime('+1 day'));
+        $startDate     = self::planStartDate($athleteId, $db); // "tomorrow" in the athlete's timezone
         $totalWeeks    = 12;
         $codeWeekStart = self::firstMondayOnOrAfter($startDate);
         $endDate       = self::codeWeekEndDate($codeWeekStart, $totalWeeks);
@@ -531,7 +532,7 @@ class PlanGenerator
 
         $stage      = 1;
         $windowDays = 10;
-        $startDate  = date('Y-m-d', strtotime('+1 day'));
+        $startDate  = self::planStartDate($athleteId, $db); // "tomorrow" in the athlete's timezone
         $endDate    = date('Y-m-d', strtotime($startDate . ' +' . ($windowDays - 1) . ' days'));
 
         $planId = self::createPlanRecord($athleteId, 'return_to_running', $startDate, $endDate, null, $trigger, $db);
@@ -734,7 +735,7 @@ class PlanGenerator
     private static function generateRecoveryBlock(
         int $athleteId, array $profile, string $trigger, PDO $db
     ): ?int {
-        $startDate     = date('Y-m-d', strtotime('+1 day'));
+        $startDate     = self::planStartDate($athleteId, $db); // "tomorrow" in the athlete's timezone
         $totalWeeks    = 4;
         $codeWeekStart = self::firstMondayOnOrAfter($startDate);
         $endDate       = self::codeWeekEndDate($codeWeekStart, $totalWeeks);
@@ -2324,6 +2325,25 @@ class PlanGenerator
         $stmt = $db->prepare('SELECT * FROM athlete_profiles WHERE athlete_id = ? LIMIT 1');
         $stmt->execute([$athleteId]);
         return $stmt->fetch() ?: null;
+    }
+
+    /** The athlete's stored timezone (falls back to the default when unset/invalid). */
+    private static function athleteTimezone(int $athleteId, PDO $db): string
+    {
+        $stmt = $db->prepare('SELECT u.timezone FROM athletes a JOIN users u ON u.id = a.user_id WHERE a.id = ? LIMIT 1');
+        $stmt->execute([$athleteId]);
+        $tz = $stmt->fetchColumn();
+        return Timezone::isValid($tz) ? $tz : Timezone::DEFAULT_TZ;
+    }
+
+    /**
+     * plan_start_date = "tomorrow" from the ATHLETE's perspective. A UTC server
+     * midnight may be a different calendar day in the athlete's local time, so the
+     * start date is computed in their timezone (engine spec §5 timezone model).
+     */
+    private static function planStartDate(int $athleteId, PDO $db): string
+    {
+        return Timezone::dateInZone(self::athleteTimezone($athleteId, $db), '+1 day');
     }
 
     private static function archivePreviousPlans(int $athleteId, PDO $db): void

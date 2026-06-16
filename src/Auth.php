@@ -34,7 +34,7 @@ class Auth
     public static function attempt(string $email, string $password): bool
     {
         $db   = Database::get();
-        $stmt = $db->prepare('SELECT id, password_hash, role, name, theme_preference FROM users WHERE email = ? LIMIT 1');
+        $stmt = $db->prepare('SELECT id, password_hash, role, name, theme_preference, timezone FROM users WHERE email = ? LIMIT 1');
         $stmt->execute([strtolower(trim($email))]);
         $user = $stmt->fetch();
 
@@ -81,7 +81,7 @@ class Auth
         }
 
         // Log in immediately
-        $user = $db->query("SELECT id, password_hash, role, name, theme_preference FROM users WHERE id = $userId")->fetch();
+        $user = $db->query("SELECT id, password_hash, role, name, theme_preference, timezone FROM users WHERE id = $userId")->fetch();
         self::loginUser($user);
 
         return $userId;
@@ -94,6 +94,8 @@ class Auth
         $_SESSION['user_role'] = $user['role'];
         $_SESSION['user_name'] = $user['name'];
         $_SESSION['theme']     = $user['theme_preference'];
+        $_SESSION['timezone']  = Timezone::isValid($user['timezone'] ?? null)
+            ? $user['timezone'] : Timezone::DEFAULT_TZ;
     }
 
     public static function logout(): void
@@ -154,6 +156,17 @@ class Auth
         return $_SESSION['theme'] ?? 'system';
     }
 
+    /**
+     * The logged-in user's timezone string. Prefers the session copy (set at login);
+     * falls back to a DB lookup for sessions that predate the timezone feature.
+     */
+    public static function timezone(): string
+    {
+        $tz = $_SESSION['timezone'] ?? null;
+        if (Timezone::isValid($tz)) return $tz;
+        return Timezone::tzString(self::userId());
+    }
+
     public static function isCoach(): bool
     {
         return in_array(self::role(), ['coach','assistant_coach','admin'], true);
@@ -193,7 +206,7 @@ class Auth
         if (!$uid) return null;
         $db   = Database::get();
         $stmt = $db->prepare(
-            'SELECT a.*, u.name, u.email, u.theme_preference
+            'SELECT a.*, u.name, u.email, u.theme_preference, u.timezone
              FROM athletes a
              JOIN users u ON u.id = a.user_id
              WHERE a.user_id = ? LIMIT 1'

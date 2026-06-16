@@ -72,11 +72,18 @@ $pzVisible  = !isset($profile['pace_zones_visible']) || (int)$profile['pace_zone
                 </label>
             </div>
 
-            <div class="form-group" id="pzHiddenReasonWrap" style="margin-bottom:0;<?= $pzVisible ? 'display:none;' : '' ?>">
+            <div class="form-group" id="pzHiddenReasonWrap" style="margin-bottom:16px;<?= $pzVisible ? 'display:none;' : '' ?>">
                 <label class="form-label" for="pace_zones_hidden_reason">Reason for hiding zones (internal — never shown to athlete)</label>
                 <textarea id="pace_zones_hidden_reason" name="pace_zones_hidden_reason" class="form-input" rows="2"
                           placeholder="e.g. stale zones pending recalibration; athlete benefits from effort-based training"><?= h($profile['pace_zones_hidden_reason'] ?? '') ?></textarea>
             </div>
+
+            <?php
+            $selectedTz   = $athlete['timezone'] ?? Timezone::DEFAULT_TZ;
+            $tzFieldLabel = 'Athlete timezone';
+            $tzFieldHint  = 'Governs the athlete\'s plan dates and the day a new plan starts. Overrides the athlete\'s own setting.';
+            include __DIR__ . '/../partials/timezone_field.php';
+            ?>
         </div>
 
         <div style="display:flex;gap:10px;margin-top:8px;">

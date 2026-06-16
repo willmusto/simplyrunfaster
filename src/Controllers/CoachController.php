@@ -174,6 +174,13 @@ class CoachController
             'athlete_name' => $athlete['name'],
         ], $db);
 
+        // Coach override of the athlete's timezone (users column on the athlete's account).
+        if (array_key_exists('timezone', $_POST)) {
+            $tz = Timezone::isValid($_POST['timezone']) ? $_POST['timezone'] : Timezone::DEFAULT_TZ;
+            $db->prepare('UPDATE users SET timezone = ? WHERE id = ?')->execute([$tz, (int)$athlete['user_id']]);
+            Timezone::clearCache((int)$athlete['user_id']);
+        }
+
         $_SESSION['flash_success'] = 'Training profile updated.';
         header('Location: /app/coach/athlete/' . $athleteId . '/edit');
         exit;
@@ -561,6 +568,15 @@ class CoachController
 
         $db->prepare('UPDATE users SET theme_preference = ? WHERE id = ?')->execute([$theme, $coachId]);
         $_SESSION['theme']         = $theme;
+
+        // Coach's own display timezone.
+        if (array_key_exists('timezone', $_POST)) {
+            $tz = Timezone::isValid($_POST['timezone']) ? $_POST['timezone'] : Timezone::DEFAULT_TZ;
+            $db->prepare('UPDATE users SET timezone = ? WHERE id = ?')->execute([$tz, $coachId]);
+            $_SESSION['timezone'] = $tz;
+            Timezone::clearCache($coachId);
+        }
+
         $_SESSION['flash_success'] = 'Settings saved.';
         header('Location: /app/coach/settings');
         exit;
@@ -757,7 +773,7 @@ class CoachController
     private static function getAthleteForCoach(int $athleteId, int $coachId, PDO $db): ?array
     {
         $stmt = $db->prepare(
-            'SELECT a.*, u.name, u.email, u.theme_preference
+            'SELECT a.*, u.name, u.email, u.theme_preference, u.timezone
              FROM athletes a JOIN users u ON u.id = a.user_id
              WHERE a.id = ? AND (a.coach_id = ? OR ? IN (SELECT id FROM users WHERE role = "admin"))
              LIMIT 1'

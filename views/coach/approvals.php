@@ -30,7 +30,7 @@
                     <?= date('M j, Y', strtotime($plan['plan_end_date'])) ?>
                 </div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
-                    Requested <?= date('M j', strtotime($plan['requested_at'])) ?>
+                    Requested <?= h(Timezone::format($plan['requested_at'], 'M j')) ?>
                 </div>
             </div>
             <a href="/app/coach/athlete/<?= (int)$plan['athlete_id'] ?>" class="btn btn-secondary btn-sm">

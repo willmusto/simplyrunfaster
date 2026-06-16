@@ -1,6 +1,7 @@
 <?php
 // $workouts = array of planned_workouts for rolling 10-day window
-$today    = date('Y-m-d');
+$tz       = $athlete['timezone'] ?? Auth::timezone();
+$today    = Timezone::dateInZone($tz, 'now');
 $dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 ?>
 <div class="page-content">
@@ -27,7 +28,7 @@ $dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturd
     }
 
     for ($i = 0; $i < ATHLETE_WINDOW_DAYS; $i++):
-        $date     = date('Y-m-d', strtotime("+$i days"));
+        $date     = Timezone::dateInZone($tz, "+$i days");
         $dow      = (int)date('w', strtotime($date));
         $isToday  = $date === $today;
         $dayWkts  = $byDate[$date] ?? [];

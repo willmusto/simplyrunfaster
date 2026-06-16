@@ -1,6 +1,10 @@
 <?php
 // $athlete, $profile, $activePlan, $allWorkouts, $athleteFlags, $loadSnapshot, $pbs, $nextRace
-$today = date('Y-m-d');
+// Plan dates belong to the athlete, so "today"/window are anchored on the ATHLETE's timezone.
+$athleteTz   = $athlete['timezone'] ?? Timezone::DEFAULT_TZ;
+$today       = Timezone::dateInZone($athleteTz, 'now');
+$tzDiffers   = $athleteTz !== Auth::timezone();
+$tzNote      = $tzDiffers ? ('Times shown in the athlete\'s timezone — ' . Timezone::label($athleteTz)) : '';
 
 $macroWeeks = [];
 if ($activePlan && !empty($allWorkouts)) {
@@ -401,8 +405,11 @@ if ($activePlan && !empty($allWorkouts)) {
         <!-- Upcoming workouts: rolling 7-day window (today … +6 days), mirroring the
              athlete Plan tab's rolling list. The full plan is in the macro view below. -->
         <div class="section-label">NEXT 7 DAYS</div>
+        <?php if ($tzNote): ?>
+        <div style="font-size:11px;color:var(--text-muted);margin:-4px 0 8px;"><?= h($tzNote) ?></div>
+        <?php endif; ?>
         <?php
-        $windowEnd = date('Y-m-d', strtotime($today . ' +6 days'));
+        $windowEnd = Timezone::dateInZone($athleteTz, '+6 days');
         $upcoming = array_values(array_filter(
             $allWorkouts,
             fn($w) => $w['scheduled_date'] >= $today && $w['scheduled_date'] <= $windowEnd

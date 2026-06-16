@@ -20,9 +20,11 @@ class AthleteController
         // Active plan
         $plan = self::getActivePlan((int)$athlete['id'], $db);
 
-        // Today's workout and this week's schedule (visible window)
-        $today      = date('Y-m-d');
-        $windowEnd  = date('Y-m-d', strtotime('+' . ($_ENV['ATHLETE_WINDOW_DAYS'] ?? 10) . ' days'));
+        // Today's workout and this week's schedule (visible window) — dates in the athlete's tz
+        $tz         = $athlete['timezone'] ?? Timezone::DEFAULT_TZ;
+        $today      = Timezone::dateInZone($tz, 'now');
+        $windowEnd  = Timezone::dateInZone($tz, '+' . (int)($_ENV['ATHLETE_WINDOW_DAYS'] ?? ATHLETE_WINDOW_DAYS) . ' days');
+        $weekEnd    = Timezone::dateInZone($tz, '+6 days');
         $workouts   = self::getVisibleWorkouts((int)$athlete['id'], $today, $windowEnd, $db);
 
         $todayWorkout   = null;
@@ -31,7 +33,7 @@ class AthleteController
             if ($w['scheduled_date'] === $today) {
                 $todayWorkout = $w;
             }
-            if ($w['scheduled_date'] >= $today && $w['scheduled_date'] <= date('Y-m-d', strtotime('+6 days'))) {
+            if ($w['scheduled_date'] >= $today && $w['scheduled_date'] <= $weekEnd) {
                 $weekWorkouts[] = $w;
             }
         }
@@ -65,8 +67,9 @@ class AthleteController
         }
 
         $db      = Database::get();
-        $today   = date('Y-m-d');
-        $endDate = date('Y-m-d', strtotime('+10 days'));
+        $tz      = $athlete['timezone'] ?? Timezone::DEFAULT_TZ;
+        $today   = Timezone::dateInZone($tz, 'now');
+        $endDate = Timezone::dateInZone($tz, '+' . (int)ATHLETE_WINDOW_DAYS . ' days');
         $workouts = self::getVisibleWorkouts((int)$athlete['id'], $today, $endDate, $db);
 
         $unreadMessages = self::getUnreadCount((int)$athlete['id'], $db);
@@ -132,7 +135,7 @@ class AthleteController
         $effortDesc  = $_POST['effort_descriptor'] ?? 'moderate';
         $rpe         = $rpeMap[$effortDesc] ?? 4;
         $notes       = substr(trim($_POST['notes'] ?? ''), 0, 1000);
-        $actDate     = $_POST['activity_date'] ?? date('Y-m-d');
+        $actDate     = $_POST['activity_date'] ?? Timezone::dateInZone($athlete['timezone'] ?? Timezone::DEFAULT_TZ, 'now');
         $complStatus = in_array($_POST['completion_status'] ?? '', ['full','partial','no'], true)
             ? $_POST['completion_status'] : 'full';
 
@@ -364,6 +367,14 @@ class AthleteController
             'actor_role'   => 'athlete',
             'athlete_name' => $athlete['name'],
         ], $db);
+
+        // Timezone (users column; athlete sets their own). Invalid values fall back silently.
+        if (array_key_exists('timezone', $_POST)) {
+            $tz = Timezone::isValid($_POST['timezone']) ? $_POST['timezone'] : Timezone::DEFAULT_TZ;
+            $db->prepare('UPDATE users SET timezone = ? WHERE id = ?')->execute([$tz, Auth::userId()]);
+            $_SESSION['timezone'] = $tz;
+            Timezone::clearCache(Auth::userId());
+        }
 
         $_SESSION['flash_success'] = 'Training profile saved.';
         header('Location: /app/settings/training');

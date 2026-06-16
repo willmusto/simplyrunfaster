@@ -14,6 +14,10 @@ if (file_exists(__DIR__ . '/config.local.php')) {
     require '/home/public/config/config.local.php';
 }
 
+// Base timezone: the server, DB, and all PHP date() math operate in UTC. Per-user
+// local conversion happens explicitly via src/Timezone.php (never by changing this).
+date_default_timezone_set('UTC');
+
 // Database
 defined('DB_HOST')    || define('DB_HOST',    getenv('SRF_DB_HOST') ?: 'localhost');
 defined('DB_NAME')    || define('DB_NAME',    getenv('SRF_DB_NAME') ?: 'simplyrunfaster');

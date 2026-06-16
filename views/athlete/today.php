@@ -2,13 +2,15 @@
 // Variables from AthleteController::today():
 //  $athlete, $profile, $plan, $todayWorkout, $weekWorkouts, $loadData, $unreadMessages
 $userName = h(explode(' ', $athlete['name'])[0]);
-$today    = date('Y-m-d');
+$tz       = $athlete['timezone'] ?? Auth::timezone();
+$today    = Timezone::dateInZone($tz, 'now');
+$localHour = (int)Timezone::dateInZone($tz, 'now', 'G');
 ?>
 <div class="page-content">
 
     <!-- Greeting + context -->
     <div style="margin-bottom:16px;">
-        <div class="page-heading">Good <?= date('G') < 12 ? 'morning' : (date('G') < 17 ? 'afternoon' : 'evening') ?>, <?= $userName ?>.</div>
+        <div class="page-heading">Good <?= $localHour < 12 ? 'morning' : ($localHour < 17 ? 'afternoon' : 'evening') ?>, <?= $userName ?>.</div>
         <?php if ($plan): ?>
         <?php
         $planStartTs = strtotime($plan['plan_start_date']);

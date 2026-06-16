@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS `users` (
     `role`              ENUM('athlete','coach','assistant_coach','admin') NOT NULL DEFAULT 'athlete',
     `name`              VARCHAR(150) NOT NULL,
     `theme_preference`  ENUM('light','dark','system') NOT NULL DEFAULT 'system',
+    `timezone`          VARCHAR(64) NOT NULL DEFAULT 'America/New_York' COMMENT 'IANA tz id; DB stays UTC, converted in PHP',
     `phone_number`      VARCHAR(20) DEFAULT NULL COMMENT 'E.164 format',
     `phone_verified`    TINYINT(1) NOT NULL DEFAULT 0,
     `signup_source`     ENUM('invite','organic','ad_campaign','other') NOT NULL DEFAULT 'organic',

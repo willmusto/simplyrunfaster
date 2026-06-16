@@ -46,7 +46,7 @@ foreach ($flags as $f) {
                 <?= render_profile_diff($flag['details'] ?? null) ?>
                 <?php endif; ?>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">
-                    Raised <?= date('M j, Y', strtotime($flag['created_at'])) ?>
+                    Raised <?= h(Timezone::format($flag['created_at'], 'M j, Y')) ?>
                 </div>
             </div>
             <div style="display:flex;gap:8px;flex-shrink:0;">
