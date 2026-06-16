@@ -78,6 +78,10 @@ class CoachController
         $profile       = Auth::getAthleteProfile($athleteId);
         $activePlan    = self::getActivePlanDetail($athleteId, $db);
         $allWorkouts   = $activePlan ? self::getPlanWorkouts((int)$activePlan['id'], $db) : [];
+        // Cancelled (soft-deleted) workout dates render a coach-only "Removed" marker;
+        // the archetype catalogue powers the "+ Add workout" picker.
+        $cancelledDates   = $activePlan ? self::getCancelledWorkoutDates((int)$activePlan['id'], $db) : [];
+        $archetypeLibrary = $activePlan ? PlanGenerator::manualArchetypeLibrary($athleteId, $db) : [];
         $athleteFlags  = self::getAthleteFlags($athleteId, $db, 10);
         $loadSnapshot  = self::getLoadSnapshot($athleteId, $db);
         $pbs           = self::getPersonalBests($athleteId, $db);
@@ -305,6 +309,341 @@ class CoachController
         header('Content-Type: application/json');
         echo json_encode(['ok' => true, 'workout' => $updated]);
         exit;
+    }
+
+    // ── Macro-plan management: reschedule / add / remove ───────────────────────
+
+    /**
+     * Persist a drag-to-reschedule from the coach macro plan. Body (JSON):
+     *   { workout_id, new_date:'YYYY-MM-DD', force?:bool, swap_with?:int }
+     * Coach's arrangement is authoritative — the engine is not re-run.
+     */
+    public static function rescheduleWorkout(array $params): void
+    {
+        Auth::requireRole(['coach', 'admin']);
+        Auth::verifyCsrf();
+        header('Content-Type: application/json');
+
+        $coachId   = Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+        $db        = Database::get();
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) { http_response_code(403); echo json_encode(['success' => false, 'error' => 'forbidden']); exit; }
+
+        $in        = self::jsonBody();
+        $workoutId = (int)($in['workout_id'] ?? 0);
+        $newDate   = trim((string)($in['new_date'] ?? ''));
+        $force     = !empty($in['force']);
+        $swapWith  = isset($in['swap_with']) ? (int)$in['swap_with'] : 0;
+
+        // Workout being moved must belong to this athlete and not be cancelled.
+        $stmt = $db->prepare(
+            'SELECT pw.id, pw.scheduled_date, pw.plan_id, tp.plan_start_date, tp.plan_end_date
+             FROM planned_workouts pw
+             JOIN training_plans tp ON tp.id = pw.plan_id
+             WHERE pw.id = ? AND pw.athlete_id = ? AND (pw.cancelled = 0 OR pw.cancelled IS NULL)
+             LIMIT 1'
+        );
+        $stmt->execute([$workoutId, $athleteId]);
+        $workout = $stmt->fetch();
+        if (!$workout) { echo json_encode(['success' => false, 'error' => 'not_found', 'message' => 'Workout not found.']); exit; }
+
+        $planId    = (int)$workout['plan_id'];
+        $oldDate   = (string)$workout['scheduled_date'];
+        $planStart = (string)$workout['plan_start_date'];
+        $planEnd   = (string)$workout['plan_end_date'];
+
+        if (!self::isValidDate($newDate) || $newDate < $planStart || $newDate > $planEnd) {
+            echo json_encode(['success' => false, 'error' => 'invalid_date', 'message' => 'That date is outside the plan range.']); exit;
+        }
+
+        // Swap path: atomically exchange dates with the workout on the destination day.
+        if ($swapWith > 0) {
+            $other = $db->prepare(
+                'SELECT id, scheduled_date FROM planned_workouts
+                 WHERE id = ? AND athlete_id = ? AND plan_id = ? AND (cancelled = 0 OR cancelled IS NULL) LIMIT 1'
+            );
+            $other->execute([$swapWith, $athleteId, $planId]);
+            $otherRow = $other->fetch();
+            if (!$otherRow) { echo json_encode(['success' => false, 'error' => 'not_found', 'message' => 'The other workout no longer exists.']); exit; }
+
+            $db->beginTransaction();
+            $upd = $db->prepare('UPDATE planned_workouts SET scheduled_date = ? WHERE id = ?');
+            $upd->execute([$newDate, $workoutId]);
+            $upd->execute([$oldDate, (int)$otherRow['id']]);
+            $db->commit();
+
+            echo json_encode(['success' => true, 'swapped' => true]); exit;
+        }
+
+        // Must-off warning — non-blocking unless the coach confirms with force.
+        $mustOff = self::athleteMustOffDays($athleteId, $db);
+        $dow     = (int)date('w', strtotime($newDate));
+        if (in_array($dow, $mustOff, true) && !$force) {
+            echo json_encode(['success' => false, 'error' => 'must_off',
+                'message' => 'That day is marked as a must-off day for this athlete.']); exit;
+        }
+
+        // Conflict — destination day already holds a workout in this plan.
+        if ($newDate !== $oldDate) {
+            $conflict = $db->prepare(
+                'SELECT id, display_title, workout_type FROM planned_workouts
+                 WHERE athlete_id = ? AND plan_id = ? AND scheduled_date = ? AND id <> ?
+                   AND (cancelled = 0 OR cancelled IS NULL) LIMIT 1'
+            );
+            $conflict->execute([$athleteId, $planId, $newDate, $workoutId]);
+            $existing = $conflict->fetch();
+            if ($existing) {
+                echo json_encode(['success' => false, 'error' => 'conflict',
+                    'message' => 'That day already has a workout scheduled.',
+                    'existing_workout' => [
+                        'id'            => (int)$existing['id'],
+                        'display_title' => $existing['display_title'] !== null && $existing['display_title'] !== ''
+                            ? (string)$existing['display_title'] : null,
+                        'workout_type'  => (string)$existing['workout_type'],
+                    ]]); exit;
+            }
+        }
+
+        $db->prepare('UPDATE planned_workouts SET scheduled_date = ? WHERE id = ?')->execute([$newDate, $workoutId]);
+        echo json_encode(['success' => true]); exit;
+    }
+
+    /**
+     * Add a workout to the macro plan — archetype picker or free-form entry.
+     * Body (JSON): { type:'archetype'|'freeform', scheduled_date, preview?:bool, … }
+     * With preview:true the rendered display is returned without inserting.
+     */
+    public static function addWorkout(array $params): void
+    {
+        Auth::requireRole(['coach', 'admin']);
+        Auth::verifyCsrf();
+        require_once __DIR__ . '/../../views/layout/base.php'; // pill_class / pill_label / format_duration
+        header('Content-Type: application/json');
+
+        $coachId   = Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+        $db        = Database::get();
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) { http_response_code(403); echo json_encode(['success' => false, 'error' => 'forbidden']); exit; }
+
+        $in      = self::jsonBody();
+        $type    = ($in['type'] ?? '') === 'freeform' ? 'freeform' : 'archetype';
+        $date    = trim((string)($in['scheduled_date'] ?? ''));
+        $preview = !empty($in['preview']);
+
+        $plan = self::getActivePlanDetail($athleteId, $db);
+        if (!$plan) { echo json_encode(['success' => false, 'error' => 'no_plan', 'message' => 'This athlete has no active plan.']); exit; }
+        $planId    = (int)$plan['id'];
+        $planStart = (string)$plan['plan_start_date'];
+        $planEnd   = (string)$plan['plan_end_date'];
+
+        if (!self::isValidDate($date) || $date < $planStart || $date > $planEnd) {
+            echo json_encode(['success' => false, 'error' => 'invalid_date', 'message' => 'That date is outside the plan range.']); exit;
+        }
+
+        // The day must be empty for a real insert (the UI only offers the button on
+        // rest/empty days). Previews are allowed regardless so the modal can render.
+        if (!$preview) {
+            $occupied = $db->prepare(
+                'SELECT id FROM planned_workouts
+                 WHERE athlete_id = ? AND plan_id = ? AND scheduled_date = ?
+                   AND (cancelled = 0 OR cancelled IS NULL) LIMIT 1'
+            );
+            $occupied->execute([$athleteId, $planId, $date]);
+            if ($occupied->fetch()) {
+                echo json_encode(['success' => false, 'error' => 'conflict', 'message' => 'That day already has a workout scheduled.']); exit;
+            }
+        }
+
+        if ($type === 'archetype') {
+            $code     = trim((string)($in['archetype_code'] ?? ''));
+            $variant  = isset($in['archetype_variant']) && $in['archetype_variant'] !== '' ? (string)$in['archetype_variant'] : null;
+            $duration = (int)($in['duration'] ?? 0);
+            $composed = PlanGenerator::composeManualWorkout($athleteId, $code, $variant, $duration, $db);
+            if (!$composed) { echo json_encode(['success' => false, 'error' => 'archetype_failed', 'message' => 'Could not build that workout.']); exit; }
+
+            if ($preview) {
+                echo json_encode(['success' => true, 'preview' => self::previewPayload(
+                    $composed['display_title'], $composed['display_summary'],
+                    $composed['athlete_instructions'], $composed['workout_type'], (int)$composed['target_duration']
+                )]); exit;
+            }
+
+            $insert = $db->prepare(
+                'INSERT INTO planned_workouts
+                  (plan_id, athlete_id, scheduled_date, workout_type,
+                   archetype_code, archetype_variant, archetype_params,
+                   workout_archetype_id, archetype_version_snapshot, instance_signature,
+                   structure, display_title, display_summary, athlete_instructions,
+                   description, target_duration, intensity_load,
+                   coach_locked, coach_edited_by, coach_edited_at, visible_to_athlete)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW(), 1)'
+            );
+            $insert->execute([
+                $planId, $athleteId, $date, $composed['workout_type'],
+                $composed['archetype_code'], $composed['archetype_variant'], $composed['archetype_params'],
+                $composed['workout_archetype_id'], $composed['archetype_version_snapshot'], $composed['instance_signature'],
+                $composed['structure'], $composed['display_title'], $composed['display_summary'], $composed['athlete_instructions'],
+                $composed['athlete_instructions'], $composed['target_duration'], $composed['intensity_load'],
+                $coachId,
+            ]);
+            $id = (int)$db->lastInsertId();
+
+            echo json_encode(['success' => true, 'workout' => self::workoutDomPayload(
+                $id, $composed['workout_type'], $composed['display_title'], (int)$composed['target_duration'],
+                $composed['display_summary'], $composed['athlete_instructions'], $date
+            )]); exit;
+        }
+
+        // ── Free-form entry ──
+        $title    = trim((string)($in['title'] ?? ''));
+        $validTypes = ['easy', 'long', 'tempo', 'interval', 'hill', 'fartlek', 'race_pace', 'recovery', 'rest', 'cross_train', 'speed', 'plyometric'];
+        $wt       = in_array($in['workout_type'] ?? '', $validTypes, true) ? (string)$in['workout_type'] : 'easy';
+        $duration = (int)($in['duration'] ?? 0);
+        $instructions = trim((string)($in['instructions'] ?? ''));
+        $coachNotes   = trim((string)($in['coach_notes'] ?? ''));
+
+        if ($title === '' || $duration < 1) {
+            echo json_encode(['success' => false, 'error' => 'invalid', 'message' => 'Title and a duration of at least 1 minute are required.']); exit;
+        }
+
+        $loadFactor = [
+            'easy' => 0.5, 'long' => 0.6, 'tempo' => 0.85, 'interval' => 0.9, 'hill' => 0.85, 'fartlek' => 0.8,
+            'race_pace' => 0.9, 'recovery' => 0.3, 'rest' => 0.0, 'cross_train' => 0.4, 'speed' => 0.95, 'plyometric' => 0.7,
+        ];
+        $load = round($duration * ($loadFactor[$wt] ?? 0.5), 2);
+
+        if ($preview) {
+            echo json_encode(['success' => true, 'preview' => self::previewPayload(
+                $title, null, $instructions ?: null, $wt, $duration
+            )]); exit;
+        }
+
+        $insert = $db->prepare(
+            'INSERT INTO planned_workouts
+              (plan_id, athlete_id, scheduled_date, workout_type,
+               display_title, athlete_instructions, description, notes,
+               target_duration, intensity_load,
+               coach_locked, coach_edited_by, coach_edited_at, visible_to_athlete)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW(), 1)'
+        );
+        $insert->execute([
+            $planId, $athleteId, $date, $wt,
+            $title, $instructions ?: null, $instructions ?: null, $coachNotes ?: null,
+            $duration, $load, $coachId,
+        ]);
+        $id = (int)$db->lastInsertId();
+
+        echo json_encode(['success' => true, 'workout' => self::workoutDomPayload(
+            $id, $wt, $title, $duration, null, $instructions ?: null, $date
+        )]); exit;
+    }
+
+    /**
+     * Soft-delete a workout (coach removes it from the macro plan). The row is kept
+     * (cancelled = 1) so the training log is preserved; the day renders as rest.
+     */
+    public static function removeWorkout(array $params): void
+    {
+        Auth::requireRole(['coach', 'admin']);
+        Auth::verifyCsrf();
+        header('Content-Type: application/json');
+
+        $coachId   = Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+        $db        = Database::get();
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) { http_response_code(403); echo json_encode(['success' => false, 'error' => 'forbidden']); exit; }
+
+        $in        = self::jsonBody();
+        $workoutId = (int)($in['workout_id'] ?? 0);
+
+        $stmt = $db->prepare(
+            'SELECT id, scheduled_date FROM planned_workouts
+             WHERE id = ? AND athlete_id = ? AND (cancelled = 0 OR cancelled IS NULL) LIMIT 1'
+        );
+        $stmt->execute([$workoutId, $athleteId]);
+        $row = $stmt->fetch();
+        if (!$row) { echo json_encode(['success' => false, 'error' => 'not_found', 'message' => 'Workout not found.']); exit; }
+
+        $db->prepare('UPDATE planned_workouts SET cancelled = 1, cancelled_at = NOW(), cancelled_by = ? WHERE id = ?')
+           ->execute([$coachId, $workoutId]);
+
+        echo json_encode(['success' => true, 'date' => (string)$row['scheduled_date']]); exit;
+    }
+
+    // ── Macro-plan helpers ─────────────────────────────────────────────────────
+
+    /** Decode the JSON request body into an array (empty array when absent/invalid). */
+    private static function jsonBody(): array
+    {
+        $data = json_decode((string)file_get_contents('php://input'), true);
+        return is_array($data) ? $data : [];
+    }
+
+    /** True when $date is a real YYYY-MM-DD calendar date. */
+    private static function isValidDate(string $date): bool
+    {
+        $d = DateTime::createFromFormat('Y-m-d', $date);
+        return $d !== false && $d->format('Y-m-d') === $date;
+    }
+
+    /** The athlete's must-off days as ints (0=Sun … 6=Sat). */
+    private static function athleteMustOffDays(int $athleteId, PDO $db): array
+    {
+        $profile = Auth::getAthleteProfile($athleteId) ?? [];
+        $raw     = $profile['must_off_days'] ?? '[]';
+        $arr     = is_array($raw) ? $raw : (json_decode((string)$raw, true) ?: []);
+        return array_map('intval', $arr);
+    }
+
+    /** Distinct dates with a cancelled workout (coach-only "Removed" marker). */
+    private static function getCancelledWorkoutDates(int $planId, PDO $db): array
+    {
+        $stmt = $db->prepare(
+            'SELECT DISTINCT scheduled_date FROM planned_workouts WHERE plan_id = ? AND cancelled = 1'
+        );
+        $stmt->execute([$planId]);
+        return $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    }
+
+    /** Rendered display for the add-workout modal's Step-3 preview. */
+    private static function previewPayload(?string $title, ?string $summary, ?string $instructions, string $wt, int $duration): array
+    {
+        return [
+            'display_title'        => ($title !== null && $title !== '') ? $title : pill_label($wt),
+            'display_summary'      => $summary,
+            'athlete_instructions' => $instructions,
+            'workout_type'         => $wt,
+            'type_label'           => pill_label($wt),
+            'type_class'           => pill_class($wt),
+            'target_duration'      => $duration,
+            'duration_label'       => $duration > 0 ? format_duration($duration) : '',
+        ];
+    }
+
+    /** Everything the client needs to render a newly-added workout into the calendar. */
+    private static function workoutDomPayload(int $id, string $wt, ?string $title, int $duration, ?string $summary, ?string $description, string $date): array
+    {
+        $label = ($title !== null && $title !== '') ? $title : pill_label($wt);
+        return [
+            'id'              => $id,
+            'workout_type'    => $wt,
+            'type_label'      => pill_label($wt),
+            'type_class'      => pill_class($wt),
+            'title'           => $label,
+            'display_title'   => $title,
+            'target_duration' => $duration,
+            'duration_label'  => $duration > 0 ? format_duration($duration) : '',
+            'summary'         => $summary,
+            'description'     => $description,
+            'date'            => $date,
+            'coach_locked'    => 1,
+        ];
     }
 
     public static function approvePlan(array $params): void
@@ -1161,6 +1500,7 @@ class CoachController
                     ) AS compliance_score
              FROM planned_workouts pw
              WHERE pw.plan_id = ?
+               AND (pw.cancelled = 0 OR pw.cancelled IS NULL)
              ORDER BY pw.scheduled_date ASC'
         );
         $stmt->execute([$planId]);

@@ -133,6 +133,9 @@ $router->post('/coach/plans/:planId/reject',        [CoachController::class, 're
 $router->get('/coach/flags',                        [CoachController::class, 'flags']);
 $router->post('/coach/flags/:id/dismiss',           [CoachController::class, 'dismissFlag']);
 $router->post('/coach/workouts/:id/edit',             [CoachController::class, 'editPlannedWorkout']);
+$router->post('/coach/athlete/:id/workout/reschedule', [CoachController::class, 'rescheduleWorkout']);
+$router->post('/coach/athlete/:id/workout/add',        [CoachController::class, 'addWorkout']);
+$router->post('/coach/athlete/:id/workout/remove',     [CoachController::class, 'removeWorkout']);
 $router->get('/coach/library',            [CoachController::class, 'library']);
 $router->post('/coach/library',           [CoachController::class, 'libraryAddTemplate']);
 $router->get('/coach/settings',           [CoachController::class, 'settings']);

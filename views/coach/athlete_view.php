@@ -405,6 +405,102 @@ if ($activePlan && !empty($allWorkouts)) {
         color: var(--text-muted);
     }
     #mwd-close:hover { color: var(--text-primary); }
+
+    /* ── Plan management: drag-to-reschedule, add, remove ── */
+    .macro-workout[draggable="true"] { cursor: grab; }
+    .macro-workout.is-dragging { opacity: .4; }
+    .macro-day-drop.drop-target {
+        outline: 2px dashed var(--accent-mid);
+        outline-offset: -2px;
+        background: var(--recessed-bg);
+    }
+    .macro-add-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 6px;
+        padding: 3px 6px;
+        border: 1px dashed var(--border-strong);
+        border-radius: var(--radius-sm);
+        background: none;
+        color: var(--text-muted);
+        font-size: 11px;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity .12s;
+    }
+    .macro-day:hover .macro-add-btn,
+    .macro-add-btn:focus-visible { opacity: 1; }
+    .macro-add-btn:hover { color: var(--accent-mid); border-color: var(--accent-mid); }
+    .macro-removed-marker {
+        font-size: 10px;
+        color: var(--text-muted);
+        opacity: .6;
+        font-style: italic;
+    }
+    @media (max-width: 768px) {
+        /* Touch can't hover — keep the add button visible on mobile. */
+        .macro-add-btn { opacity: .8; margin-top: 0; }
+    }
+
+    /* ── Add-workout modal ── */
+    #awd { display: none; position: fixed; inset: 0; z-index: 9999;
+           align-items: center; justify-content: center; }
+    #awd.is-open { display: flex; }
+    #awd-bd { position: absolute; inset: 0; background: rgba(0,0,0,.45); }
+    #awd-sheet {
+        position: relative; z-index: 1;
+        width: min(540px, calc(100vw - 32px));
+        max-height: 90vh; overflow-y: auto;
+        background: var(--card-bg);
+        border: var(--card-border);
+        border-radius: var(--radius-card);
+        padding: 20px 20px 24px;
+        box-shadow: 0 20px 60px rgba(0,0,0,.25);
+    }
+    #awd-close {
+        position: absolute; top: 12px; right: 14px;
+        background: none; border: none; cursor: pointer;
+        font-size: 22px; line-height: 1; padding: 2px 4px; color: var(--text-muted);
+    }
+    #awd-close:hover { color: var(--text-primary); }
+    .awd-tabs { display: flex; gap: 6px; margin: 4px 0 16px; }
+    .awd-tab {
+        flex: 1; padding: 8px; border: var(--card-border); border-radius: var(--radius-sm);
+        background: var(--recessed-bg); color: var(--text-secondary);
+        font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .awd-tab.is-active { background: var(--accent-mid); color: #fff; border-color: var(--accent-mid); }
+    .awd-filter { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .awd-filter-btn {
+        padding: 4px 10px; border: var(--card-border); border-radius: 999px;
+        background: var(--card-bg); color: var(--text-secondary); font-size: 12px; cursor: pointer;
+    }
+    .awd-filter-btn.is-active { background: var(--accent-mid); color: #fff; border-color: var(--accent-mid); }
+    .awd-arch-list { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+    .awd-arch {
+        text-align: left; width: 100%; padding: 10px 12px;
+        border: var(--card-border); border-radius: var(--radius-sm);
+        background: var(--card-bg); cursor: pointer;
+    }
+    .awd-arch.is-selected { border-color: var(--accent-mid); background: var(--recessed-bg); }
+    .awd-arch-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .awd-arch-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .awd-preview {
+        border: var(--card-border); border-radius: var(--radius-sm);
+        background: var(--recessed-bg); padding: 12px; margin-top: 4px;
+    }
+    .awd-preview-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .awd-preview-summary { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
+    .awd-preview-instr { font-size: 13px; color: var(--text-secondary); line-height: 1.6; white-space: pre-line; }
+    .awd-err { display: none; font-size: 12px; color: var(--color-danger); margin-top: 8px; }
+    .awd-actions { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
+    #mwd-remove {
+        display: block; width: 100%; margin-top: 18px; padding: 8px;
+        border: 1px solid #e5b4b4; border-radius: var(--radius-sm);
+        background: none; color: #b91c1c; font-size: 13px; cursor: pointer;
+    }
+    #mwd-remove:hover { background: #fdecea; }
     </style>
 
     <?php if (!empty($flashSuccess)): ?>
@@ -594,16 +690,22 @@ if ($activePlan && !empty($allWorkouts)) {
                             $date = $day['date'];
                             $insidePlan = !empty($day['inside_plan']);
                             $dayWorkouts = $day['workouts'] ?? [];
+                            $isEmptyDay = $insidePlan && empty($dayWorkouts);
+                            $isRemoved  = $isEmptyDay && in_array($date, $cancelledDates, true);
                             $dayClass = $insidePlan
-                                ? (empty($dayWorkouts) ? ' macro-day-empty' : '')
+                                ? ($isEmptyDay ? ' macro-day-empty' : '')
                                 : ' macro-day-outside';
+                            if ($insidePlan) $dayClass .= ' macro-day-drop';
                         ?>
-                        <div class="macro-day<?= $dayClass ?>">
+                        <div class="macro-day<?= $dayClass ?>"<?= $insidePlan ? ' data-date="' . h($date) . '"' : '' ?>>
                             <?php if ($insidePlan): ?>
                             <div class="macro-day-date"><?= date('D M j', strtotime($date)) ?></div>
                             <div class="macro-day-body">
-                            <?php if (empty($dayWorkouts)): ?>
+                            <?php if ($isEmptyDay): ?>
                             <div class="macro-rest" style="font-size:12px;color:var(--text-muted);">Rest</div>
+                            <?php if ($isRemoved): ?>
+                            <div class="macro-removed-marker" title="A workout was removed from this day">Removed</div>
+                            <?php endif; ?>
                             <?php else: ?>
                             <?php foreach ($dayWorkouts as $w):
                                 $score = isset($w['compliance_score']) && $w['compliance_score'] !== null
@@ -629,6 +731,8 @@ if ($activePlan && !empty($allWorkouts)) {
                             ?>
                             <?php
                             $mwData = htmlspecialchars(json_encode([
+                                'id'              => (int)$w['id'],
+                                'workout_type'    => (string)$w['workout_type'],
                                 'type_label'      => pill_label($w['workout_type']),
                                 'type_class'      => pill_class($w['workout_type']),
                                 'title'           => (string)$title,
@@ -636,9 +740,11 @@ if ($activePlan && !empty($allWorkouts)) {
                                 'target_duration' => (int)($w['target_duration'] ?? 0),
                                 'summary'         => (string)($w['display_summary'] ?? ''),
                                 'description'     => $description,
+                                'coach_locked'    => !empty($w['coach_locked']) ? 1 : 0,
                             ]), ENT_QUOTES, 'UTF-8');
                             ?>
-                            <button type="button" class="macro-workout" data-mw="<?= $mwData ?>">
+                            <button type="button" class="macro-workout" draggable="true"
+                                    data-workout-id="<?= (int)$w['id'] ?>" data-mw="<?= $mwData ?>">
                                 <div class="macro-workout-row">
                                     <span class="pill <?= pill_class($w['workout_type']) ?>">
                                         <?= pill_label($w['workout_type']) ?>
@@ -656,6 +762,9 @@ if ($activePlan && !empty($allWorkouts)) {
                                 </div>
                             </button>
                             <?php endforeach; ?>
+                            <?php endif; ?>
+                            <?php if ($isEmptyDay): ?>
+                            <button type="button" class="macro-add-btn" data-add-date="<?= h($date) ?>">+ Add workout</button>
                             <?php endif; ?>
                             </div><!-- /macro-day-body -->
                             <?php endif; ?>
@@ -823,11 +932,108 @@ if ($activePlan && !empty($allWorkouts)) {
             <div id="mwd-summary" style="font-size:13px;color:var(--text-muted);margin-bottom:10px;"></div>
             <div id="mwd-desc"
                  style="font-size:13px;color:var(--text-secondary);line-height:1.6;white-space:pre-line;"></div>
+            <button type="button" id="mwd-remove">Remove workout</button>
+        </div>
+    </div>
+
+    <!-- Add-workout modal (coach plan management) -->
+    <div id="awd" role="dialog" aria-modal="true" aria-label="Add workout">
+        <div id="awd-bd"></div>
+        <div id="awd-sheet">
+            <button id="awd-close" aria-label="Close">×</button>
+            <div style="font-size:15px;font-weight:600;margin-bottom:2px;padding-right:28px;">Add workout</div>
+            <div id="awd-date-label" style="font-size:12px;color:var(--text-muted);margin-bottom:12px;"></div>
+
+            <div class="awd-tabs">
+                <button type="button" class="awd-tab is-active" data-awd-tab="archetype">Choose from library</button>
+                <button type="button" class="awd-tab" data-awd-tab="freeform">Custom workout</button>
+            </div>
+
+            <!-- PATH A — archetype picker -->
+            <div id="awd-pane-archetype">
+                <div class="awd-filter" id="awd-filter">
+                    <button type="button" class="awd-filter-btn is-active" data-cat="all">All</button>
+                    <button type="button" class="awd-filter-btn" data-cat="easy">Easy run</button>
+                    <button type="button" class="awd-filter-btn" data-cat="long">Long run</button>
+                    <button type="button" class="awd-filter-btn" data-cat="quality">Quality</button>
+                    <button type="button" class="awd-filter-btn" data-cat="recovery">Recovery</button>
+                </div>
+                <div class="awd-arch-list" id="awd-arch-list"></div>
+
+                <div id="awd-config" style="display:none;margin-top:14px;">
+                    <div class="form-group" id="awd-variant-group" style="display:none;">
+                        <label class="form-label" for="awd-variant">Variant</label>
+                        <select id="awd-variant" class="form-input"></select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="awd-duration">Duration (minutes)</label>
+                        <input type="number" id="awd-duration" class="form-input" min="1" max="600" style="max-width:120px;">
+                    </div>
+                    <button type="button" id="awd-preview-btn" class="btn btn-secondary btn-sm">Preview</button>
+                </div>
+
+                <div id="awd-preview-wrap" style="display:none;margin-top:14px;">
+                    <div class="awd-preview">
+                        <div class="awd-preview-title" id="awd-preview-title"></div>
+                        <div class="awd-preview-summary" id="awd-preview-summary"></div>
+                        <div class="awd-preview-instr" id="awd-preview-instr"></div>
+                    </div>
+                    <div class="awd-actions">
+                        <button type="button" id="awd-add-arch" class="btn btn-primary btn-sm">Add to plan</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PATH B — free-form -->
+            <div id="awd-pane-freeform" style="display:none;">
+                <div class="form-group">
+                    <label class="form-label" for="awd-ff-title">Title</label>
+                    <input type="text" id="awd-ff-title" class="form-input" maxlength="255" placeholder="e.g. Easy shakeout">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="awd-ff-type">Workout type</label>
+                    <select id="awd-ff-type" class="form-input">
+                        <option value="easy">Easy run</option>
+                        <option value="long">Long run</option>
+                        <option value="tempo">Tempo</option>
+                        <option value="interval">Workout</option>
+                        <option value="recovery">Recovery</option>
+                        <option value="race_pace">Race pace</option>
+                        <option value="hill">Hill session</option>
+                        <option value="fartlek">Fartlek</option>
+                        <option value="speed">Speed</option>
+                        <option value="rest">Rest</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="awd-ff-dur">Duration (minutes)</label>
+                    <input type="number" id="awd-ff-dur" class="form-input" min="1" max="600" style="max-width:120px;">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="awd-ff-instr">Instructions <span style="font-weight:400;color:var(--text-muted);">(shown to athlete)</span></label>
+                    <textarea id="awd-ff-instr" class="form-textarea" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="awd-ff-notes">Coach notes <span style="font-weight:400;color:var(--text-muted);">(coach-only)</span></label>
+                    <textarea id="awd-ff-notes" class="form-textarea" rows="2"></textarea>
+                </div>
+                <div class="awd-actions">
+                    <button type="button" id="awd-add-ff" class="btn btn-primary btn-sm">Add to plan</button>
+                </div>
+            </div>
+
+            <div class="awd-err" id="awd-err"></div>
         </div>
     </div>
 
     <script>
     (function () {
+        var CFG = {
+            athleteId:  <?= (int)$athlete['id'] ?>,
+            archetypes: <?= json_encode($archetypeLibrary, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
+            csrf:       <?= json_encode(Auth::csrfToken()) ?>
+        };
+
         function $id(id) { return document.getElementById(id); }
         function fmtDur(m) {
             m = parseInt(m, 10);
@@ -836,20 +1042,27 @@ if ($activePlan && !empty($allWorkouts)) {
             var h = Math.floor(m / 60), r = m % 60;
             return r ? h + 'h ' + r + 'min' : h + 'h';
         }
-        function setBlock(id, val) {
-            $id(id).textContent = val || '';
-            $id(id).style.display = val ? '' : 'none';
+        function dateLabel(d) {
+            return new Date(d + 'T00:00:00').toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'});
         }
-        function openModal(el) {
-            var raw = el.getAttribute('data-mw');
-            if (!raw) return;
-            var d;
-            try { d = JSON.parse(raw); } catch (e) { return; }
+        function post(url, body) {
+            return fetch(url, {
+                method:  'POST',
+                headers: {'Content-Type':'application/json', 'X-CSRF-Token':CFG.csrf, 'X-Requested-With':'fetch'},
+                body:    JSON.stringify(body)
+            }).then(function (r) { return r.json(); });
+        }
+
+        // ── Workout detail popout (view + remove) ──
+        var mwdData = null;
+        function setBlock(id, val) { $id(id).textContent = val || ''; $id(id).style.display = val ? '' : 'none'; }
+        function openMwd(el) {
+            var raw = el.getAttribute('data-mw'); if (!raw) return;
+            var d; try { d = JSON.parse(raw); } catch (e) { return; }
+            mwdData = d;
             $id('mwd-type').textContent = d.type_label || '';
             $id('mwd-type').className   = 'pill ' + (d.type_class || '');
-            $id('mwd-date').textContent = d.date
-                ? new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'})
-                : '';
+            $id('mwd-date').textContent = d.date ? dateLabel(d.date) : '';
             $id('mwd-name').textContent = d.title || '';
             $id('mwd-dur').textContent  = fmtDur(d.target_duration);
             $id('mwd-dur-wrap').style.display = d.target_duration ? '' : 'none';
@@ -858,17 +1071,294 @@ if ($activePlan && !empty($allWorkouts)) {
             $id('mwd').classList.add('is-open');
             document.body.style.overflow = 'hidden';
         }
-        function closeModal() {
-            $id('mwd').classList.remove('is-open');
-            document.body.style.overflow = '';
+        function closeMwd() { $id('mwd').classList.remove('is-open'); document.body.style.overflow = ''; mwdData = null; }
+
+        function removeWorkout() {
+            if (!mwdData || !mwdData.id) return;
+            if (!confirm('Remove this workout? The day will become a rest day. This cannot be undone.')) return;
+            var id = mwdData.id;
+            post('/app/coach/athlete/' + CFG.athleteId + '/workout/remove', {workout_id: id})
+              .then(function (res) {
+                  if (!res || !res.success) { alert((res && res.message) || 'Could not remove the workout.'); return; }
+                  var btn = document.querySelector('.macro-workout[data-workout-id="' + id + '"]');
+                  if (btn) { var cell = btn.closest('.macro-day'); btn.remove(); if (cell) renderEmpty(cell, true); }
+                  closeMwd();
+              })
+              .catch(function () { alert('Network error — please try again.'); });
         }
+
+        // ── Calendar DOM helpers ──
+        function cellForDate(date) { return document.querySelector('.macro-day[data-date="' + date + '"]'); }
+        function bodyOf(cell) { return cell ? cell.querySelector('.macro-day-body') : null; }
+        function hasWorkout(cell) { return cell && cell.querySelector('.macro-workout'); }
+        function addBtnOf(cell) { var b = bodyOf(cell); return b ? b.querySelector('.macro-add-btn') : null; }
+
+        function ensureAddBtn(cell) {
+            var body = bodyOf(cell); if (!body) return;
+            if (!body.querySelector('.macro-add-btn')) {
+                var b = document.createElement('button');
+                b.type = 'button'; b.className = 'macro-add-btn';
+                b.setAttribute('data-add-date', cell.getAttribute('data-date'));
+                b.textContent = '+ Add workout';
+                body.appendChild(b);
+            }
+        }
+        // Render a cell as an empty/rest day (after a move-out or remove).
+        function renderEmpty(cell, removed) {
+            if (!cell || hasWorkout(cell)) return;
+            cell.classList.add('macro-day-empty');
+            var body = bodyOf(cell); if (!body) return;
+            if (!body.querySelector('.macro-rest')) {
+                var r = document.createElement('div'); r.className = 'macro-rest';
+                r.style.cssText = 'font-size:12px;color:var(--text-muted);'; r.textContent = 'Rest';
+                body.insertBefore(r, body.firstChild);
+            }
+            if (removed && !body.querySelector('.macro-removed-marker')) {
+                var rm = document.createElement('div'); rm.className = 'macro-removed-marker';
+                rm.title = 'A workout was removed from this day'; rm.textContent = 'Removed';
+                var rest = body.querySelector('.macro-rest');
+                body.insertBefore(rm, rest ? rest.nextSibling : body.firstChild);
+            }
+            ensureAddBtn(cell);
+        }
+        // Render a cell as occupied (after a move-in or add).
+        function renderOccupied(cell) {
+            if (!cell) return;
+            cell.classList.remove('macro-day-empty');
+            var body = bodyOf(cell); if (!body) return;
+            ['.macro-rest', '.macro-add-btn', '.macro-removed-marker'].forEach(function (sel) {
+                var el = body.querySelector(sel); if (el) el.remove();
+            });
+        }
+        function setMwDate(btn, newDate) {
+            try { var d = JSON.parse(btn.getAttribute('data-mw')); d.date = newDate; btn.setAttribute('data-mw', JSON.stringify(d)); } catch (e) {}
+        }
+
+        function buildWorkoutButton(w) {
+            var btn = document.createElement('button');
+            btn.type = 'button'; btn.className = 'macro-workout'; btn.setAttribute('draggable', 'true');
+            btn.setAttribute('data-workout-id', w.id);
+            btn.setAttribute('data-mw', JSON.stringify({
+                id: w.id, workout_type: w.workout_type, type_label: w.type_label, type_class: w.type_class,
+                title: w.title, date: w.date, target_duration: w.target_duration,
+                summary: w.summary || '', description: w.description || '', coach_locked: w.coach_locked ? 1 : 0
+            }));
+            var row = document.createElement('div'); row.className = 'macro-workout-row';
+            var pill = document.createElement('span'); pill.className = 'pill ' + w.type_class; pill.textContent = w.type_label;
+            row.appendChild(pill);
+            if (w.target_duration) {
+                var du = document.createElement('span'); du.className = 'macro-duration';
+                du.textContent = w.duration_label || fmtDur(w.target_duration); row.appendChild(du);
+            }
+            if (w.coach_locked) {
+                var lk = document.createElement('span'); lk.className = 'macro-lock'; lk.title = 'Coach-locked'; lk.innerHTML = '&#128274;';
+                row.appendChild(lk);
+            }
+            btn.appendChild(row);
+            return btn;
+        }
+
+        // ── Drag-to-reschedule ──
+        var dragBtn = null, dragFromCell = null;
+        document.addEventListener('dragstart', function (e) {
+            var btn = e.target.closest('.macro-workout'); if (!btn) return;
+            dragBtn = btn; dragFromCell = btn.closest('.macro-day');
+            btn.classList.add('is-dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            try { e.dataTransfer.setData('text/plain', btn.getAttribute('data-workout-id') || ''); } catch (err) {}
+        });
+        document.addEventListener('dragend', function () {
+            if (dragBtn) dragBtn.classList.remove('is-dragging');
+            document.querySelectorAll('.drop-target').forEach(function (c) { c.classList.remove('drop-target'); });
+            dragBtn = null; dragFromCell = null;
+        });
+        document.addEventListener('dragover', function (e) {
+            var cell = e.target.closest('.macro-day-drop'); if (!cell || !dragBtn) return;
+            e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+            if (!cell.classList.contains('drop-target')) {
+                document.querySelectorAll('.drop-target').forEach(function (c) { c.classList.remove('drop-target'); });
+                cell.classList.add('drop-target');
+            }
+        });
+        document.addEventListener('drop', function (e) {
+            var cell = e.target.closest('.macro-day-drop'); if (!cell || !dragBtn) return;
+            e.preventDefault();
+            cell.classList.remove('drop-target');
+            var newDate = cell.getAttribute('data-date');
+            var fromCell = dragFromCell, btn = dragBtn;
+            if (!newDate || cell === fromCell) return;
+            doReschedule(parseInt(btn.getAttribute('data-workout-id'), 10), newDate, btn, fromCell, cell, false);
+        });
+
+        function doReschedule(id, newDate, btn, fromCell, toCell, force) {
+            post('/app/coach/athlete/' + CFG.athleteId + '/workout/reschedule', {workout_id: id, new_date: newDate, force: force})
+              .then(function (res) {
+                  if (res && res.success) {
+                      renderOccupied(toCell);
+                      setMwDate(btn, newDate);
+                      bodyOf(toCell).insertBefore(btn, addBtnOf(toCell));
+                      renderEmpty(fromCell, false);
+                      return;
+                  }
+                  if (res && res.error === 'must_off') {
+                      if (confirm('This is a must-off day for this athlete. Schedule anyway?')) {
+                          doReschedule(id, newDate, btn, fromCell, toCell, true);
+                      }
+                      return;
+                  }
+                  if (res && res.error === 'conflict' && res.existing_workout) {
+                      var ex = res.existing_workout;
+                      var label = ex.display_title || (ex.workout_type ? ex.workout_type.replace('_', ' ') : 'a workout');
+                      if (confirm('This day already has ' + label + '. Swap the two workouts?')) {
+                          doSwap(id, newDate, ex.id, btn, fromCell, toCell);
+                      }
+                      return;
+                  }
+                  alert((res && res.message) || 'Could not reschedule. Try again.');
+              })
+              .catch(function () { alert('Network error — please try again.'); });
+        }
+
+        function doSwap(id, newDate, otherId, btn, fromCell, toCell) {
+            post('/app/coach/athlete/' + CFG.athleteId + '/workout/reschedule', {workout_id: id, new_date: newDate, swap_with: otherId})
+              .then(function (res) {
+                  if (!res || !res.success) { alert((res && res.message) || 'Could not swap. Try again.'); return; }
+                  var otherBtn = document.querySelector('.macro-workout[data-workout-id="' + otherId + '"]');
+                  var oldDate  = fromCell.getAttribute('data-date');
+                  renderOccupied(toCell); renderOccupied(fromCell);
+                  if (otherBtn) { bodyOf(fromCell).insertBefore(otherBtn, addBtnOf(fromCell)); setMwDate(otherBtn, oldDate); }
+                  bodyOf(toCell).insertBefore(btn, addBtnOf(toCell)); setMwDate(btn, newDate);
+              })
+              .catch(function () { alert('Network error — please try again.'); });
+        }
+
+        // ── Add-workout modal ──
+        var addDate = null, selectedArch = null;
+        function openAwd(date) {
+            addDate = date; selectedArch = null;
+            $id('awd-date-label').textContent = dateLabel(date);
+            setAwdTab('archetype');
+            renderArchList('all');
+            $id('awd-ff-title').value = ''; $id('awd-ff-dur').value = '';
+            $id('awd-ff-instr').value = ''; $id('awd-ff-notes').value = ''; $id('awd-ff-type').value = 'easy';
+            hideErr();
+            $id('awd').classList.add('is-open'); document.body.style.overflow = 'hidden';
+        }
+        function closeAwd() { $id('awd').classList.remove('is-open'); document.body.style.overflow = ''; }
+        function setAwdTab(tab) {
+            document.querySelectorAll('.awd-tab').forEach(function (t) { t.classList.toggle('is-active', t.getAttribute('data-awd-tab') === tab); });
+            $id('awd-pane-archetype').style.display = tab === 'archetype' ? '' : 'none';
+            $id('awd-pane-freeform').style.display  = tab === 'freeform'  ? '' : 'none';
+            hideErr();
+        }
+        function renderArchList(cat) {
+            document.querySelectorAll('.awd-filter-btn').forEach(function (b) { b.classList.toggle('is-active', b.getAttribute('data-cat') === cat); });
+            var list = $id('awd-arch-list'); list.innerHTML = '';
+            CFG.archetypes.filter(function (a) { return cat === 'all' || a.category === cat; }).forEach(function (a) {
+                var b = document.createElement('button');
+                b.type = 'button'; b.className = 'awd-arch'; b.setAttribute('data-arch-code', a.code);
+                b.innerHTML = '<div class="awd-arch-name"></div><div class="awd-arch-desc"></div>';
+                b.querySelector('.awd-arch-name').textContent = a.name;
+                b.querySelector('.awd-arch-desc').textContent = a.description || '';
+                list.appendChild(b);
+            });
+            $id('awd-config').style.display = 'none';
+            $id('awd-preview-wrap').style.display = 'none';
+            selectedArch = null;
+        }
+        function archByCode(code) {
+            var m = CFG.archetypes.filter(function (a) { return a.code === code; });
+            return m.length ? m[0] : null;
+        }
+        function selectArch(code) {
+            selectedArch = archByCode(code);
+            document.querySelectorAll('.awd-arch').forEach(function (b) { b.classList.toggle('is-selected', b.getAttribute('data-arch-code') === code); });
+            if (!selectedArch) return;
+            var vg = $id('awd-variant-group'), vs = $id('awd-variant');
+            if (selectedArch.variants && selectedArch.variants.length > 1) {
+                vs.innerHTML = '';
+                selectedArch.variants.forEach(function (v) { var o = document.createElement('option'); o.value = v.code; o.textContent = v.name; vs.appendChild(o); });
+                vg.style.display = '';
+            } else { vg.style.display = 'none'; vs.innerHTML = ''; }
+            $id('awd-duration').value = selectedArch.default_duration || 45;
+            $id('awd-config').style.display = '';
+            $id('awd-preview-wrap').style.display = 'none';
+            hideErr();
+        }
+        function chosenVariant() {
+            if ($id('awd-variant-group').style.display !== 'none') return $id('awd-variant').value;
+            return (selectedArch && selectedArch.variants && selectedArch.variants[0]) ? selectedArch.variants[0].code : null;
+        }
+        function chosenDuration() {
+            return parseInt($id('awd-duration').value, 10) || (selectedArch && selectedArch.default_duration) || 45;
+        }
+        function previewArch() {
+            if (!selectedArch) return;
+            hideErr();
+            post('/app/coach/athlete/' + CFG.athleteId + '/workout/add', {
+                type: 'archetype', preview: true, scheduled_date: addDate,
+                archetype_code: selectedArch.code, archetype_variant: chosenVariant(), duration: chosenDuration()
+            }).then(function (res) {
+                if (!res || !res.success) { showErr((res && res.message) || 'Could not build preview.'); return; }
+                var p = res.preview;
+                $id('awd-preview-title').textContent = p.display_title || '';
+                setBlock('awd-preview-summary', p.display_summary);
+                $id('awd-preview-instr').textContent = p.athlete_instructions || '';
+                $id('awd-preview-wrap').style.display = '';
+            }).catch(function () { showErr('Network error — please try again.'); });
+        }
+        function addArch() {
+            if (!selectedArch) return;
+            var btn = $id('awd-add-arch'); btn.disabled = true;
+            post('/app/coach/athlete/' + CFG.athleteId + '/workout/add', {
+                type: 'archetype', scheduled_date: addDate,
+                archetype_code: selectedArch.code, archetype_variant: chosenVariant(), duration: chosenDuration()
+            }).then(function (res) { btn.disabled = false; onAdded(res); })
+              .catch(function () { btn.disabled = false; showErr('Network error — please try again.'); });
+        }
+        function addFreeform() {
+            var title = $id('awd-ff-title').value.trim();
+            var dur   = parseInt($id('awd-ff-dur').value, 10) || 0;
+            if (!title || dur < 1) { showErr('Title and a duration of at least 1 minute are required.'); return; }
+            var btn = $id('awd-add-ff'); btn.disabled = true;
+            post('/app/coach/athlete/' + CFG.athleteId + '/workout/add', {
+                type: 'freeform', scheduled_date: addDate, title: title,
+                workout_type: $id('awd-ff-type').value, duration: dur,
+                instructions: $id('awd-ff-instr').value.trim(), coach_notes: $id('awd-ff-notes').value.trim()
+            }).then(function (res) { btn.disabled = false; onAdded(res); })
+              .catch(function () { btn.disabled = false; showErr('Network error — please try again.'); });
+        }
+        function onAdded(res) {
+            if (!res || !res.success) { showErr((res && res.message) || 'Could not add the workout.'); return; }
+            var cell = cellForDate(addDate);
+            if (cell) { renderOccupied(cell); bodyOf(cell).appendChild(buildWorkoutButton(res.workout)); }
+            closeAwd();
+        }
+        function showErr(m) { var e = $id('awd-err'); e.textContent = m; e.style.display = ''; }
+        function hideErr() { $id('awd-err').style.display = 'none'; }
+
+        // ── Event wiring ──
         document.addEventListener('click', function (e) {
-            var el = e.target.closest('[data-mw]');
-            if (el) { openModal(el); return; }
-            if (e.target.id === 'mwd-bd' || e.target.id === 'mwd-close') { closeModal(); return; }
+            var wbtn = e.target.closest('.macro-workout');
+            if (wbtn) { openMwd(wbtn); return; }
+            if (e.target.id === 'mwd-bd' || e.target.id === 'mwd-close') { closeMwd(); return; }
+            if (e.target.id === 'mwd-remove') { removeWorkout(); return; }
+
+            var addBtn = e.target.closest('.macro-add-btn');
+            if (addBtn) { openAwd(addBtn.getAttribute('data-add-date')); return; }
+
+            if (e.target.id === 'awd-bd' || e.target.id === 'awd-close') { closeAwd(); return; }
+            var tab = e.target.closest('.awd-tab'); if (tab) { setAwdTab(tab.getAttribute('data-awd-tab')); return; }
+            var fb = e.target.closest('.awd-filter-btn'); if (fb) { renderArchList(fb.getAttribute('data-cat')); return; }
+            var arch = e.target.closest('.awd-arch'); if (arch) { selectArch(arch.getAttribute('data-arch-code')); return; }
+            if (e.target.id === 'awd-preview-btn') { previewArch(); return; }
+            if (e.target.id === 'awd-add-arch') { addArch(); return; }
+            if (e.target.id === 'awd-add-ff') { addFreeform(); return; }
         });
         document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && $id('mwd').classList.contains('is-open')) closeModal();
+            if (e.key !== 'Escape') return;
+            if ($id('mwd').classList.contains('is-open')) closeMwd();
+            if ($id('awd').classList.contains('is-open')) closeAwd();
         });
     })();
     </script>

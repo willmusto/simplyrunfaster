@@ -292,11 +292,16 @@ CREATE TABLE IF NOT EXISTS `planned_workouts` (
     `athlete_moved_at`          DATETIME DEFAULT NULL,
     `must_off_override`         TINYINT(1) NOT NULL DEFAULT 0,
     `notes`                     TEXT DEFAULT NULL COMMENT 'coach-facing notes',
+    -- Coach soft-delete (migration_012)
+    `cancelled`                 TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'coach soft-deleted; day renders as rest',
+    `cancelled_at`              DATETIME DEFAULT NULL,
+    `cancelled_by`              INT DEFAULT NULL COMMENT 'user_id of the coach who cancelled it',
     PRIMARY KEY (`id`),
     KEY `idx_pw_plan` (`plan_id`),
     KEY `idx_pw_athlete_date` (`athlete_id`, `scheduled_date`),
     KEY `idx_pw_visible` (`athlete_id`, `visible_to_athlete`),
-    KEY `idx_pw_archetype` (`archetype_code`)
+    KEY `idx_pw_archetype` (`archetype_code`),
+    KEY `idx_pw_cancelled` (`plan_id`, `cancelled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================

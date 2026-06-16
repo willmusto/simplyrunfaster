@@ -59,6 +59,7 @@ $pwTomorrow = $db->prepare(
     "SELECT workout_type, description, target_duration
      FROM planned_workouts
      WHERE athlete_id = ? AND scheduled_date = ? AND visible_to_athlete = 1
+       AND (cancelled = 0 OR cancelled IS NULL)
        AND plan_id = (SELECT id FROM training_plans WHERE athlete_id = ? AND status='active' ORDER BY id DESC LIMIT 1)
      ORDER BY (workout_type='rest') ASC LIMIT 1"
 );
@@ -96,7 +97,7 @@ foreach ($athletes as $a) {
     $today = Timezone::dateInZone($a['tz'], 'now');
     $weekAgo = Timezone::dateInZone($a['tz'], '-6 days');
 
-    $planned = (int)$db->query("SELECT COUNT(*) FROM planned_workouts WHERE athlete_id={$a['athlete_id']} AND workout_type<>'rest' AND scheduled_date BETWEEN " . $db->quote($weekAgo) . " AND " . $db->quote($today))->fetchColumn();
+    $planned = (int)$db->query("SELECT COUNT(*) FROM planned_workouts WHERE athlete_id={$a['athlete_id']} AND workout_type<>'rest' AND (cancelled=0 OR cancelled IS NULL) AND scheduled_date BETWEEN " . $db->quote($weekAgo) . " AND " . $db->quote($today))->fetchColumn();
     $completed = (int)$db->query("SELECT COUNT(*) FROM completed_workouts WHERE athlete_id={$a['athlete_id']} AND activity_date BETWEEN " . $db->quote($weekAgo) . " AND " . $db->quote($today))->fetchColumn();
     $nextStart = Timezone::dateInZone($a['tz'], '+1 day', 'M j');
 

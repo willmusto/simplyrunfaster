@@ -153,7 +153,9 @@ class AthleteController
 
         // Find matching planned workout for today
         $planned = $db->prepare(
-            'SELECT id FROM planned_workouts WHERE athlete_id = ? AND scheduled_date = ? LIMIT 1'
+            'SELECT id FROM planned_workouts
+             WHERE athlete_id = ? AND scheduled_date = ?
+               AND (cancelled = 0 OR cancelled IS NULL) LIMIT 1'
         );
         $planned->execute([$athleteId, $actDate]);
         $plannedRow     = $planned->fetch();
@@ -875,6 +877,7 @@ class AthleteController
              WHERE pw.athlete_id = ?
                AND pw.scheduled_date BETWEEN ? AND ?
                AND pw.visible_to_athlete = 1
+               AND (pw.cancelled = 0 OR pw.cancelled IS NULL)
                AND pw.plan_id = (
                    SELECT id FROM training_plans
                    WHERE athlete_id = ? AND status = "active"

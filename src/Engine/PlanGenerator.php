@@ -319,6 +319,169 @@ class PlanGenerator
         return $planId;
     }
 
+    // ── Manual coach add (macro-plan "+ Add workout" archetype picker) ────────
+
+    /**
+     * Resolve and render a single archetype instance for a coach manually adding a
+     * workout to a plan. Mirrors the resolve→render pipeline of insertWeekWorkouts /
+     * insertResolvedWorkout, but for one explicitly chosen archetype + variant +
+     * duration rather than the weighted slot selector.
+     *
+     * Returns an associative array of planned_workouts columns to persist (also used
+     * to render the modal's Step-3 preview), or null when the code is unknown/inactive.
+     * The chosen variant defaults to the archetype's first variant when none is given.
+     */
+    public static function composeManualWorkout(
+        int $athleteId, string $archetypeCode, ?string $variantCode,
+        int $durationMinutes, ?PDO $db = null
+    ): ?array {
+        $db      = $db ?? Database::get();
+        $profile = self::loadProfile($athleteId, $db);
+        if (!$profile) return null;
+
+        // Pace-zone citation context (same rule as generate()).
+        self::$paceZones = (!empty($profile['pace_zones_visible'])
+            && PaceZones::isPopulated($profile['pace_zones'] ?? null))
+            ? (json_decode($profile['pace_zones'] ?? 'null', true) ?: null)
+            : null;
+
+        $selector  = new ArchetypeSelector($db);
+        $archetype = $selector->getByCode($archetypeCode);
+        if (!$archetype || ($archetype['status'] ?? 'active') !== 'active') {
+            self::$paceZones = null;
+            return null;
+        }
+
+        $goalDistance   = self::normalizeDistance($profile['goal_race_distance'] ?? '5K');
+        $classification = self::classifyAthlete($profile, $goalDistance);
+        $phase          = 'base';
+
+        $archetype = $selector->resolveParameters($archetype, $classification);
+
+        // Choose the variant: explicit code if valid, else the first defined variant.
+        $variants = $archetype['variants'] ?? [];
+        $chosen   = null;
+        if ($variantCode !== null && $variantCode !== '') {
+            foreach ($variants as $v) {
+                if (($v['code'] ?? null) === $variantCode) { $chosen = $v; break; }
+            }
+        }
+        if ($chosen === null && !empty($variants)) {
+            $chosen = $variants[0];
+        }
+        if ($chosen !== null) {
+            $archetype['resolved_variant'] = $chosen;
+        }
+
+        // Never render below the archetype's minimum viable session. Continuous
+        // archetypes (no minimum) keep the coach's requested number; fixed-duration
+        // archetypes (run/walk, strides) ignore it and store their structural total.
+        $minDur = $selector->getMinimumSessionDurationMinutes($archetype, $classification, $phase, $goalDistance);
+        $target = max(1, $durationMinutes);
+        if ($minDur !== null) {
+            $target = max((int)ceil($minDur), $target);
+        }
+
+        $instance = self::addDerivedParams($archetype, $target, $phase, $goalDistance, $classification);
+
+        $display      = $instance['display'] ?? [];
+        $title        = self::renderTemplate($display['title_template'] ?? '', $instance);
+        $summary      = self::renderTemplate($display['summary_template'] ?? '', $instance);
+        $instructions = self::renderTemplate($display['description_template'] ?? '', $instance);
+        $instructions = self::normalizeInstructionText($instructions, $instance);
+        $instructions = self::appendPaceCitation($instructions, $instance);
+
+        $sig             = self::computeInstanceSignature($instance);
+        $resolvedVariant = $instance['resolved_variant']['code'] ?? null;
+        $params          = $instance['resolved_params'] ?? [];
+        $structure       = self::resolveStructure($instance);
+        $variantWorkout  = $instance['resolved_variant']['workout_type'] ?? null;
+        $metadataWorkout = $instance['metadata']['workout_type'] ?? $instance['workout_type'] ?? null;
+        $workoutType     = $variantWorkout ?? $metadataWorkout ?? 'easy';
+        $variantIF       = $instance['resolved_variant']['intensity_factor'] ?? null;
+        $intensityFactor = (float)($variantIF ?? $instance['generation']['intensity_factor'] ?? 0.5);
+        $storedDuration  = self::computeActualDuration($instance) ?? (int)($params['duration_minutes'] ?? $target);
+        $load            = round($storedDuration * $intensityFactor, 2);
+
+        self::$paceZones = null;
+
+        return [
+            'workout_type'               => $workoutType,
+            'archetype_code'             => $instance['code'],
+            'archetype_variant'          => $resolvedVariant,
+            'archetype_params'           => json_encode($params),
+            'workout_archetype_id'       => $instance['id'] ?? null,
+            'archetype_version_snapshot' => $instance['version'] ?? null,
+            'instance_signature'         => $sig ?: null,
+            'structure'                  => $structure ? json_encode($structure) : null,
+            'display_title'              => $title ?: null,
+            'display_summary'            => $summary ?: null,
+            'athlete_instructions'       => $instructions ?: null,
+            'target_duration'            => $storedDuration,
+            'intensity_load'             => $load,
+        ];
+    }
+
+    /**
+     * Archetype catalogue for the coach's manual-add picker, scoped to one athlete so
+     * default durations reflect their classification. Returns active archetypes with
+     * a UI category (easy / long / quality / recovery), short description, default
+     * duration, and selectable variants.
+     */
+    public static function manualArchetypeLibrary(int $athleteId, ?PDO $db = null): array
+    {
+        $db      = $db ?? Database::get();
+        $profile = self::loadProfile($athleteId, $db) ?? [];
+        $goalDistance   = self::normalizeDistance($profile['goal_race_distance'] ?? '5K');
+        $classification = self::classifyAthlete($profile, $goalDistance);
+
+        $selector = new ArchetypeSelector($db);
+        $rows = $db->query('SELECT code FROM workout_archetypes WHERE status = "active" ORDER BY workout_type, name')
+                   ->fetchAll(PDO::FETCH_COLUMN);
+
+        $catFor = static function (string $wt): string {
+            return match ($wt) {
+                'easy'     => 'easy',
+                'long'     => 'long',
+                'recovery' => 'recovery',
+                default    => 'quality',
+            };
+        };
+
+        $out = [];
+        foreach ($rows as $code) {
+            $arch = $selector->getByCode((string)$code);
+            if (!$arch) continue;
+            $wt  = (string)($arch['workout_type'] ?? 'easy');
+            $min = $selector->getMinimumSessionDurationMinutes($arch, $classification, 'base', $goalDistance);
+            $default = match ($wt) {
+                'easy'     => 45,
+                'long'     => 75,
+                'recovery' => 30,
+                default    => $min !== null ? (int)max(40, ceil($min)) : 50,
+            };
+            if ($min !== null) $default = max($default, (int)ceil($min));
+            $default = (int)(round($default / 5) * 5);
+
+            $variants = [];
+            foreach (($arch['variants'] ?? []) as $v) {
+                if (!isset($v['code'])) continue;
+                $variants[] = ['code' => (string)$v['code'], 'name' => (string)($v['name'] ?? $v['code'])];
+            }
+
+            $out[] = [
+                'code'             => (string)$arch['code'],
+                'name'             => (string)($arch['name'] ?? $arch['code']),
+                'workout_type'     => $wt,
+                'category'         => $catFor($wt),
+                'description'      => (string)($arch['description'] ?? ''),
+                'default_duration' => $default,
+                'variants'         => $variants,
+            ];
+        }
+        return $out;
+    }
+
     // ── Plan type generators ─────────────────────────────────────────────────
 
     private static function generateRaceCycle(

@@ -47,6 +47,7 @@ class TrainingLoad
                     END AS intensity_factor
              FROM completed_workouts cw
              LEFT JOIN planned_workouts pw ON pw.id = cw.planned_workout_id
+                   AND (pw.cancelled = 0 OR pw.cancelled IS NULL)
              LEFT JOIN workout_library  wl ON wl.id = pw.workout_template_id
              WHERE cw.athlete_id = ?
                AND cw.activity_date >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)

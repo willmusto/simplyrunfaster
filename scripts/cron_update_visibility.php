@@ -63,6 +63,7 @@ foreach ($byTz as $tz => $athleteIds) {
          INNER JOIN training_plans tp ON tp.id = pw.plan_id
          SET pw.visible_to_athlete = 1
          WHERE pw.visible_to_athlete = 0
+           AND (pw.cancelled = 0 OR pw.cancelled IS NULL)
            AND pw.athlete_id IN ($placeholders)
            AND pw.scheduled_date BETWEEN ? AND ?
            AND tp.status = 'active'"
