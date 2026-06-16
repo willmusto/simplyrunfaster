@@ -645,7 +645,7 @@ class PlanGenerator
         $params          = $instance['resolved_params'] ?? [];
         $structure       = self::resolveStructure($instance);
         $variantWorkout  = $instance['resolved_variant']['workout_type'] ?? null;
-        $metadataWorkout = $instance['metadata']['workout_type'] ?? null;
+        $metadataWorkout = $instance['metadata']['workout_type'] ?? $instance['workout_type'] ?? null;
         $workoutType     = $variantWorkout ?? $metadataWorkout ?? $slotWorkoutType;
         $variantIF       = $instance['resolved_variant']['intensity_factor'] ?? null;
         $intensityFactor = (float)($variantIF ?? $instance['generation']['intensity_factor'] ?? 0.5);
@@ -1126,7 +1126,7 @@ class PlanGenerator
             // stores workout_type='easy' (not 'interval') when filling a quality-slot fallback,
             // and recovery_easy stores 'recovery' in any context.
             $variantWorkoutType = $instance['resolved_variant']['workout_type'] ?? null;
-            $metadataWorkoutType = $instance['metadata']['workout_type'] ?? null;
+            $metadataWorkoutType = $instance['metadata']['workout_type'] ?? $instance['workout_type'] ?? null;
             $workoutType        = $variantWorkoutType ?? $metadataWorkoutType ?? (self::SLOT_WORKOUT_TYPE[$slotType] ?? 'easy');
             $variantIF       = $instance['resolved_variant']['intensity_factor'] ?? null;
             $intensityFactor = (float)($variantIF ?? $instance['generation']['intensity_factor'] ?? 0.5);
