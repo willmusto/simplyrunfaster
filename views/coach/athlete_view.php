@@ -273,10 +273,107 @@ if ($activePlan && !empty($allWorkouts)) {
         margin-left: auto;
         align-self: center;
     }
-    @media (max-width: 767px) {
-        .macro-week-grid {
-            min-width: 760px;
+
+    /* Profile / key-value rows (desktop: label left, value right). */
+    .av-kv {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px 16px;
+        font-size: 12px;
+        padding: 4px 0;
+        border-bottom: 1px solid var(--divider);
+    }
+    .av-kv > span:first-child { color: var(--text-muted); }
+    .av-kv > span:last-child  { font-weight: 500; text-align: right; }
+
+    /* Messages preview (desktop: single-line ellipsis). */
+    .av-msg-preview {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-bottom: 10px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Header text block must be able to shrink so a long email wraps. */
+    .av-header-text { min-width: 0; }
+    .av-header-text .page-heading { overflow-wrap: anywhere; }
+    .av-header-email { overflow-wrap: anywhere; }
+
+    /* ── Mobile (≤768px): single full-width column, no horizontal overflow ── */
+    @media (max-width: 768px) {
+        /* Macro plan: stack each week's days into full-width rows. */
+        .macro-week-wrap {
+            overflow-x: visible;
+            padding-bottom: 0;
         }
+        .macro-week-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 0;
+        }
+        /* Calendar-alignment padding days carry no info in a stacked list. */
+        .macro-day-outside { display: none; }
+        .macro-day {
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 8px 12px;
+        }
+        .macro-day-date {
+            margin-bottom: 0;
+            flex: 0 0 auto;
+        }
+        .macro-day-body {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 4px;
+            min-width: 0;
+        }
+        /* Rest days: muted, lighter visual weight than workout days. */
+        .macro-day-empty { opacity: .7; }
+        .macro-rest {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .macro-workout {
+            width: auto;
+            margin-top: 0;
+            padding: 4px 0;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+        }
+        .macro-workout:hover { background: none; }
+        .macro-workout-row {
+            flex-wrap: nowrap;
+            justify-content: flex-end;
+        }
+
+        /* Profile rows: stack label above value so nothing clips. */
+        .av-kv {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 2px;
+        }
+        .av-kv > span:last-child { text-align: left; }
+
+        /* Message preview wraps instead of truncating to one line. */
+        .av-msg-preview { white-space: normal; }
+
+        /* Alert cards stack their header above the message text. */
+        .av-grid .roster-row {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        /* Comfortable touch targets for all action/dismiss buttons. */
+        .av-grid .btn { min-height: 44px; }
     }
 
     /* Workout detail popout — mirrors the #calWD modal in
@@ -327,9 +424,9 @@ if ($activePlan && !empty($allWorkouts)) {
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
         <a href="/app/coach/athletes" style="color:var(--text-muted);text-decoration:none;font-size:20px;">←</a>
         <div class="athlete-avatar"><?= h(avatar_initials($athlete['name'])) ?></div>
-        <div>
+        <div class="av-header-text">
             <div class="page-heading" style="margin-bottom:0;"><?= h($athlete['name']) ?></div>
-            <div style="font-size:12px;color:var(--text-muted);"><?= h($athlete['email']) ?></div>
+            <div class="av-header-email" style="font-size:12px;color:var(--text-muted);"><?= h($athlete['email']) ?></div>
         </div>
     </div>
 
@@ -504,8 +601,9 @@ if ($activePlan && !empty($allWorkouts)) {
                         <div class="macro-day<?= $dayClass ?>">
                             <?php if ($insidePlan): ?>
                             <div class="macro-day-date"><?= date('D M j', strtotime($date)) ?></div>
+                            <div class="macro-day-body">
                             <?php if (empty($dayWorkouts)): ?>
-                            <div style="font-size:12px;color:var(--text-muted);">Rest</div>
+                            <div class="macro-rest" style="font-size:12px;color:var(--text-muted);">Rest</div>
                             <?php else: ?>
                             <?php foreach ($dayWorkouts as $w):
                                 $score = isset($w['compliance_score']) && $w['compliance_score'] !== null
@@ -559,6 +657,7 @@ if ($activePlan && !empty($allWorkouts)) {
                             </button>
                             <?php endforeach; ?>
                             <?php endif; ?>
+                            </div><!-- /macro-day-body -->
                             <?php endif; ?>
                         </div>
                         <?php endforeach; ?>
@@ -633,10 +732,9 @@ if ($activePlan && !empty($allWorkouts)) {
             ]; ?>
             <?php foreach ($fields as $label => $value):
                 if (!$value) continue; ?>
-            <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;
-                        border-bottom:1px solid var(--divider);">
-                <span style="color:var(--text-muted);"><?= h($label) ?></span>
-                <span style="font-weight:500;"><?= h($value) ?></span>
+            <div class="av-kv">
+                <span><?= h($label) ?></span>
+                <span><?= h($value) ?></span>
             </div>
             <?php endforeach; ?>
         </div>
@@ -682,8 +780,7 @@ if ($activePlan && !empty($allWorkouts)) {
         <div class="section-label">MESSAGES</div>
         <div class="card">
             <?php if ($lastMessage): ?>
-            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;
-                        overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+            <div class="av-msg-preview">
                 <strong><?= $lastMessage['sender_role'] === 'athlete' ? h($athlete['name']) : 'You' ?>:</strong>
                 <?= h(mb_substr($lastMessage['body'], 0, 70)) ?>
             </div>
