@@ -29,23 +29,128 @@
     window.SRF = window.SRF || {};
 
     window.SRF.subscribePush = async function (vapidPublicKey) {
-        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return false;
 
         try {
-            const reg  = await navigator.serviceWorker.ready;
-            const sub  = await reg.pushManager.subscribe({
-                userVisibleOnly:      true,
-                applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-            });
-            await fetch('/push/subscribe', {
+            const reg = await navigator.serviceWorker.ready;
+            let sub   = await reg.pushManager.getSubscription();
+            if (!sub) {
+                sub = await reg.pushManager.subscribe({
+                    userVisibleOnly:      true,
+                    applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+                });
+            }
+            await fetch('/app/push/subscribe', {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
                 body:    JSON.stringify(sub.toJSON()),
             });
+            return true;
         } catch (e) {
             console.warn('[SRF] Push subscription failed', e);
+            return false;
         }
     };
+
+    // ── Push: auto-subscribe if granted, else one-time enable prompt ─────────
+    function initPush() {
+        var meta = document.querySelector('meta[name="vapid-key"]');
+        if (!meta || !meta.content) return;                    // not authed / not configured
+        if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+
+        var key = meta.content;
+        if (Notification.permission === 'granted') {
+            window.SRF.subscribePush(key);
+        } else if (Notification.permission === 'default' && localStorage.getItem('srf_push_dismissed') !== '1') {
+            showPushPrompt(key);
+        }
+    }
+
+    function showPushPrompt(key) {
+        if (document.querySelector('.push-prompt')) return;
+        var bar = document.createElement('div');
+        bar.className = 'push-prompt';
+        bar.innerHTML =
+            '<span class="push-prompt-text">Get notified about new plans, messages, and reminders.</span>' +
+            '<span class="push-prompt-actions">' +
+              '<button type="button" class="btn btn-primary btn-sm" data-push-enable>Enable notifications</button>' +
+              '<button type="button" class="push-prompt-dismiss" data-push-dismiss aria-label="Dismiss">&times;</button>' +
+            '</span>';
+        document.body.appendChild(bar);
+
+        bar.querySelector('[data-push-enable]').addEventListener('click', function () {
+            Notification.requestPermission().then(function (perm) {
+                if (perm === 'granted') window.SRF.subscribePush(key);
+                else localStorage.setItem('srf_push_dismissed', '1');
+                bar.remove();
+            });
+        });
+        bar.querySelector('[data-push-dismiss]').addEventListener('click', function () {
+            localStorage.setItem('srf_push_dismissed', '1');
+            bar.remove();
+        });
+    }
+
+    window.addEventListener('load', initPush);
+
+    // ── Notification preferences: immediate AJAX save on each change ─────────
+    function saveNotifPref(action, payload, el) {
+        if (el) el.classList.add('saving');
+        fetch(action, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+            body:    JSON.stringify(payload),
+        }).then(function (r) { return r.json(); })
+          .then(function (res) { flashSaved(el, !!(res && res.ok)); })
+          .catch(function () { flashSaved(el, false); });
+    }
+
+    function flashSaved(el, ok) {
+        if (el) el.classList.remove('saving');
+        var form = document.querySelector('[data-notif-form]');
+        if (!form) return;
+        var note = form.querySelector('[data-notif-status]');
+        if (!note) return;
+        note.textContent = ok ? 'Saved' : 'Could not save';
+        note.classList.toggle('is-error', !ok);
+        note.classList.add('visible');
+        clearTimeout(note._t);
+        note._t = setTimeout(function () { note.classList.remove('visible'); }, 1800);
+    }
+
+    document.addEventListener('change', function (e) {
+        var el = e.target.closest('[data-notif-type]');
+        if (!el) return;
+        var form = el.closest('[data-notif-form]');
+        if (!form) return;
+        var value = (el.type === 'checkbox') ? (el.checked ? 1 : 0) : el.value;
+        // Expand/collapse the channel detail when a row's master toggle flips.
+        if (el.getAttribute('data-notif-field') === 'enabled') {
+            var row = el.closest('.notif-row');
+            if (row) row.classList.toggle('is-off', !el.checked);
+        }
+        saveNotifPref(form.getAttribute('data-notif-action'), {
+            type:  el.getAttribute('data-notif-type'),
+            field: el.getAttribute('data-notif-field'),
+            value: value,
+        }, el);
+    });
+
+    // Single-select day picker for weekly notifications.
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-notif-daypicker] .day-btn[data-day]');
+        if (!btn) return;
+        var picker = btn.closest('[data-notif-daypicker]');
+        var form   = picker.closest('[data-notif-form]');
+        if (!form) return;
+        picker.querySelectorAll('.day-btn').forEach(function (b) { b.classList.remove('selected'); });
+        btn.classList.add('selected');
+        saveNotifPref(form.getAttribute('data-notif-action'), {
+            type:  picker.getAttribute('data-notif-type'),
+            field: 'preferred_day',
+            value: btn.getAttribute('data-day'),
+        }, btn);
+    });
 
     // ── Day-picker interactivity ─────────────────────────────
     document.addEventListener('click', function (e) {

@@ -121,9 +121,12 @@ self.addEventListener('notificationclick', function (event) {
     const url = event.notification.data || '/app';
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+            // Focus an already-open app window and navigate it to the target.
             for (const client of list) {
-                if (client.url === url && 'focus' in client) {
-                    return client.focus();
+                if (client.url.indexOf('/app') !== -1 && 'focus' in client) {
+                    return client.focus().then(function (c) {
+                        return (c && 'navigate' in c) ? c.navigate(url) : c;
+                    });
                 }
             }
             if (clients.openWindow) return clients.openWindow(url);

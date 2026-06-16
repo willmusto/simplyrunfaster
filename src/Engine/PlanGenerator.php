@@ -2680,6 +2680,21 @@ class PlanGenerator
              (plan_id, athlete_id, requested_at, request_reason, status)
              VALUES (?, ?, NOW(), ?, "pending")'
         )->execute([$planId, $athleteId, $trigger]);
+
+        // Notify the athlete's coach that a plan is waiting for review (always-on).
+        if (class_exists('Notifications')) {
+            try {
+                $ctx = Notifications::athleteContext($athleteId);
+                if ($ctx['coach_user_id']) {
+                    Notifications::send($ctx['coach_user_id'], 'plan_pending_approval', [
+                        'athlete_id'   => $athleteId,
+                        'athlete_name' => $ctx['athlete_name'],
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                error_log('PlanGenerator: plan_pending_approval notify failed: ' . $e->getMessage());
+            }
+        }
     }
 
     private static function raiseFlag(
@@ -2699,6 +2714,11 @@ class PlanGenerator
              (athlete_id, flag_type, severity, flag_date, details, message, status, created_at)
              VALUES (?, ?, ?, CURDATE(), ?, ?, "open", NOW())'
         )->execute([$athleteId, $flagType, $severity, $details ? json_encode($details) : null, $message]);
+
+        // Notify the coach (critical/warning are on by default; info is opt-in).
+        if (class_exists('Notifications')) {
+            Notifications::notifyFlag($athleteId, $severity, $message);
+        }
     }
 
     // ── Utility ──────────────────────────────────────────────────────────────

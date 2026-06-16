@@ -61,13 +61,20 @@
             ?>
         </div>
 
-        <div class="section-label">NOTIFICATIONS</div>
-        <div class="card" style="margin-bottom:16px;">
-            <p class="body-text">Notification preferences coming soon.</p>
-        </div>
-
         <button type="submit" class="btn btn-primary" data-dirty-save>Save settings</button>
     </form>
+
+    <div class="section-label" style="margin-top:24px;">NOTIFICATIONS</div>
+    <a href="/app/settings/notifications" class="card" style="display:flex;align-items:center;justify-content:space-between;
+       text-decoration:none;color:inherit;margin-bottom:16px;">
+        <div>
+            <div style="font-size:14px;font-weight:500;">Notification preferences</div>
+            <div style="font-size:13px;color:var(--text-muted);margin-top:2px;">
+                Push &amp; email, delivery times, quiet hours
+            </div>
+        </div>
+        <span style="color:var(--text-muted);font-size:20px;">›</span>
+    </a>
 
     <div class="divider" style="margin:24px 0;"></div>
 

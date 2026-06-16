@@ -344,6 +344,12 @@ class CoachController
                  WHERE plan_id = ? AND scheduled_date BETWEEN CURDATE() AND ?
                    AND visible_to_athlete = 0'
             )->execute([$planId, $horizon]);
+
+            // Notify the athlete their plan is ready (always-on: push + email).
+            $ctx = Notifications::athleteContext((int)$queue['athlete_id']);
+            if ($ctx['athlete_user_id']) {
+                Notifications::send($ctx['athlete_user_id'], 'plan_approved', []);
+            }
         }
 
         header('Location: /app/coach/approvals');
@@ -556,6 +562,48 @@ class CoachController
         include __DIR__ . '/../../views/layout/html_close.php';
     }
 
+    public static function notifications(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db               = Database::get();
+        $coachId          = Auth::userId();
+        Notifications::ensureUserDefaults($coachId, Auth::role());
+
+        $athletes         = self::getRosterAthletes($coachId, $db);
+        $openFlags        = self::getOpenFlagsCount($coachId, $db);
+        $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
+        [$prefs, $quiet]  = AthleteController::loadNotifPrefs($coachId, $db);
+
+        $notifAudience = 'coach';
+        $notifAction   = '/app/coach/settings/notifications';
+
+        $pageTitle = 'Notifications';
+        $activeNav = 'settings';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_coach.php';
+        include __DIR__ . '/../../views/coach/notifications.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    public static function notificationsSave(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+        header('Content-Type: application/json');
+
+        $in = json_decode(file_get_contents('php://input'), true) ?: [];
+        $ok = Notifications::applyPrefChange(
+            Auth::userId(),
+            (string)($in['type'] ?? ''),
+            (string)($in['field'] ?? ''),
+            $in['value'] ?? null
+        );
+        echo json_encode(['ok' => $ok]);
+        exit;
+    }
+
     public static function settingsSave(): void
     {
         Auth::requireRole(['coach','assistant_coach','admin']);
@@ -654,6 +702,16 @@ class CoachController
             'INSERT INTO messages (athlete_id, sender_id, sender_role, body, message_type)
              VALUES (?, ?, "coach", ?, "message")'
         )->execute([$athleteId, $coachId, $body]);
+
+        // Notify the athlete (always-on; email fallback if no push device).
+        $ctx = Notifications::athleteContext($athleteId);
+        if ($ctx['athlete_user_id']) {
+            Notifications::send($ctx['athlete_user_id'], 'message_from_coach', [
+                'sender_name'    => Auth::name() ?: 'Your coach',
+                'message'        => $body,
+                'email_fallback' => true,
+            ]);
+        }
 
         header('Location: /app/coach/athlete/' . $athleteId . '/messages');
         exit;

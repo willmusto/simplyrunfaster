@@ -19,6 +19,8 @@ require_once __DIR__ . '/config/config.php';
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/src/Router.php';
 require_once __DIR__ . '/src/Mailer.php';
+require_once __DIR__ . '/src/EmailTemplates.php';
+require_once __DIR__ . '/src/Notifications.php';
 require_once __DIR__ . '/src/Timezone.php';
 require_once __DIR__ . '/src/Auth.php';
 require_once __DIR__ . '/src/ProfileForm.php';
@@ -73,6 +75,8 @@ $router->post('/messages/send',    [AthleteController::class, 'messagesSend']);
 $router->post('/log/note',         [AthleteController::class, 'sessionNoteSave']);
 $router->get('/settings',          [AthleteController::class, 'settings']);
 $router->post('/settings',         [AthleteController::class, 'settingsSave']);
+$router->get('/settings/notifications',  [AthleteController::class, 'notifications']);
+$router->post('/settings/notifications', [AthleteController::class, 'notificationsSave']);
 $router->post('/settings/password',[AthleteController::class, 'changePasswordSubmit']);
 $router->get('/settings/training', [AthleteController::class, 'trainingSettings']);
 $router->post('/settings/training',[AthleteController::class, 'trainingSettingsSave']);
@@ -97,6 +101,8 @@ $router->get('/coach/library',            [CoachController::class, 'library']);
 $router->post('/coach/library',           [CoachController::class, 'libraryAddTemplate']);
 $router->get('/coach/settings',           [CoachController::class, 'settings']);
 $router->post('/coach/settings',          [CoachController::class, 'settingsSave']);
+$router->get('/coach/settings/notifications',  [CoachController::class, 'notifications']);
+$router->post('/coach/settings/notifications', [CoachController::class, 'notificationsSave']);
 
 // ── Theme toggle (POST, returns to referrer) ─────────────────
 $router->post('/theme', function () {
@@ -109,6 +115,45 @@ $router->post('/theme', function () {
     $stmt->execute([$theme, Auth::userId()]);
     $_SESSION['theme'] = $theme;
     header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? '/app'));
+    exit;
+});
+
+// ── Web Push subscription (saves a device to push_subscriptions) ─────────────
+$router->post('/push/subscribe', function () {
+    Auth::requireLogin();
+    Auth::verifyCsrf();
+    header('Content-Type: application/json');
+
+    $sub      = json_decode(file_get_contents('php://input'), true) ?: [];
+    $endpoint = $sub['endpoint'] ?? '';
+    $p256dh   = $sub['keys']['p256dh'] ?? '';
+    $auth     = $sub['keys']['auth'] ?? '';
+    if ($endpoint === '' || $p256dh === '' || $auth === '') {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'error' => 'incomplete subscription']);
+        exit;
+    }
+
+    $db     = Database::get();
+    $userId = Auth::userId();
+    $ua     = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
+
+    // Upsert by endpoint (endpoint is TEXT, so no unique index — match explicitly).
+    $find = $db->prepare('SELECT id FROM push_subscriptions WHERE endpoint = ? LIMIT 1');
+    $find->execute([$endpoint]);
+    $existing = $find->fetchColumn();
+
+    if ($existing) {
+        $db->prepare(
+            'UPDATE push_subscriptions SET user_id = ?, p256dh = ?, auth = ?, user_agent = ?, last_used_at = NOW() WHERE id = ?'
+        )->execute([$userId, $p256dh, $auth, $ua, $existing]);
+    } else {
+        $db->prepare(
+            'INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, user_agent) VALUES (?, ?, ?, ?, ?)'
+        )->execute([$userId, $endpoint, $p256dh, $auth, $ua]);
+    }
+
+    echo json_encode(['ok' => true]);
     exit;
 });
 

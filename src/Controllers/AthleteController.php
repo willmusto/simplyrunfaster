@@ -213,6 +213,15 @@ class AthleteController
             }
         }
 
+        // Notify the coach of a manual log (controllable, default off).
+        if (!empty($athlete['coach_id'])) {
+            Notifications::send((int)$athlete['coach_id'], 'athlete_manual_log', [
+                'athlete_id'   => $athleteId,
+                'athlete_name' => $athlete['name'] ?? 'Your athlete',
+                'workout_name' => trim($type . ' · ' . $duration . ' min'),
+            ]);
+        }
+
         header('Location: /app/log');
         exit;
     }
@@ -270,6 +279,61 @@ class AthleteController
         include __DIR__ . '/../../views/layout/nav_athlete.php';
         include __DIR__ . '/../../views/athlete/settings.php';
         include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    public static function notifications(): void
+    {
+        Auth::requireRole('athlete');
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $athlete = Auth::getAthlete();
+        $userId  = Auth::userId();
+        Notifications::ensureUserDefaults($userId, 'athlete');
+
+        $db   = Database::get();
+        [$prefs, $quiet] = self::loadNotifPrefs($userId, $db);
+        $unreadMessages  = $athlete ? self::getUnreadCount((int)$athlete['id'], $db) : 0;
+
+        $notifAudience = 'athlete';
+        $notifAction   = '/app/settings/notifications';
+
+        $pageTitle = 'Notifications';
+        $activeTab = 'settings';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_athlete.php';
+        include __DIR__ . '/../../views/athlete/notifications.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    public static function notificationsSave(): void
+    {
+        Auth::requireRole('athlete');
+        Auth::verifyCsrf();
+        header('Content-Type: application/json');
+
+        $in = json_decode(file_get_contents('php://input'), true) ?: [];
+        $ok = Notifications::applyPrefChange(
+            Auth::userId(),
+            (string)($in['type'] ?? ''),
+            (string)($in['field'] ?? ''),
+            $in['value'] ?? null
+        );
+        echo json_encode(['ok' => $ok]);
+        exit;
+    }
+
+    /** Load a user's preference rows into [type => row] plus the quiet-hours window. */
+    public static function loadNotifPrefs(int $userId, PDO $db): array
+    {
+        $stmt = $db->prepare('SELECT * FROM notification_preferences WHERE user_id = ?');
+        $stmt->execute([$userId]);
+        $prefs = [];
+        $quiet = ['start' => '22:00:00', 'end' => '07:00:00'];
+        foreach ($stmt->fetchAll() as $r) {
+            $prefs[$r['notification_type']] = $r;
+            $quiet = ['start' => $r['quiet_hours_start'], 'end' => $r['quiet_hours_end']];
+        }
+        return [$prefs, $quiet];
     }
 
     public static function changePasswordSubmit(): void
@@ -478,6 +542,16 @@ class AthleteController
              VALUES (?, ?, "athlete", ?, "message")'
         )->execute([(int)$athlete['id'], Auth::userId(), $body]);
 
+        // Notify the coach (always-on; email fallback if no push device).
+        if (!empty($athlete['coach_id'])) {
+            Notifications::send((int)$athlete['coach_id'], 'message_from_athlete', [
+                'athlete_id'     => (int)$athlete['id'],
+                'sender_name'    => $athlete['name'] ?? 'Your athlete',
+                'message'        => $body,
+                'email_fallback' => true,
+            ]);
+        }
+
         header('Location: /app/messages');
         exit;
     }
@@ -523,6 +597,19 @@ class AthleteController
             'INSERT INTO messages (athlete_id, sender_id, sender_role, body, message_type, completed_workout_id)
              VALUES (?, ?, "athlete", ?, "session_note", ?)'
         )->execute([$athleteId, $userId, $body, $cwId]);
+
+        // Notify the coach a session note was added (controllable, default on).
+        if (!empty($athlete['coach_id'])) {
+            $w = $db->prepare('SELECT workout_type, activity_date FROM completed_workouts WHERE id = ? LIMIT 1');
+            $w->execute([$cwId]);
+            $cw = $w->fetch() ?: [];
+            $label = $cw ? trim(($cw['workout_type'] ?? '') . ' session on ' . ($cw['activity_date'] ?? '')) : 'a session';
+            Notifications::send((int)$athlete['coach_id'], 'athlete_session_note', [
+                'athlete_id'   => $athleteId,
+                'athlete_name' => $athlete['name'] ?? 'Your athlete',
+                'workout_name' => $label,
+            ]);
+        }
 
         header('Location: /app/log');
         exit;

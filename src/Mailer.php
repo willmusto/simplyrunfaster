@@ -16,10 +16,11 @@ class Mailer
      * @param string      $to      Recipient address.
      * @param string      $subject Subject line.
      * @param string      $html    HTML body.
+     * @param string|null $text    Optional plain-text fallback part.
      * @param string|null $from    Optional from override; defaults to noreply@simplyrunfaster.com.
      * @return bool                True on success, false on failure (failures are logged).
      */
-    public static function send(string $to, string $subject, string $html, ?string $from = null): bool
+    public static function send(string $to, string $subject, string $html, ?string $text = null, ?string $from = null): bool
     {
         $apiKey = defined('RESEND_API_KEY') ? RESEND_API_KEY : '';
         if ($apiKey === '') {
@@ -33,13 +34,17 @@ class Mailer
         }
 
         try {
-            $resend   = Resend::client($apiKey);
-            $response = $resend->emails->send([
+            $resend  = Resend::client($apiKey);
+            $payload = [
                 'from'    => $from ?: self::DEFAULT_FROM,
                 'to'      => [$to],
                 'subject' => $subject,
                 'html'    => $html,
-            ]);
+            ];
+            if ($text !== null && $text !== '') {
+                $payload['text'] = $text;
+            }
+            $response = $resend->emails->send($payload);
 
             error_log('Mailer: sent email to ' . $to . ' (id: ' . ($response->id ?? 'unknown') . ')');
             return true;

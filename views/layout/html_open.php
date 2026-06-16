@@ -7,6 +7,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="csrf-token" content="<?= h(Auth::csrfToken()) ?>">
+    <?php if (Auth::check() && defined('VAPID_PUBLIC_KEY') && VAPID_PUBLIC_KEY !== ''): ?>
+    <meta name="vapid-key" content="<?= h(VAPID_PUBLIC_KEY) ?>">
+    <?php endif; ?>
 
     <title><?= h($pageTitle ?? 'SimplyRunFaster') ?> | SimplyRunFaster</title>
 
