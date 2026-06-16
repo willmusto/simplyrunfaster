@@ -1117,15 +1117,33 @@ class PlanGenerator
         $trainSoFar = $anchors;
 
         for ($i = 0; $i < $addlNeeded && !empty($remaining); $i++) {
-            $bestDay = null;
+            // First pass: find the best max-gap score and every candidate that ties it.
             $bestGap = -1;
+            $tied    = [];
             foreach ($remaining as $candidate) {
                 $minGap = 7;
                 foreach ($trainSoFar as $t) {
                     $g      = min(abs($candidate - $t), 7 - abs($candidate - $t));
                     $minGap = min($minGap, $g);
                 }
-                if ($minGap > $bestGap) { $bestGap = $minGap; $bestDay = $candidate; }
+                if ($minGap > $bestGap)      { $bestGap = $minGap; $tied = [$candidate]; }
+                elseif ($minGap === $bestGap) { $tied[] = $candidate; }
+            }
+            // Tiebreaker: when several placements share the best gap score the bare
+            // greedy would pick the lowest-numbered day, which for full-availability
+            // athletes degenerates into adjacent rest-day clusters (e.g. Fri+Sat both
+            // off before a Sunday long run). Prefer the placement that minimizes the
+            // largest contiguous rest block in the resulting weekly schedule. With
+            // constrained availability there is usually no tie, so behavior is unchanged.
+            $bestDay = null;
+            if (count($tied) === 1) {
+                $bestDay = $tied[0];
+            } elseif (count($tied) > 1) {
+                $bestBlock = PHP_INT_MAX;
+                foreach ($tied as $candidate) {
+                    $block = self::largestRestBlock(array_merge($trainSoFar, [$candidate]));
+                    if ($block < $bestBlock) { $bestBlock = $block; $bestDay = $candidate; }
+                }
             }
             if ($bestDay !== null) {
                 $addlDays[]   = $bestDay;
@@ -1207,6 +1225,30 @@ class PlanGenerator
         }
 
         return $schedule;
+    }
+
+    /**
+     * Length of the longest run of consecutive non-training (rest) days across the
+     * circular week, given the set of training day indices (0=Sun … 6=Sat). Used as
+     * the greedy day-selection tiebreaker so equal max-gap placements prefer the one
+     * that breaks up rest clusters rather than bunching rest days together.
+     */
+    private static function largestRestBlock(array $runDays): int
+    {
+        $isRun = array_fill(0, 7, false);
+        foreach ($runDays as $d) {
+            $d = (int)$d;
+            if ($d >= 0 && $d <= 6) $isRun[$d] = true;
+        }
+        // No training days at all → the whole week is one rest block.
+        if (!in_array(true, $isRun, true)) return 7;
+        // Walk twice around the week so a block spanning the Sat→Sun wrap is counted.
+        $max = 0; $cur = 0;
+        for ($i = 0; $i < 14; $i++) {
+            if ($isRun[$i % 7]) { $cur = 0; }
+            else { $cur++; $max = max($max, $cur); }
+        }
+        return min($max, 7);
     }
 
     /**
