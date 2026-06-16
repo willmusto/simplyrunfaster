@@ -238,6 +238,169 @@
         }, 4000);
     });
 
+    // ── Messages: live thread (send, poll, auto-scroll) ──────
+    function initMessaging() {
+        var screen = document.getElementById('msgScreen');
+        if (!screen) return;
+
+        var scroll = document.getElementById('msgScroll');
+        var thread = document.getElementById('msgThread');
+        var form   = document.getElementById('msgForm');
+        if (!scroll || !thread || !form) return;
+
+        var input   = form.querySelector('.msg-compose-input');
+        var sendBtn = form.querySelector('.msg-compose-send');
+        var pollUrl = screen.getAttribute('data-poll-url');
+        var sendUrl = screen.getAttribute('data-send-url');
+        var role    = screen.getAttribute('data-role');             // 'athlete' | 'coach'
+        var lastId  = parseInt(screen.getAttribute('data-last-id'), 10) || 0;
+        var POLL_MS = 10000;
+        var pollTimer = null;
+
+        function scrollToBottom() { scroll.scrollTop = scroll.scrollHeight; }
+        function nearBottom() {
+            return (scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight) < 80;
+        }
+        function esc(s) {
+            var d = document.createElement('div');
+            d.textContent = (s == null ? '' : String(s));
+            return d.innerHTML;
+        }
+
+        function makeSeparator(label) {
+            var el = document.createElement('div');
+            el.className = 'msg-time-sep';
+            el.textContent = label || '';
+            return el;
+        }
+
+        function makeRow(msg) {
+            var rows     = thread.querySelectorAll('.msg-row');
+            var last     = rows.length ? rows[rows.length - 1] : null;
+            var prevMine = last ? last.getAttribute('data-mine') : null;
+            var mine     = msg.mine ? '1' : '0';
+
+            var row = document.createElement('div');
+            row.className = 'msg-row ' + (msg.mine ? 'athlete' : 'coach')
+                          + (prevMine !== null && prevMine !== mine ? ' sender-switch' : '');
+            row.setAttribute('data-msg-id', msg.id);
+            row.setAttribute('data-ts', msg.ts);
+            row.setAttribute('data-mine', mine);
+
+            var isNote = (msg.type === 'session_note' || msg.type === 'session_note_reply');
+            if (isNote) {
+                var head = '📍 ' + esc(msg.session_type || 'Workout')
+                         + (msg.session_date_label ? ' · ' + esc(msg.session_date_label) : '');
+                var link = (role === 'athlete')
+                         ? '<a href="/app/log" class="msg-session-link">View in log →</a>' : '';
+                row.innerHTML =
+                    '<div class="msg-session-card">' +
+                        '<div class="msg-session-card-header">' + head + '</div>' +
+                        '<div class="msg-session-card-body">' + esc(msg.body) + '</div>' +
+                        link +
+                    '</div>';
+            } else {
+                var bubble = document.createElement('div');
+                bubble.className = 'msg-bubble';
+                bubble.innerHTML = esc(msg.body).replace(/\n/g, '<br>');
+                row.appendChild(bubble);
+            }
+            return row;
+        }
+
+        // Append one message; returns true if it was new (deduped by id).
+        function appendMessage(msg) {
+            if (!msg || !msg.id) return false;
+            if (thread.querySelector('[data-msg-id="' + msg.id + '"]')) return false;
+
+            var rows   = thread.querySelectorAll('.msg-row');
+            var last   = rows.length ? rows[rows.length - 1] : null;
+            var prevTs = last ? parseInt(last.getAttribute('data-ts'), 10) : null;
+            if (prevTs === null || (msg.ts - prevTs) > 3600) {
+                thread.appendChild(makeSeparator(msg.time_label));
+            }
+            thread.appendChild(makeRow(msg));
+            if (msg.id > lastId) lastId = msg.id;
+            return true;
+        }
+
+        // ── Send ──
+        function send() {
+            var body = (input.value || '').trim();
+            if (!body || sendBtn.disabled) return;
+            sendBtn.disabled = true;
+            input.value = '';
+            input.style.height = 'auto';
+
+            fetch(sendUrl, {
+                method:  'POST',
+                headers: {
+                    'Content-Type':     'application/x-www-form-urlencoded',
+                    'X-CSRF-Token':     getCsrf(),
+                    'X-Requested-With': 'fetch',
+                },
+                body: 'body=' + encodeURIComponent(body),
+            }).then(function (r) { return r.json(); })
+              .then(function (res) {
+                  if (res && res.ok && res.message) {
+                      appendMessage(res.message);
+                      scrollToBottom();
+                  } else {
+                      input.value = body;            // restore so the user can retry
+                  }
+              }).catch(function () {
+                  input.value = body;
+              }).then(function () {
+                  sendBtn.disabled = false;
+                  input.focus();
+              });
+        }
+
+        form.addEventListener('submit', function (e) { e.preventDefault(); send(); });
+
+        // Auto-grow + Enter-to-send (Shift+Enter = newline)
+        input.addEventListener('input', function () {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+        });
+
+        // ── Poll ──
+        function poll() {
+            fetch(pollUrl + '?after=' + lastId, { headers: { 'X-Requested-With': 'fetch' } })
+                .then(function (r) { return r.json(); })
+                .then(function (list) {
+                    if (!Array.isArray(list) || !list.length) return;
+                    var stick = nearBottom();
+                    var added = false;
+                    list.forEach(function (m) { if (appendMessage(m)) added = true; });
+                    if (added && stick) scrollToBottom();
+                }).catch(function () {});
+        }
+
+        function startPolling() {
+            if (pollTimer) return;
+            pollTimer = setInterval(poll, POLL_MS);
+        }
+        function stopPolling() {
+            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        }
+
+        document.addEventListener('visibilitychange', function () {
+            if (document.hidden) { stopPolling(); }
+            else { poll(); startPolling(); }     // catch up immediately, then resume
+        });
+        window.addEventListener('pagehide', stopPolling);
+
+        // Initial state: scroll to the most recent message, begin polling.
+        scrollToBottom();
+        startPolling();
+    }
+
+    window.addEventListener('load', initMessaging);
+
     // ── Helpers ──────────────────────────────────────────────
     function urlBase64ToUint8Array(base64String) {
         const padding = '='.repeat((4 - base64String.length % 4) % 4);

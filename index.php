@@ -71,6 +71,7 @@ $router->get('/log',        [AthleteController::class, 'log']);
 $router->post('/log/manual',[AthleteController::class, 'manualLog']);
 $router->get('/progress',   [AthleteController::class, 'progress']);
 $router->get('/messages',          [AthleteController::class, 'messages']);
+$router->get('/messages/poll',     [AthleteController::class, 'messagesPoll']);
 $router->post('/messages/send',    [AthleteController::class, 'messagesSend']);
 $router->post('/log/note',         [AthleteController::class, 'sessionNoteSave']);
 $router->get('/settings',          [AthleteController::class, 'settings']);
@@ -89,6 +90,7 @@ $router->get('/coach/athlete/:id',             [CoachController::class, 'athlete
 $router->get('/coach/athlete/:id/edit',         [CoachController::class, 'editProfile']);
 $router->post('/coach/athlete/:id/edit',        [CoachController::class, 'editProfileSave']);
 $router->get('/coach/athlete/:id/messages',         [CoachController::class, 'coachMessages']);
+$router->get('/coach/athlete/:id/messages/poll',    [CoachController::class, 'coachMessagesPoll']);
 $router->post('/coach/athlete/:id/messages/send',   [CoachController::class, 'coachMessagesSend']);
 $router->post('/coach/athlete/:id/generate-plan',   [CoachController::class, 'generatePlan']);
 $router->get('/coach/approvals',                    [CoachController::class, 'approvals']);

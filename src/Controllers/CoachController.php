@@ -668,6 +668,7 @@ class CoachController
         $athletes         = self::getRosterAthletes($coachId, $db);
         $openFlags        = self::getOpenFlagsCount($coachId, $db);
         $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
+        $planPhase        = self::currentPlanPhase(self::getActivePlanDetail($athleteId, $db));
 
         $pageTitle = h($athlete['name']) . ' — Messages';
         $activeNav = 'athletes';
@@ -681,27 +682,24 @@ class CoachController
     {
         Auth::requireRole(['coach','assistant_coach','admin']);
         Auth::verifyCsrf();
+        $isAjax = self::wantsJson();
 
         $coachId   = Auth::userId();
         $athleteId = (int)($params['id'] ?? 0);
         $db        = Database::get();
+        $back      = '/app/coach/athlete/' . $athleteId . '/messages';
 
         $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
-        if (!$athlete) {
-            header('Location: /app/coach/athletes');
-            exit;
-        }
-
-        $body = trim($_POST['body'] ?? '');
-        if (!$body || mb_strlen($body) > 2000) {
-            header('Location: /app/coach/athlete/' . $athleteId . '/messages');
-            exit;
+        $body    = trim($_POST['body'] ?? '');
+        if (!$athlete || !$body || mb_strlen($body) > 2000) {
+            self::redirectOrJson($isAjax, $athlete ? $back : '/app/coach/athletes', ['ok' => false]);
         }
 
         $db->prepare(
             'INSERT INTO messages (athlete_id, sender_id, sender_role, body, message_type)
              VALUES (?, ?, "coach", ?, "message")'
         )->execute([$athleteId, $coachId, $body]);
+        $msgId = (int)$db->lastInsertId();
 
         // Notify the athlete (always-on; email fallback if no push device).
         $ctx = Notifications::athleteContext($athleteId);
@@ -713,8 +711,139 @@ class CoachController
             ]);
         }
 
-        header('Location: /app/coach/athlete/' . $athleteId . '/messages');
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => true, 'message' => self::fetchMessageJson($db, $msgId, (int)$coachId)]);
+            exit;
+        }
+        header('Location: ' . $back);
         exit;
+    }
+
+    /**
+     * Lightweight poll: JSON array of messages newer than ?after=<id> for an
+     * athlete's thread. Same auth/scope as coachMessages().
+     */
+    public static function coachMessagesPoll(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        header('Content-Type: application/json');
+
+        $db        = Database::get();
+        $coachId   = (int)Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) { http_response_code(404); echo json_encode([]); exit; }
+
+        $after = (int)($_GET['after'] ?? 0);
+
+        $stmt = $db->prepare(
+            'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date
+             FROM messages m
+             LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
+             WHERE m.athlete_id = ? AND m.id > ?
+             ORDER BY m.sent_at ASC, m.id ASC
+             LIMIT 100'
+        );
+        $stmt->execute([$athleteId, $after]);
+        $rows = $stmt->fetchAll();
+
+        // Coach is actively viewing — mark newly-arrived athlete messages read.
+        $db->prepare(
+            'UPDATE messages SET read_at = NOW()
+             WHERE athlete_id = ? AND id > ? AND sender_role = "athlete" AND read_at IS NULL'
+        )->execute([$athleteId, $after]);
+
+        echo json_encode(self::serializeMessages($rows, $coachId));
+        exit;
+    }
+
+    // ── Messaging JSON helpers ─────────────────────────────────
+
+    /** True when the request expects a JSON response (fetch-based send). */
+    private static function wantsJson(): bool
+    {
+        return ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'fetch';
+    }
+
+    private static function redirectOrJson(bool $isAjax, string $location, array $payload): void
+    {
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode($payload);
+        } else {
+            header('Location: ' . $location);
+        }
+        exit;
+    }
+
+    private static function fetchMessageJson(PDO $db, int $id, int $viewerId): ?array
+    {
+        $stmt = $db->prepare(
+            'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date
+             FROM messages m
+             LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
+             WHERE m.id = ? LIMIT 1'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        if (!$row) return null;
+        return self::serializeMessages([$row], $viewerId)[0] ?? null;
+    }
+
+    /** @param array<int,array> $rows */
+    private static function serializeMessages(array $rows, int $viewerId): array
+    {
+        $out = [];
+        foreach ($rows as $m) {
+            $dt = Timezone::toLocal($m['sent_at']);
+            $out[] = [
+                'id'                 => (int)$m['id'],
+                'mine'               => ((int)$m['sender_id'] === $viewerId),
+                'body'               => $m['body'],
+                'type'               => $m['message_type'],
+                'ts'                 => $dt->getTimestamp(),
+                'time_label'         => $dt->format('M j · g:ia'),
+                'session_type'       => !empty($m['session_type'])
+                    ? ucfirst(str_replace('_', ' ', $m['session_type'])) : null,
+                'session_date_label' => !empty($m['session_date'])
+                    ? date('M j', strtotime($m['session_date'])) : null,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * A lightweight "current plan phase" label for the messages context header.
+     * Fixed-label plan types map directly; race_cycle is approximated from how
+     * far through the plan window today falls (full block phasing lives in the
+     * athlete plan view). Returns null when there's no active plan.
+     */
+    private static function currentPlanPhase(?array $plan): ?string
+    {
+        if (!$plan) return null;
+        $type  = (string)($plan['plan_type'] ?? '');
+        $fixed = [
+            'development_plan'   => 'Base',
+            'maintenance_plan'   => 'Build',
+            'return_to_running'  => 'Return',
+            'recovery_block'     => 'Recovery',
+        ];
+        if (isset($fixed[$type])) return $fixed[$type];
+        if ($type !== 'race_cycle') {
+            return $type !== '' ? ucfirst(str_replace('_', ' ', $type)) : null;
+        }
+
+        $start = strtotime((string)($plan['plan_start_date'] ?? ''));
+        $end   = strtotime((string)($plan['plan_end_date'] ?? ''));
+        if ($start === false || $end === false || $end <= $start) return 'Race cycle';
+
+        $frac = max(0.0, min(1.0, (time() - $start) / ($end - $start)));
+        if ($frac >= 0.80) return 'Taper';
+        if ($frac >= 0.60) return 'Peak';
+        if ($frac >= 0.30) return 'Build';
+        return 'Base';
     }
 
     // ── Data helpers ───────────────────────────────────────────

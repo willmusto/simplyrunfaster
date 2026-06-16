@@ -523,17 +523,12 @@ class AthleteController
     {
         Auth::requireRole('athlete');
         Auth::verifyCsrf();
+        $isAjax = self::wantsJson();
 
         $athlete = Auth::getAthlete();
-        if (!$athlete) {
-            header('Location: /app/messages');
-            exit;
-        }
-
-        $body = trim($_POST['body'] ?? '');
-        if (!$body || mb_strlen($body) > 2000) {
-            header('Location: /app/messages');
-            exit;
+        $body    = trim($_POST['body'] ?? '');
+        if (!$athlete || !$body || mb_strlen($body) > 2000) {
+            self::redirectOrJson($isAjax, '/app/messages', ['ok' => false]);
         }
 
         $db = Database::get();
@@ -541,6 +536,7 @@ class AthleteController
             'INSERT INTO messages (athlete_id, sender_id, sender_role, body, message_type)
              VALUES (?, ?, "athlete", ?, "message")'
         )->execute([(int)$athlete['id'], Auth::userId(), $body]);
+        $msgId = (int)$db->lastInsertId();
 
         // Notify the coach (always-on; email fallback if no push device).
         if (!empty($athlete['coach_id'])) {
@@ -552,8 +548,105 @@ class AthleteController
             ]);
         }
 
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => true, 'message' => self::fetchMessageJson($db, $msgId, (int)Auth::userId())]);
+            exit;
+        }
         header('Location: /app/messages');
         exit;
+    }
+
+    /**
+     * Lightweight poll: JSON array of messages newer than ?after=<id> for the
+     * logged-in athlete's thread. Mirrors the auth/scope of messages().
+     */
+    public static function messagesPoll(): void
+    {
+        Auth::requireRole('athlete');
+        header('Content-Type: application/json');
+
+        $athlete = Auth::getAthlete();
+        if (!$athlete) { echo json_encode([]); exit; }
+
+        $db        = Database::get();
+        $athleteId = (int)$athlete['id'];
+        $after     = (int)($_GET['after'] ?? 0);
+
+        $stmt = $db->prepare(
+            'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date
+             FROM messages m
+             LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
+             WHERE m.athlete_id = ? AND m.id > ?
+             ORDER BY m.sent_at ASC, m.id ASC
+             LIMIT 100'
+        );
+        $stmt->execute([$athleteId, $after]);
+        $rows = $stmt->fetchAll();
+
+        // The athlete is actively viewing — mark newly-arrived coach messages read.
+        $db->prepare(
+            'UPDATE messages SET read_at = NOW()
+             WHERE athlete_id = ? AND id > ? AND sender_role = "coach" AND read_at IS NULL'
+        )->execute([$athleteId, $after]);
+
+        echo json_encode(self::serializeMessages($rows, (int)Auth::userId()));
+        exit;
+    }
+
+    // ── Messaging JSON helpers ─────────────────────────────────
+
+    /** True when the request expects a JSON response (fetch-based send). */
+    private static function wantsJson(): bool
+    {
+        return ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'fetch';
+    }
+
+    private static function redirectOrJson(bool $isAjax, string $location, array $payload): void
+    {
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode($payload);
+        } else {
+            header('Location: ' . $location);
+        }
+        exit;
+    }
+
+    private static function fetchMessageJson(PDO $db, int $id, int $viewerId): ?array
+    {
+        $stmt = $db->prepare(
+            'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date
+             FROM messages m
+             LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
+             WHERE m.id = ? LIMIT 1'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        if (!$row) return null;
+        return self::serializeMessages([$row], $viewerId)[0] ?? null;
+    }
+
+    /** @param array<int,array> $rows */
+    private static function serializeMessages(array $rows, int $viewerId): array
+    {
+        $out = [];
+        foreach ($rows as $m) {
+            $dt = Timezone::toLocal($m['sent_at']);
+            $out[] = [
+                'id'                 => (int)$m['id'],
+                'mine'               => ((int)$m['sender_id'] === $viewerId),
+                'body'               => $m['body'],
+                'type'               => $m['message_type'],
+                'ts'                 => $dt->getTimestamp(),
+                'time_label'         => $dt->format('M j · g:ia'),
+                'session_type'       => !empty($m['session_type'])
+                    ? ucfirst(str_replace('_', ' ', $m['session_type'])) : null,
+                'session_date_label' => !empty($m['session_date'])
+                    ? date('M j', strtotime($m['session_date'])) : null,
+            ];
+        }
+        return $out;
     }
 
     public static function sessionNoteSave(): void
