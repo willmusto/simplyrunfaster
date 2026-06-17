@@ -297,12 +297,19 @@
 
             var wname = msg.workout_name || msg.session_type || 'Session note';
             var cwId  = msg.completed_workout_id || 0;
+            var pwId  = msg.planned_workout_id || 0;
             if (msg.type === 'session_note') {
                 var head = '📍 ' + esc(wname)
                          + (msg.session_date_label ? ' · ' + esc(msg.session_date_label) : '');
                 var prev = (msg.body && msg.body.length > 120) ? msg.body.slice(0, 120) + '…' : (msg.body || '');
-                var link = (role === 'athlete' && cwId)
-                         ? '<a href="/app/log/' + cwId + '" class="msg-session-link">View session →</a>' : '';
+                var link = '';
+                if (pwId) {
+                    link = (role === 'coach')
+                         ? '<a href="/app/coach/workout/' + pwId + '/thread" class="msg-session-link">View thread →</a>'
+                         : '<a href="/app/messages/workout/' + pwId + '" class="msg-session-link">View thread →</a>';
+                } else if (role === 'athlete' && cwId) {
+                    link = '<a href="/app/log/' + cwId + '" class="msg-session-link">View session →</a>';
+                }
                 var rc      = msg.reply_count || 0;
                 var replies = rc > 0
                     ? '<div class="msg-session-replies" style="font-size:11px;color:var(--text-muted);margin-top:4px;">'

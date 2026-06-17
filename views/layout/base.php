@@ -109,6 +109,28 @@ function goal_distance_label(?string $value, bool $isHyrox = false, bool $forCoa
     return race_distance_label($value);
 }
 
+/**
+ * "Message coach about this workout" button for the Today/Plan workout cards.
+ * $replyCount: null = no thread yet, 0 = one message awaiting reply, >0 = active thread.
+ */
+function render_workout_thread_button(int $plannedWorkoutId, ?int $replyCount): string
+{
+    $href = '/app/messages/workout/' . $plannedWorkoutId;
+    if ($replyCount === null) {
+        $label = 'Ask your coach about this workout';
+        $style = '';
+    } elseif ($replyCount <= 0) {
+        $label = '1 message · waiting for reply';
+        $style = 'color:var(--text-muted);';
+    } else {
+        $label = 'View thread (' . $replyCount . ' ' . ($replyCount === 1 ? 'reply' : 'replies') . ')';
+        $style = '';
+    }
+    return '<a href="' . htmlspecialchars($href, ENT_QUOTES, 'UTF-8')
+        . '" class="btn btn-secondary btn-sm" style="display:inline-block;margin-top:10px;' . $style . '">'
+        . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</a>';
+}
+
 function format_pace(float $pace): string
 {
     $min = intval($pace);

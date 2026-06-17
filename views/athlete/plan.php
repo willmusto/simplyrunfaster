@@ -155,6 +155,9 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
                 On your watch
             </div>
             <?php endif; ?>
+
+            <?php $wid = (int)$w['id']; ?>
+            <div><?= render_workout_thread_button($wid, (($threadState ?? [])[$wid] ?? null)) ?></div>
         </div>
         <?php endforeach; ?>
         <?php endif; ?>

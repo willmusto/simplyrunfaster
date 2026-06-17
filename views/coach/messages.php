@@ -75,6 +75,9 @@ $lastMessageId = $messages ? (int)end($messages)['id'] : 0;
                         <?= $replyCount ?> <?= $replyCount === 1 ? 'reply' : 'replies' ?>
                     </div>
                     <?php endif; ?>
+                    <?php if (!empty($msg['planned_workout_id'])): ?>
+                    <a href="/app/coach/workout/<?= (int)$msg['planned_workout_id'] ?>/thread" class="msg-session-link">View thread →</a>
+                    <?php endif; ?>
                     <?php if (!empty($msg['completed_workout_id'])): ?>
                     <button type="button" class="msg-session-comment-toggle"
                             onclick="this.style.display='none';document.getElementById('sc-<?= (int)$msg['id'] ?>').style.display='block'">

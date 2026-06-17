@@ -447,10 +447,12 @@ CREATE TABLE IF NOT EXISTS `messages` (
     `push_sent`             TINYINT(1) NOT NULL DEFAULT 0,
     `message_type`          ENUM('message','session_note','session_note_reply') NOT NULL DEFAULT 'message',
     `completed_workout_id`  INT UNSIGNED DEFAULT NULL COMMENT 'session thread origin',
+    `planned_workout_id`    INT UNSIGNED DEFAULT NULL COMMENT 'session card link to a planned workout (available pre-completion)',
     `thread_id`             INT UNSIGNED DEFAULT NULL COMMENT 'self-referencing for session threads',
     PRIMARY KEY (`id`),
     KEY `idx_msg_athlete` (`athlete_id`, `sent_at`),
-    KEY `idx_msg_unread` (`athlete_id`, `read_at`)
+    KEY `idx_msg_unread` (`athlete_id`, `read_at`),
+    KEY `idx_msg_planned` (`planned_workout_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
 -- ============================================================
@@ -459,7 +461,8 @@ CREATE TABLE IF NOT EXISTS `messages` (
 
 CREATE TABLE IF NOT EXISTS `session_notes` (
     `id`                    INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `completed_workout_id`  INT UNSIGNED NOT NULL,
+    `completed_workout_id`  INT UNSIGNED DEFAULT NULL COMMENT 'set once the workout is completed; NULL for pre-completion notes',
+    `planned_workout_id`    INT UNSIGNED DEFAULT NULL COMMENT 'thread link to a planned workout (available pre-completion)',
     `athlete_id`            INT UNSIGNED NOT NULL,
     `author_id`             INT UNSIGNED NOT NULL,
     `author_role`           ENUM('athlete','coach','assistant_coach') NOT NULL,
@@ -469,6 +472,7 @@ CREATE TABLE IF NOT EXISTS `session_notes` (
     `created_at`            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_sn_workout` (`completed_workout_id`),
+    KEY `idx_sn_planned` (`planned_workout_id`),
     KEY `idx_sn_athlete` (`athlete_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 

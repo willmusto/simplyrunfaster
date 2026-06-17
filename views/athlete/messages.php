@@ -43,6 +43,7 @@ $lastMessageId = $messages ? (int)end($messages)['id'] : 0;
                 $isNote        = $msg['message_type'] === 'session_note';
                 $isReply       = $msg['message_type'] === 'session_note_reply';
                 $cwId          = (int)($msg['completed_workout_id'] ?? 0);
+                $pwId          = (int)($msg['planned_workout_id'] ?? 0);
                 $sessionName   = trim((string)($msg['session_title'] ?? ''))
                     ?: (!empty($msg['session_type']) ? ucfirst(str_replace('_', ' ', $msg['session_type'])) : 'Session note');
                 $replyCount    = (int)($msg['reply_count'] ?? 0);
@@ -71,7 +72,9 @@ $lastMessageId = $messages ? (int)end($messages)['id'] : 0;
                         <?= $replyCount ?> <?= $replyCount === 1 ? 'reply' : 'replies' ?>
                     </div>
                     <?php endif; ?>
-                    <?php if ($cwId): ?>
+                    <?php if ($pwId): ?>
+                    <a href="/app/messages/workout/<?= $pwId ?>" class="msg-session-link">View thread →</a>
+                    <?php elseif ($cwId): ?>
                     <a href="/app/log/<?= $cwId ?>" class="msg-session-link">View session →</a>
                     <?php endif; ?>
                 </div>

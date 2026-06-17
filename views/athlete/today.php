@@ -241,6 +241,7 @@ $localHour = (int)Timezone::dateInZone($tz, 'now', 'G');
                     <?php if ($isToday): ?>
                     <a href="/log" class="btn btn-primary btn-sm">Log this workout →</a>
                     <?php endif; ?>
+                    <div><?= render_workout_thread_button($wid, ($threadState[$wid] ?? null)) ?></div>
                 </div>
             </div>
         </div>

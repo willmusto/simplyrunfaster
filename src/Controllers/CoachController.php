@@ -1167,12 +1167,18 @@ class CoachController
             'UPDATE messages SET read_at = NOW() WHERE athlete_id = ? AND sender_role = "athlete" AND read_at IS NULL'
         )->execute([$athleteId]);
 
-        // Fetch thread (oldest first)
+        // Fetch thread (oldest first). pw2 covers session cards linked to a planned
+        // workout that has not been completed yet (no completed_workout_id).
         $stmt = $db->prepare(
-            'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date,
+            'SELECT m.*,
+                    COALESCE(cw.workout_type, pw2.workout_type)   AS session_type,
+                    COALESCE(cw.activity_date, pw2.scheduled_date) AS session_date,
+                    COALESCE(pw.display_title, pw2.display_title)  AS session_title,
                     u.name AS sender_name
              FROM messages m
              LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
+             LEFT JOIN planned_workouts pw  ON pw.id = cw.planned_workout_id
+             LEFT JOIN planned_workouts pw2 ON pw2.id = m.planned_workout_id
              LEFT JOIN users u ON u.id = m.sender_id
              WHERE m.athlete_id = ?
              ORDER BY m.sent_at ASC
@@ -1273,11 +1279,12 @@ class CoachController
 
         $role = Auth::role() === 'assistant_coach' ? 'assistant_coach' : 'coach';
 
-        // Save session note + post to thread as a session reply card.
+        // Save session note + post to thread as a session reply card (planned_workout_id
+        // resolved from the completion so the workout thread sees coach replies — migration_022).
         $db->prepare(
-            'INSERT INTO session_notes (completed_workout_id, athlete_id, author_id, author_role, body)
-             VALUES (?, ?, ?, ?, ?)'
-        )->execute([$cwId, $athleteId, $coachId, $role, $body]);
+            'INSERT INTO session_notes (completed_workout_id, planned_workout_id, athlete_id, author_id, author_role, body)
+             VALUES (?, (SELECT planned_workout_id FROM completed_workouts WHERE id = ?), ?, ?, ?, ?)'
+        )->execute([$cwId, $cwId, $athleteId, $coachId, $role, $body]);
 
         // Re-float (or create) the single session card for this workout — coach
         // replies fold into that card rather than spawning a new one.
@@ -1294,6 +1301,99 @@ class CoachController
         }
 
         header('Location: ' . $back);
+        exit;
+    }
+
+    /**
+     * GET /app/coach/workout/{planned_workout_id}/thread — coach view of a single
+     * workout's thread (parity with the athlete workout thread). Athlete is derived
+     * from the planned workout; coach ownership is verified.
+     */
+    public static function workoutThread(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db      = Database::get();
+        $coachId = (int)Auth::userId();
+        $pwId    = (int)($params['id'] ?? 0);
+
+        $pw = $db->prepare(
+            'SELECT id, athlete_id, display_title, display_summary, scheduled_date, workout_type, target_duration
+             FROM planned_workouts WHERE id = ? LIMIT 1'
+        );
+        $pw->execute([$pwId]);
+        $workout = $pw->fetch(PDO::FETCH_ASSOC);
+        if (!$workout) { http_response_code(404); include __DIR__ . '/../../views/errors/404.php'; return; }
+
+        $athleteId = (int)$workout['athlete_id'];
+        $athlete   = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) { http_response_code(404); include __DIR__ . '/../../views/errors/404.php'; return; }
+
+        $notes          = AthleteController::loadWorkoutThreadNotes($db, $pwId);
+        $otherPartyName = $athlete['name'] ?? 'Your athlete';
+        $viewerId       = $coachId;
+        $viewerRole     = 'coach';
+        $composeAction  = '/app/coach/workout/' . $pwId . '/send';
+        $backUrl        = '/app/coach/athlete/' . $athleteId . '/messages';
+
+        $athletes         = self::getRosterAthletes($coachId, $db);
+        $openFlags        = self::getOpenFlagsCount($coachId, $db);
+        $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
+
+        $pageTitle = 'Workout thread: ' . h($athlete['name']);
+        $activeNav = 'athletes';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_coach.php';
+        include __DIR__ . '/../../views/messages/workout_thread.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    /** POST /app/coach/workout/{planned_workout_id}/send — coach posts to a workout thread. */
+    public static function sendWorkoutMessage(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $db      = Database::get();
+        $coachId = (int)Auth::userId();
+        $pwId    = (int)($params['id'] ?? 0);
+        $body    = trim($_POST['body'] ?? '');
+
+        $pw = $db->prepare('SELECT id, athlete_id, display_title FROM planned_workouts WHERE id = ? LIMIT 1');
+        $pw->execute([$pwId]);
+        $workout = $pw->fetch(PDO::FETCH_ASSOC);
+        if (!$workout) { header('Location: /app/coach/athletes'); exit; }
+
+        $athleteId = (int)$workout['athlete_id'];
+        $athlete   = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete || $body === '' || mb_strlen($body) > 1000) {
+            header('Location: ' . ($athlete ? '/app/coach/workout/' . $pwId . '/thread' : '/app/coach/athletes'));
+            exit;
+        }
+
+        $role = Auth::role() === 'assistant_coach' ? 'assistant_coach' : 'coach';
+
+        $cw = $db->prepare('SELECT id FROM completed_workouts WHERE planned_workout_id = ? AND athlete_id = ? ORDER BY id DESC LIMIT 1');
+        $cw->execute([$pwId, $athleteId]);
+        $cwId = (int)($cw->fetchColumn() ?: 0) ?: null;
+
+        $db->prepare(
+            'INSERT INTO session_notes (completed_workout_id, planned_workout_id, athlete_id, author_id, author_role, body)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([$cwId, $pwId, $athleteId, $coachId, $role, $body]);
+
+        SessionThread::recordCommentPlanned($db, $athleteId, $coachId, $role, $pwId, $cwId, $body);
+
+        $ctx = Notifications::athleteContext($athleteId);
+        if ($ctx['athlete_user_id']) {
+            Notifications::send($ctx['athlete_user_id'], 'coach_session_comment', [
+                'workout_name' => (string)($workout['display_title'] ?: 'your workout'),
+                'workout_id'   => $pwId,
+            ]);
+        }
+
+        header('Location: /app/coach/workout/' . $pwId . '/thread');
         exit;
     }
 
@@ -1322,11 +1422,14 @@ class CoachController
         $params   = $since > 0 ? [$athleteId, $after, $since] : [$athleteId, $after];
 
         $stmt = $db->prepare(
-            'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date,
-                    pw.display_title AS session_title
+            'SELECT m.*,
+                    COALESCE(cw.workout_type, pw2.workout_type)   AS session_type,
+                    COALESCE(cw.activity_date, pw2.scheduled_date) AS session_date,
+                    COALESCE(pw.display_title, pw2.display_title)  AS session_title
              FROM messages m
              LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
-             LEFT JOIN planned_workouts pw ON pw.id = cw.planned_workout_id
+             LEFT JOIN planned_workouts pw  ON pw.id = cw.planned_workout_id
+             LEFT JOIN planned_workouts pw2 ON pw2.id = m.planned_workout_id
              WHERE m.athlete_id = ? AND (m.id > ?' . $floatSql . ')
              ORDER BY m.sent_at ASC, m.id ASC
              LIMIT 100'
@@ -1397,7 +1500,10 @@ class CoachController
                     ? ucfirst(str_replace('_', ' ', $m['session_type'])) : null,
                 'session_date_label' => !empty($m['session_date'])
                     ? date('M j', strtotime($m['session_date'])) : null,
+                'workout_name'       => (!empty($m['completed_workout_id']) || !empty($m['planned_workout_id']))
+                    ? (trim((string)($m['session_title'] ?? '')) ?: (!empty($m['session_type']) ? ucfirst(str_replace('_', ' ', $m['session_type'])) : 'Session note')) : null,
                 'completed_workout_id' => !empty($m['completed_workout_id']) ? (int)$m['completed_workout_id'] : null,
+                'planned_workout_id' => !empty($m['planned_workout_id']) ? (int)$m['planned_workout_id'] : null,
                 'reply_count'        => (int)($m['reply_count'] ?? 0),
             ];
         }
