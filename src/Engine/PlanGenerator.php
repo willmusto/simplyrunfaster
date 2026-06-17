@@ -91,14 +91,16 @@ class PlanGenerator
     // (the description_template holds main-set language only). wrapWithWarmupCooldown()
     // prepends a warmup sentence and appends a cooldown sentence for these (§18.7
     // display correction). Split by whether the warmup finishes with strides.
-    // run_walk_intervals / standalone_strides are intentionally absent — their own
-    // templates already describe a warmup and cooldown, so they are never wrapped.
+    // Intentionally absent — these already describe their own warmup/cooldown, so
+    // wrapping them would double it: run_walk_intervals, standalone_strides, and
+    // continuous_progression_tempo (its description_template is "Warm up N min easy.
+    // {{progression_instruction}} Cool down N min easy.").
     const WARMUP_WITH_STRIDES_ARCHETYPES = [
         'equal_distance_repeats', 'short_speed_repeats', 'sustained_hill_repeats',
         'hill_sprints', 'plyometric_hill_circuits',
     ];
     const WARMUP_NO_STRIDES_ARCHETYPES = [
-        'tempo_intervals', 'high_volume_time_intervals', 'continuous_progression_tempo',
+        'tempo_intervals', 'high_volume_time_intervals',
         'structured_fartlek_ladder', 'mixed_distance_repeats',
     ];
 
