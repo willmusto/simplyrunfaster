@@ -8,7 +8,7 @@ $dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturd
 
     <div class="page-heading" style="margin-bottom:4px;">Your Plan</div>
     <p class="body-text" style="margin-bottom:20px;">
-        The next <?= ATHLETE_WINDOW_DAYS ?> days of training, approved by your coach.
+        The next <?= ATHLETE_WINDOW_DAYS ?> days of training.
     </p>
 
     <?php if (empty($workouts)): ?>
