@@ -1,6 +1,6 @@
 <?php
 // Variables from AthleteController::today():
-//  $athlete, $profile, $plan, $todayWorkout, $weekWorkouts, $loadData, $unreadMessages
+//  $athlete, $profile, $plan, $todayWorkout, $weekWorkouts, $runStats, $unreadMessages
 $userName = h(explode(' ', $athlete['name'])[0]);
 $tz       = $athlete['timezone'] ?? Auth::timezone();
 $today    = Timezone::dateInZone($tz, 'now');
@@ -168,27 +168,31 @@ $localHour = (int)Timezone::dateInZone($tz, 'now', 'G');
     </div>
     <?php endif; ?>
 
-    <!-- YOUR STATS -->
-    <?php if ($loadData): ?>
-    <div class="section-label" style="margin-top:24px;">YOUR STATS</div>
+    <!-- YOUR STATS — last 30 days of completed running workouts -->
+    <?php
+    $hasRuns    = !empty($runStats['run_count']);
+    $daysRun    = (int)($runStats['days_run'] ?? 0);
+    $totalMin   = (int)($runStats['total_minutes'] ?? 0);
+    $totalMiles = isset($runStats['total_distance']) ? (float)$runStats['total_distance'] : 0.0;
+    $isMetric   = ($profile['units'] ?? 'miles') === 'km';
+    $volume     = $isMetric ? $totalMiles * 1.60934 : $totalMiles;
+    $volSuffix  = $isMetric ? 'km' : 'mi';
+    ?>
+    <div class="section-label" style="margin-top:24px;">YOUR STATS <span class="muted">Last 30 days</span></div>
     <div class="metric-grid">
         <div class="metric-tile">
-            <div class="metric-label">Fitness (CTL)</div>
-            <div class="metric-value"><?= number_format((float)($loadData['ctl'] ?? 0), 0) ?></div>
+            <div class="metric-label">Days Run</div>
+            <div class="metric-value"><?= $hasRuns ? $daysRun : '—' ?></div>
         </div>
         <div class="metric-tile">
-            <div class="metric-label">Fatigue (ATL)</div>
-            <div class="metric-value"><?= number_format((float)($loadData['atl'] ?? 0), 0) ?></div>
+            <div class="metric-label">Time Running</div>
+            <div class="metric-value"><?= $hasRuns ? sprintf('%d:%02d', intdiv($totalMin, 60), $totalMin % 60) : '—' ?></div>
         </div>
         <div class="metric-tile">
-            <div class="metric-label">Form (TSB)</div>
-            <?php $tsb = (float)($loadData['tsb'] ?? 0); ?>
-            <div class="metric-value" style="color:<?= $tsb > 5 ? 'var(--color-success)' : ($tsb < -20 ? 'var(--color-danger)' : 'var(--text-primary)') ?>">
-                <?= $tsb >= 0 ? '+' : '' ?><?= number_format($tsb, 0) ?>
-            </div>
+            <div class="metric-label">Volume</div>
+            <div class="metric-value"><?= $hasRuns ? number_format(round($volume, 1), 1) . ' ' . $volSuffix : '—' ?></div>
         </div>
     </div>
-    <?php endif; ?>
 
     <?php if ($profile && $profile['goal_race_date']): ?>
     <div class="section-label" style="margin-top:24px;">RACE COUNTDOWN</div>

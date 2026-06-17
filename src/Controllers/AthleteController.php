@@ -38,12 +38,21 @@ class AthleteController
             }
         }
 
-        // Training load snapshot
-        $load = $db->prepare(
-            'SELECT atl, ctl, tsb FROM training_load WHERE athlete_id = ? ORDER BY date DESC LIMIT 1'
+        // Last 30 days of completed running workouts — dashboard "Your Stats".
+        $runCutoff = date('Y-m-d', strtotime($today . ' -30 days'));
+        $statsStmt = $db->prepare(
+            "SELECT COUNT(DISTINCT activity_date)     AS days_run,
+                    COALESCE(SUM(actual_duration), 0) AS total_minutes,
+                    SUM(actual_distance)              AS total_distance,
+                    COUNT(*)                          AS run_count
+             FROM completed_workouts
+             WHERE athlete_id = ?
+               AND activity_date BETWEEN ? AND ?
+               AND workout_type IN ('easy_run','long_run','recovery','easy','long','interval',
+                                    'tempo','hill','fartlek','speed','race_pace','workout')"
         );
-        $load->execute([(int)$athlete['id']]);
-        $loadData = $load->fetch();
+        $statsStmt->execute([(int)$athlete['id'], $runCutoff, $today]);
+        $runStats = $statsStmt->fetch() ?: [];
 
         $unreadMessages = self::getUnreadCount((int)$athlete['id'], $db);
 
