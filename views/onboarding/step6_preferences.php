@@ -24,6 +24,10 @@ include __DIR__ . '/../../views/layout/html_open.php';
             A couple of final preferences, then your coach takes over.
         </p>
 
+        <?php if (!empty($error)): ?>
+        <div class="flash flash-error" style="margin-bottom:16px;"><?= h($error) ?></div>
+        <?php endif; ?>
+
         <div class="form-group">
             <label class="form-label">Distance units</label>
             <div class="pill-choices">
@@ -53,6 +57,23 @@ include __DIR__ . '/../../views/layout/html_open.php';
                 <?php endforeach; ?>
             </div>
             <div class="form-hint">You can change this anytime from Settings.</div>
+        </div>
+
+        <div class="form-group" style="margin-top:24px;">
+            <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;line-height:1.5;cursor:pointer;margin-bottom:14px;">
+                <input type="checkbox" name="consent_age" value="1" required
+                       style="margin-top:3px;flex:none;width:18px;height:18px;"
+                       <?= !empty($_POST['consent_age']) ? 'checked' : '' ?>>
+                <span>I am 18 years of age or older, or I have obtained parental or guardian
+                      consent to use SimplyRunFaster.</span>
+            </label>
+            <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;line-height:1.5;cursor:pointer;">
+                <input type="checkbox" name="consent_privacy" value="1" required
+                       style="margin-top:3px;flex:none;width:18px;height:18px;"
+                       <?= !empty($_POST['consent_privacy']) ? 'checked' : '' ?>>
+                <span>I have read and agree to the
+                      <a href="/app/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</span>
+            </label>
         </div>
 
         <div class="card" style="margin-top:24px;background:var(--recessed-bg);">

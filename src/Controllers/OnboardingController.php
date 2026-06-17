@@ -190,11 +190,26 @@ class OnboardingController
 
     private static function saveStep6(int $step): void
     {
-        // Final step — write everything to DB
+        // Final step — both consent boxes are required before the account is
+        // finalized. Validate server-side; the client `required` attribute is a
+        // convenience only and must not be trusted.
+        $consentAge     = isset($_POST['consent_age']);
+        $consentPrivacy = isset($_POST['consent_privacy']);
+        if (!$consentAge || !$consentPrivacy) {
+            $_SESSION['flash_error'] = 'Please confirm you meet the age requirement and agree to the Privacy Policy to finish.';
+            // Preserve the units selection the athlete just made.
+            if (in_array($_POST['units'] ?? '', ['miles','km'], true)) {
+                $_SESSION['onboarding_data']['units'] = $_POST['units'];
+            }
+            header('Location: /app/onboarding/6');
+            exit;
+        }
+
         $units = in_array($_POST['units'] ?? '', ['miles','km'], true) ? $_POST['units'] : 'miles';
         $_SESSION['onboarding_data']['units'] = $units;
 
         self::persistToDatabase();
+        self::recordConsent();
 
         // Clear onboarding session data
         unset($_SESSION['onboarding_data'], $_SESSION['onboarding_progress']);
@@ -253,6 +268,18 @@ class OnboardingController
     }
 
     // ── DB write ───────────────────────────────────────────────
+
+    /**
+     * Persist the onboarding consent flags onto the user's row. Called only
+     * after both consent checkboxes have been validated as checked.
+     */
+    private static function recordConsent(): void
+    {
+        $db = Database::get();
+        $db->prepare(
+            'UPDATE users SET consent_age = 1, consent_privacy = 1, consent_given_at = NOW() WHERE id = ?'
+        )->execute([Auth::userId()]);
+    }
 
     private static function persistToDatabase(): void
     {

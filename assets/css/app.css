@@ -1662,3 +1662,23 @@ body.is-offline .offline-banner { display: block; }
 .notif-status.visible { opacity: 1; }
 .notif-status.is-error { color: var(--color-danger); }
 [data-notif-type].saving { opacity: 0.6; }
+
+/* ── Global footer (Privacy Policy link, all pages) ─────────────── */
+.app-footer {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 24px 16px;
+    /* Clear the fixed mobile bottom-nav on app pages; harmless extra space
+       on pages (auth/onboarding) that have no bottom-nav. */
+    margin-bottom: calc(var(--nav-height-bottom, 64px) + env(safe-area-inset-bottom, 0px));
+}
+.app-footer a {
+    color: var(--text-muted);
+    text-decoration: underline;
+}
+.app-footer a:hover { color: var(--accent-mid); }
+@media (min-width: 768px) {
+    /* Desktop: bottom-nav is hidden, so no clearance needed. */
+    .app-footer { margin-bottom: 0; }
+}

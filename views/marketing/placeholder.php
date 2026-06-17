@@ -45,6 +45,11 @@
             font-size: 15px;
         }
         .btn:hover { background: #189065; }
+        .footer-link {
+            margin-top: 28px;
+            font-size: 12px;
+        }
+        .footer-link a { color: #888; text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -52,6 +57,7 @@
         <div class="logo">Simply<span>Run</span>Faster</div>
         <p class="tagline">Real running coaching is coming.<br>A coach. A plan. You getting faster.</p>
         <a href="/app/login" class="btn">Sign in</a>
+        <div class="footer-link"><a href="/app/privacy">Privacy Policy</a></div>
     </div>
 </body>
 </html>

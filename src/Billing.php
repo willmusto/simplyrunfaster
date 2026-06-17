@@ -405,7 +405,7 @@ class Billing
         }
         $path = '/' . ltrim($path, '/');
 
-        foreach (['/onboarding', '/billing', '/logout', '/offline'] as $allow) {
+        foreach (['/onboarding', '/billing', '/logout', '/offline', '/privacy'] as $allow) {
             if ($path === $allow || str_starts_with($path, $allow . '/')) {
                 return;
             }

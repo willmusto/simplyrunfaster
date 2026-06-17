@@ -216,4 +216,9 @@ $router->get('/offline', function () {
     include __DIR__ . '/views/offline.php';
 });
 
+// ── Privacy policy (public, no auth) ─────────────────────────
+$router->get('/privacy', function () {
+    include __DIR__ . '/views/static/privacy.php';
+});
+
 $router->dispatch();

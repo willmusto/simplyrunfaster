@@ -48,6 +48,11 @@ defined('VAPID_SUBJECT')     || define('VAPID_SUBJECT',     'mailto:hello@simply
 defined('RESEND_API_KEY')    || define('RESEND_API_KEY',    getenv('SRF_RESEND_API_KEY') ?: '');
 defined('MAIL_FROM_ADDRESS') || define('MAIL_FROM_ADDRESS', 'noreply@simplyrunfaster.com');
 
+// PRIVACY_EMAIL = privacy@simplyrunfaster.com
+// Will needs to set up this email address and forward to his inbox.
+// Required before beta launch. (Reminder only — not wired into any code yet;
+// the Privacy Policy at /app/privacy already references this address.)
+
 // Invite links
 defined('INVITE_DEFAULT_EXPIRY_DAYS') || define('INVITE_DEFAULT_EXPIRY_DAYS', 7);
 defined('INVITE_DEFAULT_MAX_USES')    || define('INVITE_DEFAULT_MAX_USES',    1);
