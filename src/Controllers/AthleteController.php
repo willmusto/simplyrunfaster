@@ -78,9 +78,9 @@ class AthleteController
         $db      = Database::get();
         $tz      = $athlete['timezone'] ?? Timezone::DEFAULT_TZ;
         $today   = Timezone::dateInZone($tz, 'now');
-        // Fetch the full two-week swap window in one query: the plan list renders the
-        // first ATHLETE_WINDOW_DAYS, while the day-swap picker offers all 14 days
-        // (current + next week). Extra dates are simply ignored by the render loop.
+        // Fetch the full swap window in one query: the plan list renders the first
+        // ATHLETE_WINDOW_DAYS, while the day-swap picker offers all SWAP_WINDOW_DAYS
+        // (today + 9). Extra dates are simply ignored by the render loop.
         $endDate = Timezone::dateInZone($tz, '+' . (self::SWAP_WINDOW_DAYS - 1) . ' days');
         $workouts = self::getVisibleWorkouts((int)$athlete['id'], $today, $endDate, $db);
 
@@ -101,7 +101,7 @@ class AthleteController
 
     /**
      * POST /app/athlete/workout/swap — athlete moves a workout to another day within
-     * the two-week window. Body (JSON): { workout_id, target_date 'YYYY-MM-DD', force }.
+     * the 10-day window. Body (JSON): { workout_id, target_date 'YYYY-MM-DD', force }.
      *
      * If the target day already holds a workout the two dates are swapped atomically;
      * otherwise the workout's date is moved. Moving onto a must-off day requires

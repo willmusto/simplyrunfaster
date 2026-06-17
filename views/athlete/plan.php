@@ -1,11 +1,11 @@
 <?php
-// $workouts = array of planned_workouts for the two-week swap window (first
+// $workouts = array of planned_workouts for the swap window (first
 // ATHLETE_WINDOW_DAYS are rendered; the day-swap picker uses all $swapWindowDays).
 $tz             = $athlete['timezone'] ?? Auth::timezone();
 $today          = Timezone::dateInZone($tz, 'now');
 $dayNames       = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 $mustOffDays    = $mustOffDays ?? [];
-$swapWindowDays = $swapWindowDays ?? 14;
+$swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); controller passes SWAP_WINDOW_DAYS
 ?>
 <div class="page-content">
 
