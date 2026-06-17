@@ -178,7 +178,7 @@ $localHour = (int)Timezone::dateInZone($tz, 'now', 'G');
     $volume     = $isMetric ? $totalMiles * 1.60934 : $totalMiles;
     $volSuffix  = $isMetric ? 'km' : 'mi';
     ?>
-    <div class="section-label" style="margin-top:24px;">YOUR STATS <span class="muted">Last 30 days</span></div>
+    <div class="section-label" style="margin-top:24px;">YOUR STATS <span class="text-muted">Last 30 days</span></div>
     <div class="metric-grid">
         <div class="metric-tile">
             <div class="metric-label">Days Run</div>
