@@ -1682,3 +1682,96 @@ body.is-offline .offline-banner { display: block; }
     /* Desktop: bottom-nav is hidden, so no clearance needed. */
     .app-footer { margin-bottom: 0; }
 }
+
+/* ── PWA install banner (athlete only) ──────────────────────────── */
+.install-banner {
+    position: fixed;
+    /* Sit above the fixed mobile bottom-nav; reset to 0 on desktop below. */
+    bottom: calc(var(--nav-height-bottom) + env(safe-area-inset-bottom, 0px));
+    left: 0;
+    right: 0;
+    background: var(--page-bg);
+    border-top: 1px solid var(--border-color);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    z-index: 1000; /* above content, below modals */
+}
+/* The class sets display:flex, which would otherwise defeat the [hidden] attribute. */
+.install-banner[hidden] { display: none; }
+
+.install-banner-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+}
+
+.install-banner-text {
+    font-size: 14px;
+    color: var(--text-muted);
+}
+
+.install-banner-cta {
+    white-space: nowrap;
+    padding: 8px 16px;
+    font-size: 14px;
+}
+
+.install-banner-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 20px;
+    line-height: 1;
+    padding: 4px 8px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+/* Teal CTA (mirrors .btn-primary; named per install-banner spec). */
+.btn-teal {
+    background: var(--accent-mid);
+    color: #FFFFFF;
+}
+.btn-teal:hover {
+    background: var(--accent-strong);
+    color: #FFFFFF;
+    text-decoration: none;
+}
+
+/* iOS "Add to Home Screen" instruction popover, shown above the banner. */
+.ios-install-tip {
+    position: fixed;
+    bottom: calc(var(--nav-height-bottom) + env(safe-area-inset-bottom, 0px) + 68px);
+    left: 16px;
+    right: 16px;
+    max-width: var(--content-max-width);
+    margin: 0 auto;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+    font-size: 14px;
+    color: var(--text-primary);
+    z-index: 1001;
+    text-align: center;
+}
+.ios-install-tip button {
+    margin-top: 12px;
+    padding: 8px 24px;
+    background: var(--accent-mid);
+    color: #FFFFFF;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+@media (min-width: 1024px) {
+    /* Bottom-nav is hidden on desktop, so anchor the banner to the viewport floor. */
+    .install-banner { bottom: 0; }
+    .ios-install-tip { bottom: 76px; }
+}

@@ -458,3 +458,82 @@
         return meta ? meta.content : '';
     }
 })();
+
+// ── PWA install encouragement banner (athlete only) ──────────
+(function () {
+    'use strict';
+
+    var standalone = window.matchMedia('(display-mode: standalone)');
+
+    // Already installed → never show.
+    if (standalone.matches) return;
+    // Dismissed earlier this session → stay hidden until a new session.
+    if (sessionStorage.getItem('srf_install_dismissed')) return;
+    // Athlete role only (coaches/admins never get the markup, but guard anyway).
+    if (document.body.dataset.role !== 'athlete') return;
+
+    var banner = document.getElementById('srf-install-banner');
+    if (!banner) return;
+
+    var deferredPrompt = null;
+
+    // Chrome/Android: capture the native prompt so we can trigger it on demand.
+    window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        deferredPrompt = e;
+        banner.hidden = false;
+    });
+
+    // iOS Safari fires no beforeinstallprompt — surface the banner after a short
+    // delay so it doesn't compete with first paint.
+    setTimeout(function () {
+        if (!banner.hidden) return; // already shown by beforeinstallprompt
+        banner.hidden = false;
+    }, 3000);
+
+    var installBtn = document.getElementById('srf-install-btn');
+    if (installBtn) {
+        installBtn.addEventListener('click', function () {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(function (result) {
+                    if (result.outcome === 'accepted') {
+                        banner.hidden = true;
+                    }
+                    deferredPrompt = null;
+                });
+            } else {
+                showIOSInstallTooltip();
+            }
+        });
+    }
+
+    var dismissBtn = document.getElementById('srf-install-dismiss');
+    if (dismissBtn) {
+        dismissBtn.addEventListener('click', function () {
+            banner.hidden = true;
+            sessionStorage.setItem('srf_install_dismissed', '1');
+        });
+    }
+
+    function showIOSInstallTooltip() {
+        if (document.querySelector('.ios-install-tip')) return; // only one at a time
+        var tip = document.createElement('div');
+        tip.className = 'ios-install-tip';
+        var p = document.createElement('p');
+        p.innerHTML = 'Tap the Share button <strong>&#x2191;</strong> in your browser, ' +
+                      'then tap <strong>Add to Home Screen</strong>.';
+        var ok = document.createElement('button');
+        ok.type = 'button';
+        ok.textContent = 'Got it';
+        ok.addEventListener('click', function () { tip.remove(); });
+        tip.appendChild(p);
+        tip.appendChild(ok);
+        banner.insertAdjacentElement('beforebegin', tip);
+    }
+
+    // Becomes standalone mid-session (installed) → hide immediately.
+    standalone.addEventListener('change', function (e) {
+        if (e.matches) banner.hidden = true;
+    });
+})();

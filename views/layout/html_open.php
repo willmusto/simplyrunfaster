@@ -24,6 +24,6 @@
         <?= $extraCss ?>
     <?php endif; ?>
 </head>
-<body class="<?= h(trim(($bodyClass ?? '') . (isset($activeNav) ? ' coach-page' : ''))) ?>">
+<body class="<?= h(trim(($bodyClass ?? '') . (isset($activeNav) ? ' coach-page' : ''))) ?>" data-role="<?= h(Auth::role() ?? '') ?>">
 
 <div class="offline-banner">You're offline. Your plan is still available.</div>
