@@ -95,7 +95,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <p class="faq-a">No, free is fine.</p>
 
         <p class="faq-q">Which watches work?</p>
-        <p class="faq-a">Garmin, COROS, Polar, Suunto, Wahoo, Amazfit, Apple Watch, and Huawei.</p>
+        <p class="faq-a">Garmin, COROS, Polar, Suunto, Wahoo, Amazfit, Apple Watch, or Huawei.</p>
 
         <p class="faq-q">What data do you access?</p>
         <p class="faq-a">Completed run activities and your planned workout calendar. Nothing else.</p>
