@@ -28,6 +28,17 @@ include __DIR__ . '/../../views/layout/html_open.php';
             This tells the engine where to start. Be honest: starting conservatively keeps you healthy.
         </p>
 
+        <?php if (!empty($d['is_hyrox'])): ?>
+        <div class="card" style="margin-bottom:16px;border-left:3px solid var(--accent-mid);">
+            <div style="font-size:14px;font-weight:600;margin-bottom:4px;">Training for Hyrox</div>
+            <p class="body-text" style="margin:0;font-size:13px;">
+                SimplyRunFaster will build your running fitness for Hyrox. For the functional fitness
+                stations (rowing, sleds, burpees, sandbags, wall balls, and lunges), we recommend joining
+                a CrossFit box or functional fitness gym to supplement your running training.
+            </p>
+        </div>
+        <?php endif; ?>
+
         <div class="form-group">
             <label class="form-label" for="current_weekly_minutes">
                 How many minutes per week are you running right now?

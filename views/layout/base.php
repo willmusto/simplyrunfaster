@@ -90,8 +90,23 @@ function race_distance_label(?string $value): string
         '50_miler'  => '50-Mile Ultra',
         '100k'      => '100K Ultra',
         '100_miler' => '100-Mile Ultra',
+        'mile'      => 'Mile / 1500m',
     ];
     return $map[strtolower(trim($value))] ?? $value;
+}
+
+/**
+ * Goal label that respects the Hyrox facade (mile spec Part 14). A 'mile' goal with
+ * is_hyrox shows "Hyrox" to the athlete and "Hyrox (Mile training)" to the coach, so the
+ * coach always sees the engine logic underneath. Everything else falls back to
+ * race_distance_label().
+ */
+function goal_distance_label(?string $value, bool $isHyrox = false, bool $forCoach = false): string
+{
+    if (strtolower(trim((string)$value)) === 'mile' && $isHyrox) {
+        return $forCoach ? 'Hyrox (Mile training)' : 'Hyrox';
+    }
+    return race_distance_label($value);
 }
 
 function format_pace(float $pace): string

@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS `athlete_profiles` (
     `goal_race_distance`        VARCHAR(20) DEFAULT NULL COMMENT '5K, 10K, HM, marathon, ultra',
     `goal_finish_time`          VARCHAR(20) DEFAULT NULL COMMENT 'optional time goal',
     `ultra_surface`             ENUM('road','trail') DEFAULT NULL COMMENT 'trail vs road, ultra goal distances only',
+    `is_hyrox`                  TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Hyrox UI facade; engine runs mile logic underneath',
     -- Current fitness (all time-on-feet based per engine spec)
     `current_weekly_minutes`    INT DEFAULT NULL COMMENT 'current weekly time on feet in minutes',
     `longest_recent_run_mins`   INT DEFAULT NULL COMMENT 'longest recent run in minutes',
@@ -373,7 +374,8 @@ CREATE TABLE IF NOT EXISTS `engine_flags` (
                         'display_generation_incomplete',
                         'profile_updated','pace_zones_missing',
                         'schedule_day_ramp','ultra_surface_reminder',
-                        'race_added','goal_race_changed','pace_recalibration'
+                        'race_added','goal_race_changed','pace_recalibration',
+                        'hyrox_supplement_reminder'
                     ) NOT NULL,
     `severity`      ENUM('info','warning','critical') NOT NULL DEFAULT 'info',
     `flag_date`     DATE NOT NULL,

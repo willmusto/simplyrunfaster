@@ -18,14 +18,14 @@ class ProfileForm
 
     /** Goal race distance options (mirrors onboarding step 1). Ultra entries are
      *  canonical keys; use race_distance_label() for display. */
-    public const RACE_DISTANCES = ['5K','10K','15K','Half Marathon','Marathon','50k','50_miler','100k','100_miler'];
+    public const RACE_DISTANCES = ['5K','10K','15K','Half Marathon','Marathon','mile','50k','50_miler','100k','100_miler'];
 
     /**
      * Athlete-facing editable fields (also the Step-4 diff set).
      * type drives both sanitising and diff formatting.
      */
     private const ATHLETE_FIELDS = [
-        'goal_race_distance'        => ['label' => 'Goal race distance',  'type' => 'enum',  'options' => ['5K','10K','15K','Half Marathon','Marathon','50k','50_miler','100k','100_miler']],
+        'goal_race_distance'        => ['label' => 'Goal race distance',  'type' => 'enum',  'options' => ['5K','10K','15K','Half Marathon','Marathon','mile','50k','50_miler','100k','100_miler']],
         'ultra_surface'             => ['label' => 'Ultra surface',        'type' => 'enum',  'options' => ['trail','road']],
         'goal_race_date'            => ['label' => 'Goal race date',      'type' => 'date'],
         'goal_finish_time'          => ['label' => 'Goal finish time',    'type' => 'string'],

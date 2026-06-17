@@ -96,7 +96,7 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
         </button>
         <?php endforeach; ?>
         <?php if ($goalRace && $goalRace['date'] === $date): ?>
-        <div class="srf-race-pill srf-race-pill-static">GOAL: <?= h(race_distance_label($goalRace['distance'])) ?></div>
+        <div class="srf-race-pill srf-race-pill-static">GOAL: <?= h(goal_distance_label($goalRace['distance'], !empty($profile['is_hyrox']))) ?></div>
         <?php endif; ?>
 
         <?php if (empty($dayWkts)): ?>

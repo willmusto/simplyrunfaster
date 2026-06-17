@@ -144,7 +144,7 @@ class PaceZones
      * @param array|null  $zones   decoded pace_zones (seconds/mile), or null when hidden/empty
      * @param string|null $variant resolved variant code (used by fast_finish_long)
      */
-    public static function qualityCitation(string $code, array $params, ?array $zones, ?string $variant = null): ?string
+    public static function qualityCitation(string $code, array $params, ?array $zones, ?string $variant = null, ?string $goalDistance = null): ?string
     {
         if (empty($zones)) {
             return null;
@@ -152,11 +152,14 @@ class PaceZones
 
         switch ($code) {
             // Threshold/tempo efforts sit in the band between 10K (fast end) and
-            // half-marathon (slow end) pace. Cited as that band directly.
+            // half-marathon (slow end) pace. Cited as that band directly. Milers work
+            // at a higher intensity, so cite the faster mile–5K band instead (mile spec Part 11).
             case 'tempo_intervals':
             case 'continuous_progression_tempo':
             case 'high_volume_time_intervals':
-                $range = self::bandRange($zones, '10K', 'half_marathon');
+                $range = $goalDistance === 'mile'
+                    ? self::bandRange($zones, 'mile', '5K')
+                    : self::bandRange($zones, '10K', 'half_marathon');
                 return $range ? "Target roughly {$range} on the tempo work." : null;
 
             // Distance repeats: map the prescribed rep distance to the nearest

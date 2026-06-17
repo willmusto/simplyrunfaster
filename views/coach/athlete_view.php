@@ -23,6 +23,7 @@ if ($activePlan && !empty($allWorkouts)) {
             in_array($d, ['50_miler','50 miler','50-mile ultra','50 mile','50mi'], true) => '50_miler',
             in_array($d, ['100k','100km','100 km','100k ultra'], true) => '100k',
             in_array($d, ['100_miler','100 miler','100-mile ultra','100 mile','100mi'], true) => '100_miler',
+            in_array($d, ['mile','1 mile','1mile','1500','1500m','mile / 1500m','hyrox'], true) => 'mile',
             default => '5K',
         };
     };
@@ -64,6 +65,10 @@ if ($activePlan && !empty($allWorkouts)) {
                 'well_trained' => ['runs_per_week' => 6, 'weekly_minutes' => 600, 'long_run_minutes' => 180],
                 'workable'     => ['runs_per_week' => 5, 'weekly_minutes' => 420, 'long_run_minutes' => 120],
             ],
+            'mile' => [
+                'well_trained' => ['runs_per_week' => 4, 'weekly_minutes' => 180, 'long_run_minutes' => 45],
+                'workable'     => ['runs_per_week' => 3, 'weekly_minutes' => 120, 'long_run_minutes' => 30],
+            ],
         ];
         $runsPerWeek = (int)($p['training_days_per_week'] ?? 0);
         $weekly      = (int)($p['current_weekly_minutes'] ?? 0);
@@ -95,10 +100,14 @@ if ($activePlan && !empty($allWorkouts)) {
         ];
         $distance = $normalizeDistance($profile['goal_race_distance'] ?? '5K');
         $class    = $classifyProfile($profile ?? [], $distance);
-        // 100-miler expands the base and shortens the taper (ultra spec Part 5).
-        $props = $distance === '100_miler'
-            ? ['base' => 0.35, 'build' => 0.30, 'peak' => 0.20, 'taper' => 0.10]
-            : ($propsByClass[$class] ?? $propsByClass['workable']);
+        // 100-miler expands base/shortens taper (ultra Part 5); mile is speed-weighted (mile Part 5).
+        if ($distance === '100_miler') {
+            $props = ['base' => 0.35, 'build' => 0.30, 'peak' => 0.20, 'taper' => 0.10];
+        } elseif ($distance === 'mile') {
+            $props = ['base' => 0.25, 'build' => 0.35, 'peak' => 0.25, 'taper' => 0.15];
+        } else {
+            $props = $propsByClass[$class] ?? $propsByClass['workable'];
+        }
         $props['base'] += max(0.0, 1.0 - array_sum($props));
 
         $cursor = 1;
@@ -636,6 +645,11 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                         –
                         <?= date('M j, Y', strtotime($activePlan['plan_end_date'])) ?>
                     </div>
+                    <?php $goalDist = $profile['goal_race_distance'] ?? ''; if ($goalDist !== ''): ?>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">
+                        Goal: <?= h(goal_distance_label($goalDist, !empty($profile['is_hyrox']), true)) ?>
+                    </div>
+                    <?php endif; ?>
                 </div>
                 <?php
                 $planStatus = (string)($activePlan['status'] ?? '');

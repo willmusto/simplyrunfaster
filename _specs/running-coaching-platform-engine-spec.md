@@ -130,6 +130,7 @@ Percentages are applied to total cycle length and rounded to whole weeks. Remain
 
 | Distance | Minimum Cycle |
 |---|---|
+| Mile / 1500m | 12–16 weeks |
 | 5K | 8 weeks |
 | 10K | 10 weeks |
 | Half Marathon | 12 weeks |
@@ -139,7 +140,7 @@ Percentages are applied to total cycle length and rounded to whole weeks. Remain
 | 100K | 22–26 weeks |
 | 100 Miler | 24–32 weeks |
 
-Ultra cycle lengths are race-date-driven, clamped into the per-distance range above (lower bound suits workable athletes, upper bound well-trained). See **§ Ultra-Distance Training** for the full ultra parameter set.
+Ultra and mile cycle lengths are race-date-driven, clamped into the per-distance range above (lower bound suits workable athletes, upper bound well-trained). See **§ Ultra-Distance Training** and **§ Mile / 1500m Training** for the full parameter sets.
 
 ### Phase Length Examples
 
@@ -181,6 +182,7 @@ The engine evaluates classification on time-on-feet (runs/week + weekly minutes 
 
 | Distance | Well Trained (runs / wk-min / long-min) | Workable |
 |---|---|---|
+| Mile / 1500m | 4 / 180 / 45 | 3 / 120 / 30 |
 | 50K | 5 / 360 / 105 | 4 / 240 / 75 |
 | 50 Miler | 5 / 420 / 120 | 4 / 300 / 90 |
 | 100K | 6 / 480 / 150 | 5 / 360 / 105 |
@@ -482,6 +484,60 @@ When `ultra_surface = 'trail'`:
   (not deduped) suggesting a peak-phase night run to simulate race conditions.
 
 Road ultras use standard archetype weighting and no trail cues.
+
+---
+
+## 9c. Mile / 1500m Training (+ Hyrox facade)
+
+The **mile / 1500m** is a speed-development race cycle. It maps to **5K** at the
+archetype/pace layer (`selectorDistance`; archetypes carry no 'mile' goal_distance and
+5K is the fastest archetype distance), while the real `mile` key drives the structure
+below. **Hyrox** is the same engine under a cosmetic display facade.
+
+### Classification
+Lower volume thresholds than 5K — milers work with less volume given speed/neuromuscular
+development. Well-trained 4 runs / 180 min / 45-min long; workable 3 / 120 / 30.
+
+### Cycle length & phases
+- Cycle: **12–16 weeks** (workable 12, well-trained 16).
+- Phase proportions are speed-weighted: **Base 25%, Build 35%, Peak 25%, Taper 15%**
+  (short base, expanded build + peak). Cutbacks every 4 weeks (standard).
+
+### Volume & long runs
+- Peak weekly-volume ceiling: workable ~420 min, well-trained ~630 min (lower than
+  marathon, higher intensity). Ramp from current volume toward the ceiling.
+- Long runs are **pure aerobic** (continuous_long / continuous_easy only — no embedded
+  workouts) and short: base/taper 60 min, build/peak 75 min (peak maintained, not grown).
+  The quality stimulus is the track work, not the long run.
+
+### Quality cadence (highest of any distance)
+Base 1 · Build 2 · Peak 2–3 (3 for well-trained only) · Taper 1 (activation). The
+scheduler places up to three spaced quality sessions per week when allocated.
+
+### Archetype weighting (Part 10)
+Speed/threshold archetypes are scored up via the weight-adjust hook: short_speed_repeats,
+equal_distance_repeats, hill_sprints ×3; tempo_intervals, sustained_hill_repeats,
+structured_fartlek_ladder, high_volume_time_intervals ×2; plyometric_hill_circuits ×0.5.
+For equal_distance_repeats the rep distance is biased to the shortest variant (≤800m).
+
+### Pace citations
+Full citations on quality sessions (highly meaningful for milers): speed repeats cite
+400m / 800m pace ±5 sec/mile (distance-mapped), tempo/threshold cites the faster
+**mile–5K** band, hills stay effort-only.
+
+### Strides
+More frequent than other distances: 3–4×/week in build and peak (attached to easy runs),
+and daily short activation strides in the taper.
+
+### Hyrox facade (Part 13/14)
+Selecting Hyrox stores `goal_race_distance='mile'` with `athlete_profiles.is_hyrox=1`. The
+engine runs identical mile logic; only the display changes: athlete-facing shows **"Hyrox"**
+(non-Hyrox mile shows "Mile / 1500m"); coach-facing shows **"Hyrox (Mile training)"** so the
+underlying engine is never hidden from the coach. Onboarding shows a functional-fitness
+supplement note, and plan generation raises a one-time info flag
+`hyrox_supplement_reminder` advising functional-fitness work (rowing, sleds, burpees,
+sandbags, wall balls, lunges) at a CrossFit / functional gym. Workout instructions are
+unchanged from mile training.
 
 ---
 

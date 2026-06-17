@@ -68,6 +68,12 @@ class PlanGenerator
             'well_trained' => ['runs_per_week' => 6, 'weekly_minutes' => 600, 'long_run_minutes' => 180],
             'workable'     => ['runs_per_week' => 5, 'weekly_minutes' => 420, 'long_run_minutes' => 120],
         ],
+        // ── Mile / 1500m (mile spec Part 3) — lower volume thresholds than 5K;
+        //    milers can work with less volume given speed/neuromuscular development.
+        'mile' => [
+            'well_trained' => ['runs_per_week' => 4, 'weekly_minutes' => 180, 'long_run_minutes' => 45],
+            'workable'     => ['runs_per_week' => 3, 'weekly_minutes' => 120, 'long_run_minutes' => 30],
+        ],
     ];
 
     // ── Ultra-distance parameters (ultra spec) ───────────────────────────────
@@ -109,6 +115,31 @@ class PlanGenerator
         '50_miler'  => 0.55,  // 50–60%
         '100k'      => 0.575, // 50–65%
         '100_miler' => 0.625, // 55–70%
+    ];
+
+    // ── Mile / 1500m parameters (mile spec) ──────────────────────────────────
+    // Mile maps to '5K' at the archetype/pace layer (selectorDistance), with the
+    // real 'mile' key driving the speed-weighted structure below.
+    const MILE_CYCLE_WEEKS = [12, 16]; // workable 12, well-trained 16
+
+    // Peak weekly-volume ceiling (minutes): lower than marathon, higher intensity.
+    const MILE_VOLUME_CEILING = ['workable' => 420, 'well_trained' => 630];
+
+    // Long-run duration caps (minutes) by phase — aerobic support, not the primary
+    // stimulus; peak is maintained (not increased) during sharpening.
+    const MILE_LONG_RUN_CAP = ['base' => 60, 'build' => 75, 'peak' => 75, 'taper' => 60];
+
+    // Archetype score multipliers for mile athletes (Part 10): speed/threshold up,
+    // plyometrics down. Applied in pickWeighted via the weight-adjust hook.
+    const MILE_WEIGHT_ADJUST = [
+        'short_speed_repeats'         => 3.0,
+        'equal_distance_repeats'      => 3.0,
+        'hill_sprints'                => 3.0,
+        'tempo_intervals'             => 2.0,
+        'sustained_hill_repeats'      => 2.0,
+        'structured_fartlek_ladder'   => 2.0,
+        'high_volume_time_intervals'  => 2.0,
+        'plyometric_hill_circuits'    => 0.5,
     ];
 
     // Fallback workout_type for slots that have no archetype (or whose metadata lacks workout_type).
@@ -182,6 +213,15 @@ class PlanGenerator
      */
     private static ?array $paceZones = null;
 
+    /**
+     * Real (normalized) goal distance for the athlete currently being generated, e.g.
+     * 'mile' or '50k'. Used for fine-grained, distance-specific behaviour that isn't
+     * threaded through every signature: the mile tempo pace band (§ mile Part 11) and
+     * the mile short-rep distance bias (§ mile Part 10). Set in generate() /
+     * composeManualWorkout() and reset to null afterward. Null outside generation.
+     */
+    private static ?string $planDistance = null;
+
     /** Load and cache engine settings. */
     private static function settings(): array
     {
@@ -200,17 +240,29 @@ class PlanGenerator
      */
     private static function getQualitySlotCount(
         string $planType, string $phase, int $daysPerWeek, int $weekNumber, bool $isCutback,
-        ?string $ultraDistance = null
+        ?string $realDistance = null, ?string $classification = null
     ): int {
         // Ultra distances override the per-distance quality cadence (ultra spec Part 10).
-        if ($ultraDistance !== null && in_array($ultraDistance, self::ULTRA_DISTANCES, true)) {
+        if ($realDistance !== null && in_array($realDistance, self::ULTRA_DISTANCES, true)) {
             if ($isCutback) return 1;
-            return match ($ultraDistance) {
+            return match ($realDistance) {
                 '50k'       => $weekNumber % 2 === 0 ? 2 : 1, // ~1.5/wk (development-style)
                 '50_miler'  => 1,                              // 1/wk throughout
                 '100k'      => 1,                              // 1/wk base/build; peak 0–1 (back-to-back may strip)
                 '100_miler' => $phase === 'peak' ? 0 : 1,      // 0–1 base/build, 0 peak
                 default     => 1,
+            };
+        }
+
+        // Mile: speed-weighted, highest quality cadence (mile spec Part 9).
+        if ($realDistance === 'mile') {
+            if ($isCutback) return 1;
+            return match ($phase) {
+                'base'  => 1,
+                'build' => 2,
+                'peak'  => $classification === 'well_trained' ? 3 : 2, // 2–3, 3 well-trained only
+                'taper' => 1,                                          // activation only
+                default => 1,
             };
         }
 
@@ -247,26 +299,55 @@ class PlanGenerator
     private static function selectorDistance(string $distance): string
     {
         $d = self::normalizeDistance($distance);
-        return in_array($d, self::ULTRA_DISTANCES, true) ? 'marathon' : $d;
+        if (in_array($d, self::ULTRA_DISTANCES, true)) return 'marathon';
+        // Mile maps to 5K for the archetype/pace layer (fastest archetype distance;
+        // archetypes carry no 'mile' goal_distance). Engine sizing keeps the real key.
+        if ($d === 'mile') return '5K';
+        return $d;
     }
 
-    /** Cycle-length [min, max] in weeks (ultra-aware). */
+    /** True when a (raw or normalized) goal distance is the mile / 1500m. */
+    private static function isMile(string $distance): bool
+    {
+        return self::normalizeDistance($distance) === 'mile';
+    }
+
+    /** Cycle-length [min, max] in weeks (ultra- and mile-aware). */
     private static function cycleWeekBounds(string $distance): array
     {
         $d = self::normalizeDistance($distance);
         if (isset(self::ULTRA_CYCLE_WEEKS[$d])) return self::ULTRA_CYCLE_WEEKS[$d];
+        if ($d === 'mile') return self::MILE_CYCLE_WEEKS;
         return [self::MIN_CYCLE[$d] ?? 8, self::MAX_PLAN_WEEKS];
     }
 
-    /** Phase proportions for distance+classification. 100-miler expands base, shortens taper. */
+    /** Phase proportions for distance+classification. 100-miler and mile have custom shapes. */
     private static function phaseProportionsFor(string $distance, string $classification): array
     {
-        if (self::normalizeDistance($distance) === '100_miler') {
+        $d = self::normalizeDistance($distance);
+        if ($d === '100_miler') {
             // Base 35% + 5% remainder (added to base in calculatePhases) → 40%;
             // build 30%; peak 20%; taper 10% (capped to 2 weeks below).
             return ['base' => 0.35, 'build' => 0.30, 'peak' => 0.20, 'taper' => 0.10];
         }
+        if ($d === 'mile') {
+            // Speed-development weighted (mile spec Part 5): short base, expanded
+            // build + peak. Sums to 1.0, so no remainder is redistributed.
+            return ['base' => 0.25, 'build' => 0.35, 'peak' => 0.25, 'taper' => 0.15];
+        }
         return self::PHASE_PROPORTIONS[$classification] ?? self::PHASE_PROPORTIONS['workable'];
+    }
+
+    /** Peak weekly-volume ceiling (minutes) for the mile, or null for non-mile. */
+    private static function mileVolumeCeiling(string $classification): int
+    {
+        return self::MILE_VOLUME_CEILING[$classification] ?? self::MILE_VOLUME_CEILING['workable'];
+    }
+
+    /** Long-run duration cap (minutes) for a mile phase (pure aerobic support). */
+    private static function mileLongRunCap(string $phase): int
+    {
+        return self::MILE_LONG_RUN_CAP[$phase] ?? self::MILE_LONG_RUN_CAP['base'];
     }
 
     /** Peak weekly-volume ceiling (minutes) for an ultra; workable capped at 75%. null otherwise. */
@@ -394,6 +475,12 @@ class PlanGenerator
             'structured_fartlek_ladder' => 1.5,
             'equal_distance_repeats'    => 0.5,
         ];
+    }
+
+    /** Archetype score multipliers for mile athletes (speed/threshold up, plyos down). */
+    private static function mileWeightAdjust(): array
+    {
+        return self::MILE_WEIGHT_ADJUST;
     }
 
     /** Quality archetype codes to exclude for an ultra (100-miler favours aerobic threshold work). */
@@ -562,6 +649,10 @@ class PlanGenerator
             ? (json_decode($profile['pace_zones'] ?? 'null', true) ?: null)
             : null;
 
+        // Real goal distance for distance-specific behaviour not threaded through every
+        // signature (mile tempo pace band + mile short-rep distance bias).
+        self::$planDistance = self::normalizeDistance($profile['goal_race_distance'] ?? '5K');
+
         $planType = $profile['plan_type'] ?? 'development_plan';
 
         // Raise limited development flag for 3-day-per-week athletes (info, not blocking).
@@ -594,6 +685,7 @@ class PlanGenerator
             self::createApprovalQueueEntry($planId, $athleteId, $trigger, $db);
         }
 
+        self::$planDistance = null;
         return $planId;
     }
 
@@ -800,12 +892,15 @@ class PlanGenerator
         $archetype = $selector->getByCode($archetypeCode);
         if (!$archetype || ($archetype['status'] ?? 'active') !== 'active') {
             self::$paceZones = null;
+            self::$planDistance = null;
             return null;
         }
 
         $rawDistance    = self::normalizeDistance($profile['goal_race_distance'] ?? '5K');
         $classification = self::classifyAthlete($profile, $rawDistance);
-        // Archetypes/pace maps key on marathon for ultras (ultra spec); classification keeps the real key.
+        // Archetypes/pace maps key on marathon for ultras / 5K for mile (selectorDistance);
+        // classification + planDistance keep the real key for distance-specific behaviour.
+        self::$planDistance = $rawDistance;
         $goalDistance   = self::selectorDistance($rawDistance);
         $phase          = 'base';
 
@@ -858,6 +953,7 @@ class PlanGenerator
         $load            = round($storedDuration * $intensityFactor, 2);
 
         self::$paceZones = null;
+        self::$planDistance = null;
 
         return [
             'workout_type'               => $workoutType,
@@ -996,6 +1092,11 @@ class PlanGenerator
         if ($ultraCeiling !== null) {
             $peakCeiling = max($currentMins, min($peakCeiling, $ultraCeiling));
         }
+        // Mile volume is lower than marathon but higher intensity; cap by the mile ceiling
+        // while still letting the plan start from the athlete's current volume (Part 7).
+        if ($distance === 'mile') {
+            $peakCeiling = max($currentMins, min($peakCeiling, self::mileVolumeCeiling($classification)));
+        }
         $longestRun     = max(30, (int)($profile['longest_recent_run_mins'] ?? 60));
         $buildBase      = self::resolveStartingWeeklyMins($athleteId, $profile, $trigger, $currentMins, $peakCeiling, $db);
 
@@ -1010,6 +1111,18 @@ class PlanGenerator
                 'This athlete is training for a trail ultra. Consider scheduling one night run in peak '
                 . 'phase to simulate race conditions. Coordinate timing and safety with the athlete directly.',
                 $db, ['plan_id' => $planId, 'distance' => $distance], false
+            );
+        }
+
+        // Hyrox athletes: a one-time functional-fitness supplement reminder (mile spec Part 13).
+        if ($distance === 'mile' && !empty($profile['is_hyrox'])) {
+            self::raiseFlag(
+                $athleteId, 'hyrox_supplement_reminder', 'info',
+                'Hyrox athlete — running plan only. The running plan develops the speed and threshold '
+                . 'fitness needed for the 8 x 1km running segments. Athlete has been advised to supplement '
+                . 'with functional fitness training (rowing, sleds, burpees, sandbags, wall balls, lunges) '
+                . 'at a CrossFit box or functional fitness gym.',
+                $db, ['plan_id' => $planId], false
             );
         }
 
@@ -1097,8 +1210,11 @@ class PlanGenerator
         $planId         = self::createPlanRecord($athleteId, 'development_plan', $startDate, $endDate, null, $trigger, $db);
         $maxLongRun     = max(30, (int)($profile['longest_recent_run_mins'] ?? 60));
         $constraints    = self::buildConstraints($profile);
-        $goalDist       = self::normalizeDistance($profile['goal_race_distance'] ?? '5K');
-        $classification = self::classifyAthlete($profile, $goalDist);
+        $rawDist        = self::normalizeDistance($profile['goal_race_distance'] ?? '5K');
+        $classification = self::classifyAthlete($profile, $rawDist);
+        // Archetype/pace layer keys on the selector distance (mile→5K, ultra→marathon);
+        // classification + self::$planDistance keep the real distance.
+        $goalDist       = self::selectorDistance($rawDist);
 
         // Snapshot the anti-repeat history before the loop: the lead-in (which precedes week 1)
         // resolves against this prior-plan-only context so it isn't blocked by week 1's own picks.
@@ -1161,8 +1277,10 @@ class PlanGenerator
         $weeklyMins  = (int)round($peakCeiling * 0.85);
         $maxLongRun  = max(40, (int)($profile['longest_recent_run_mins'] ?? 60));
         $constraints = self::buildConstraints($profile);
-        $goalDist    = self::normalizeDistance($profile['goal_race_distance'] ?? 'marathon');
-        $classification = self::classifyAthlete($profile, $goalDist);
+        $rawDist     = self::normalizeDistance($profile['goal_race_distance'] ?? 'marathon');
+        $classification = self::classifyAthlete($profile, $rawDist);
+        // Archetype/pace layer keys on the selector distance (mile→5K, ultra→marathon).
+        $goalDist    = self::selectorDistance($rawDist);
 
         // Maintenance volume is ceiling-anchored (85% of ceiling, constant) rather than
         // ramped from current_weekly_minutes, so it is already cross-cycle continuous;
@@ -1834,17 +1952,26 @@ class PlanGenerator
         $runDays = array_unique(array_merge($anchors, $addlDays));
         sort($runDays);
 
-        // Secondary quality: driven by plan type / phase / days-per-week slot allocation
-        // (ultra distances override the cadence per Part 10).
-        $allowedQualSlots = self::getQualitySlotCount($planType, $phase, $numDays, $weekNumber, $isCutback, $ultra['distance'] ?? null);
-        $hasSecondary     = $allowedQualSlots >= 2 && count($runDays) >= 4 && !$isRaceWeek;
-        $secondaryDay = null;
-        if ($hasSecondary && $workoutDay !== null) {
+        // Quality slots: driven by plan type / phase / days-per-week (ultra + mile
+        // distances override the cadence). The mile can request up to 3 quality slots
+        // in peak (well-trained), so placement is generalised to N extra slots beyond
+        // the primary, each ≥2 days from the primary and from one another, ≥1 from long.
+        $realDist  = $ultra['distance'] ?? self::$planDistance;
+        $clsForQual = self::classifyAthlete($profile, (string)($realDist ?? '5K'));
+        $allowedQualSlots = self::getQualitySlotCount($planType, $phase, $numDays, $weekNumber, $isCutback, $realDist, $clsForQual);
+        $extraQualNeeded  = max(0, $allowedQualSlots - 1);
+        $extraQualDays    = [];
+        if ($extraQualNeeded > 0 && $workoutDay !== null && !$isRaceWeek && count($runDays) >= 4) {
             foreach ($runDays as $d) {
-                if ($d === $longDay || $d === $workoutDay) continue;
+                if (count($extraQualDays) >= $extraQualNeeded) break;
+                if ($d === $longDay || $d === $workoutDay || in_array($d, $extraQualDays, true)) continue;
                 $gapFromPrimary = min(abs($d - $workoutDay), 7 - abs($d - $workoutDay));
                 $gapFromLong    = min(abs($d - $longDay), 7 - abs($d - $longDay));
-                if ($gapFromPrimary >= 2 && $gapFromLong >= 1) { $secondaryDay = $d; break; }
+                $okFromExtras   = true;
+                foreach ($extraQualDays as $e) {
+                    if (min(abs($d - $e), 7 - abs($d - $e)) < 2) { $okFromExtras = false; break; }
+                }
+                if ($gapFromPrimary >= 2 && $gapFromLong >= 1 && $okFromExtras) { $extraQualDays[] = $d; }
             }
         }
 
@@ -1860,10 +1987,10 @@ class PlanGenerator
         } else {
             foreach ($runDays as $day) {
                 $schedule[$day] = match(true) {
-                    $day === $longDay      => 'long_run',
-                    $day === $workoutDay   => 'quality_primary',
-                    $day === $secondaryDay => 'quality_secondary',
-                    default                => 'easy',
+                    $day === $longDay                       => 'long_run',
+                    $day === $workoutDay                    => 'quality_primary',
+                    in_array($day, $extraQualDays, true)    => 'quality_secondary',
+                    default                                 => 'easy',
                 };
             }
         }
@@ -1905,11 +2032,13 @@ class PlanGenerator
             }
         }
 
-        // Guardrail: max 2 quality sessions per week
+        // Guardrail: cap quality sessions at the allocation for this week (2 for most
+        // distances; up to 3 for a well-trained miler's peak — mile spec Part 9).
+        $qualCap   = max(1, $allowedQualSlots);
         $qualCount = count(array_filter($schedule, fn($t) => in_array($t, ['quality_primary', 'quality_secondary'])));
-        if ($qualCount > 2) {
+        if ($qualCount > $qualCap) {
             $reduced = 0;
-            for ($d = 0; $d < 7 && $reduced < ($qualCount - 2); $d++) {
+            for ($d = 0; $d < 7 && $reduced < ($qualCount - $qualCap); $d++) {
                 if ($schedule[$d] === 'quality_secondary') {
                     $schedule[$d] = 'easy';
                     $reduced++;
@@ -1929,6 +2058,25 @@ class PlanGenerator
             if (in_array($schedule[$prevPrev], ['quality_primary', 'quality_secondary'])) continue;
             $schedule[$prev] = 'easy_strides';
             $stridesCount++;
+        }
+
+        // Mile athletes get strides more often (mile spec Part 12): 3–4×/week in
+        // build/peak, daily activation strides in the taper. Beyond the day-before-quality
+        // strides placed above, convert additional easy days (not the day after a quality
+        // session) to easy_strides until the mile target is reached.
+        if (self::isMile((string)($realDist ?? ''))) {
+            $mileTarget = match ($phase) {
+                'build', 'peak' => 4,
+                'taper'         => 7, // every easy day (activation)
+                default         => 2,
+            };
+            for ($d = 0; $d < 7 && $stridesCount < $mileTarget; $d++) {
+                if ($schedule[$d] !== 'easy') continue;
+                $prev = ($d - 1 + 7) % 7;
+                if (in_array($schedule[$prev], ['quality_primary', 'quality_secondary', 'long_run'], true)) continue;
+                $schedule[$d] = 'easy_strides';
+                $stridesCount++;
+            }
         }
 
         return $schedule;
@@ -1990,6 +2138,10 @@ class PlanGenerator
                 // ramped via the 15%/week individual-run ceiling (ultra spec Part 8).
                 $phaseCap = self::ultraLongRunCap($ultra['distance'], $phase) ?? 210;
                 $longMins = max($longFloor, min($phaseCap, $progressiveCeiling));
+            } elseif (self::$planDistance === 'mile') {
+                // Mile long runs are aerobic support, capped per phase and not grown in
+                // peak (sharpening) — mile spec Part 8.
+                $longMins = max($longFloor, min(self::mileLongRunCap($phase), $progressiveCeiling));
             } else {
                 $longTarget = max($longFloor, (int)floor($weeklyMins * 0.28));
                 $guardrail  = (int)round($weeklyMins * 0.35);
@@ -2004,9 +2156,16 @@ class PlanGenerator
             $mediumMins = max($longFloor, (int)round($longMins * self::ultraSundayRatio($ultra['distance'])));
         }
 
-        // Trail terrain weighting + (100-miler) aerobic-threshold quality preference.
-        $qualWeightAdjust = $ultra !== null ? self::ultraWeightAdjust($ultra['surface'] ?? null) : [];
-        $qualExcludeCodes = $ultra !== null ? self::ultraQualityExcludeCodes($ultra['distance']) : [];
+        // Quality archetype weighting: trail terrain + (100-miler) threshold preference,
+        // or the mile's speed/threshold emphasis (mile spec Part 10).
+        $qualWeightAdjust = [];
+        $qualExcludeCodes = [];
+        if ($ultra !== null) {
+            $qualWeightAdjust = self::ultraWeightAdjust($ultra['surface'] ?? null);
+            $qualExcludeCodes = self::ultraQualityExcludeCodes($ultra['distance']);
+        } elseif (self::$planDistance === 'mile') {
+            $qualWeightAdjust = self::mileWeightAdjust();
+        }
 
         $easyFloor = $s['easy_run_min_minutes'] ?? 20;
         $easyCap   = $s['easy_run_max_minutes'] ?? 70;
@@ -2158,6 +2317,14 @@ class PlanGenerator
 
             if (array_key_exists($date, $qualInstances)) {
                 $instance = $qualInstances[$date];
+            } elseif ($slotType === 'long_run' && self::$planDistance === 'mile') {
+                // Mile long runs are pure aerobic only (mile spec Part 8) — no embedded
+                // workouts, progression, or fast finish. The quality stimulus is the track work.
+                $code     = $targetMinutes >= 60 ? 'continuous_long' : 'continuous_easy';
+                $instance = self::resolveNamedArchetype(
+                    $code, $targetMinutes, $phase, $goalDistance, $classification,
+                    $date, $antiRepeatHistory, $selector
+                );
             } else {
                 $slotConstraints = $constraints + [
                     'weekly_minutes'             => $weeklyMins,
@@ -2547,6 +2714,17 @@ class PlanGenerator
         // so the variant is available, though capping below is param-driven not variant-driven)
         if (!isset($archetype['resolved_variant'])) {
             $archetype['resolved_variant'] = self::pickVariant($archetype);
+        }
+
+        // Mile rep-distance bias (mile spec Part 10): for equal_distance_repeats, prefer the
+        // shortest rep distance (≤800m suits milers), overriding the random variant pick.
+        if (self::$planDistance === 'mile' && ($archetype['code'] ?? '') === 'equal_distance_repeats') {
+            $best = null; $bestDist = PHP_INT_MAX;
+            foreach (($archetype['variants'] ?? []) as $v) {
+                $rd = (int)($v['rep_distance_meters'] ?? 0);
+                if ($rd > 0 && $rd < $bestDist) { $bestDist = $rd; $best = $v; }
+            }
+            if ($best !== null) $archetype['resolved_variant'] = $best;
         }
 
         // Generic fallback: derive rep_distance from quality_volume/rep_count only when an
@@ -3161,7 +3339,8 @@ class PlanGenerator
             $archetype['code'] ?? '',
             $archetype['resolved_params'] ?? [],
             self::$paceZones,
-            $archetype['resolved_variant']['code'] ?? null
+            $archetype['resolved_variant']['code'] ?? null,
+            self::$planDistance
         );
         if ($clause === null || $clause === '') {
             return $instructions;
@@ -3648,6 +3827,8 @@ class PlanGenerator
             in_array($d, ['50_miler', '50 miler', '50-mile ultra', '50 mile', '50mi'])=> '50_miler',
             in_array($d, ['100k', '100km', '100 km', '100k ultra'])                   => '100k',
             in_array($d, ['100_miler', '100 miler', '100-mile ultra', '100 mile', '100mi']) => '100_miler',
+            // Mile / 1500m (a Hyrox goal is stored as 'mile' with is_hyrox=1).
+            in_array($d, ['mile', '1 mile', '1mile', '1500', '1500m', 'mile / 1500m', 'hyrox']) => 'mile',
             default                                                         => '5K',
         };
     }

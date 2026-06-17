@@ -82,6 +82,26 @@ include __DIR__ . '/../../views/layout/html_open.php';
                         <?= h($label) ?>
                     </label>
                     <?php endforeach; ?>
+                    <?php
+                    // Mile / 1500m and Hyrox both run the mile engine. The Hyrox option
+                    // submits goal_race_distance='hyrox'; the controller stores goal='mile'
+                    // with is_hyrox=1. Restore selection: Hyrox shows selected when goal=mile
+                    // and is_hyrox=1; Mile shows selected when goal=mile and is_hyrox=0.
+                    $goalSel    = $d['goal_race_distance'] ?? '';
+                    $hyroxSel   = $d['is_hyrox'] ?? 0;
+                    $mileChosen = ($goalSel === 'mile' && !$hyroxSel) || $goalSel === 'mile_display';
+                    $hyroxChosen = ($goalSel === 'mile' && $hyroxSel) || $goalSel === 'hyrox';
+                    ?>
+                    <label class="pill-choice <?= $mileChosen ? 'selected' : '' ?>">
+                        <input type="radio" name="goal_race_distance" value="mile" data-ultra="0"
+                               <?= $mileChosen ? 'checked' : '' ?>>
+                        Mile / 1500m
+                    </label>
+                    <label class="pill-choice <?= $hyroxChosen ? 'selected' : '' ?>">
+                        <input type="radio" name="goal_race_distance" value="hyrox" data-ultra="0"
+                               <?= $hyroxChosen ? 'checked' : '' ?>>
+                        Hyrox
+                    </label>
                 </div>
             </div>
 

@@ -88,6 +88,12 @@ class OnboardingController
 
         $distance = $_POST['goal_race_distance'] ?? null;
 
+        // Hyrox runs the mile engine under a UI facade (mile spec Part 2): store
+        // goal_race_distance='mile' with is_hyrox=1. Plain "Mile / 1500m" stores is_hyrox=0.
+        $isHyrox = 0;
+        if ($distance === 'hyrox') { $distance = 'mile'; $isHyrox = 1; }
+        elseif ($distance === 'mile') { $isHyrox = 0; }
+
         // Ultra distances require a trail/road answer before continuing (ultra spec Part 2).
         $ultraDistances = ['50k', '50_miler', '100k', '100_miler'];
         $ultraSurface   = in_array($_POST['ultra_surface'] ?? '', ['trail', 'road'], true)
@@ -105,6 +111,7 @@ class OnboardingController
         $_SESSION['onboarding_data']['goal_race_date'] = $_POST['goal_race_date'] ?? null;
         $_SESSION['onboarding_data']['goal_race_distance'] = $distance;
         $_SESSION['onboarding_data']['goal_finish_time']   = $_POST['goal_finish_time'] ?? null;
+        $_SESSION['onboarding_data']['is_hyrox']           = $isHyrox;
         // Only store a surface for ultra distances; clear it otherwise.
         $_SESSION['onboarding_data']['ultra_surface'] =
             in_array($distance, $ultraDistances, true) ? $ultraSurface : null;
@@ -367,6 +374,7 @@ class OnboardingController
             'goal_race_date'             => $d['goal_race_date'] ?: null,
             'goal_race_distance'         => $d['goal_race_distance'] ?: null,
             'ultra_surface'              => in_array($d['ultra_surface'] ?? null, ['trail','road'], true) ? $d['ultra_surface'] : null,
+            'is_hyrox'                   => !empty($d['is_hyrox']) ? 1 : 0,
             'goal_finish_time'           => $d['goal_finish_time'] ?: null,
             'current_weekly_minutes'     => (int)($d['current_weekly_minutes'] ?? 0) ?: null,
             'longest_recent_run_mins'    => (int)($d['longest_recent_run_mins'] ?? 0) ?: null,
