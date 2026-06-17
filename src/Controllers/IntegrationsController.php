@@ -130,7 +130,9 @@ class IntegrationsController
             echo json_encode([
                 'success' => true,
                 'pushed'  => $n,
-                'message' => $n . ' workout' . ($n === 1 ? '' : 's') . ' synced to your Intervals.icu calendar',
+                'message' => $n === 0
+                    ? 'Your calendar is already up to date'
+                    : $n . ' workout' . ($n === 1 ? '' : 's') . ' synced to your Intervals.icu calendar',
             ]);
         } catch (\Throwable $e) {
             error_log('IntegrationsController::syncAthlete: ' . $e->getMessage());
