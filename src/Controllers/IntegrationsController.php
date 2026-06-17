@@ -106,6 +106,39 @@ class IntegrationsController
         exit;
     }
 
+    /**
+     * POST /app/integrations/intervals/sync-athlete — athlete self-service: re-push
+     * their own visible workouts to Intervals.icu now (the "Sync workouts now" button).
+     */
+    public static function syncAthlete(): void
+    {
+        Auth::requireRole('athlete');
+        Auth::verifyCsrf();
+        header('Content-Type: application/json');
+
+        $db     = Database::get();
+        $userId = (int)Auth::userId();
+
+        if (!IntervalsService::connectionForUser($userId, $db)) {
+            echo json_encode(['success' => false, 'message' => 'Not connected']);
+            exit;
+        }
+
+        try {
+            $res = IntervalsService::repushAllVisible($userId, $db);
+            $n   = (int)($res['pushed'] ?? 0);
+            echo json_encode([
+                'success' => true,
+                'pushed'  => $n,
+                'message' => $n . ' workout' . ($n === 1 ? '' : 's') . ' synced to your Intervals.icu calendar',
+            ]);
+        } catch (\Throwable $e) {
+            error_log('IntegrationsController::syncAthlete: ' . $e->getMessage());
+            echo json_encode(['success' => false, 'message' => 'Sync failed — please try again']);
+        }
+        exit;
+    }
+
     /** GET /app/integrations/intervals/guide — public setup walkthrough (no auth). */
     public static function guide(): void
     {

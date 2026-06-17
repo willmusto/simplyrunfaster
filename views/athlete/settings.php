@@ -100,6 +100,12 @@
                         <a href="/app/integrations/intervals/guide">How does this work? →</a>
                     <?php endif; ?>
                 </div>
+                <?php if ($intervalsConnected): ?>
+                <div style="margin-top:8px;">
+                    <button type="button" class="btn btn-secondary btn-sm" data-intervals-sync>Sync workouts now</button>
+                    <div data-intervals-sync-error style="display:none;font-size:12px;color:#C0392B;margin-top:6px;"></div>
+                </div>
+                <?php endif; ?>
             </span>
             <div class="device-row-right">
                 <?php if ($intervalsConnected): ?>
@@ -149,6 +155,57 @@
               .then(function (res) { if (!res || !res.success) input.checked = !enabled; })
               .catch(function () { input.checked = !enabled; })
               .finally(function () { input.disabled = false; });
+        });
+    })();
+    </script>
+
+    <script>
+    (function () {
+        var btn = document.querySelector('[data-intervals-sync]');
+        if (!btn) return;
+        var errEl = document.querySelector('[data-intervals-sync-error]');
+        var meta  = document.querySelector('meta[name="csrf-token"]');
+        var csrf  = meta ? meta.content : '';
+        var LABEL = 'Sync workouts now';
+
+        btn.addEventListener('click', function () {
+            if (btn.disabled) return;
+            if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+            btn.disabled = true;
+            btn.textContent = 'Syncing…';
+
+            fetch('/app/integrations/intervals/sync-athlete', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+            }).then(function (r) { return r.json(); })
+              .then(function (res) {
+                  if (res && res.success) {
+                      var n = res.pushed || 0;
+                      btn.textContent = '✓ Synced (' + n + ' workout' + (n === 1 ? '' : 's') + ')';
+                      btn.style.color = '#1D9E75';
+                      // Re-enable after 60s with the original label.
+                      setTimeout(function () {
+                          btn.disabled = false;
+                          btn.textContent = LABEL;
+                          btn.style.color = '';
+                      }, 60000);
+                  } else {
+                      btn.disabled = false;
+                      btn.textContent = LABEL;
+                      if (errEl) {
+                          errEl.textContent = (res && res.message) ? res.message : 'Sync failed — please try again';
+                          errEl.style.display = 'block';
+                      }
+                  }
+              })
+              .catch(function () {
+                  btn.disabled = false;
+                  btn.textContent = LABEL;
+                  if (errEl) {
+                      errEl.textContent = 'Sync failed — please try again';
+                      errEl.style.display = 'block';
+                  }
+              });
         });
     })();
     </script>

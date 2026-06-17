@@ -129,6 +129,7 @@ $router->get('/integrations/intervals/connect',     [IntegrationsController::cla
 $router->get('/integrations/intervals/callback',    [IntegrationsController::class, 'callback']);
 $router->post('/integrations/intervals/disconnect', [IntegrationsController::class, 'disconnect']);
 $router->post('/integrations/intervals/repush',     [IntegrationsController::class, 'repush']);
+$router->post('/integrations/intervals/sync-athlete',[IntegrationsController::class, 'syncAthlete']);
 $router->get('/integrations/intervals/guide',       [IntegrationsController::class, 'guide']);
 
 // ── Athlete billing (Milestone 8) ────────────────────────────
