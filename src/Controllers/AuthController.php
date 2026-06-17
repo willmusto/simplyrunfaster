@@ -93,6 +93,12 @@ class AuthController
         $code   = $params['code'] ?? '';
         $invite = self::getValidInvite($code);
         if (!$invite) {
+            // A coach-deactivated link gets a precise message; everything else
+            // (expired / used / unknown) falls back to the generic invalid copy.
+            if ($code !== '' && self::inviteIsDeactivated($code)) {
+                $inviteTitle   = 'This invite link is no longer active.';
+                $inviteMessage = 'The coach who created it has deactivated it. Ask them for a new invite link.';
+            }
             include __DIR__ . '/../../views/auth/invite_invalid.php';
             return;
         }
@@ -205,10 +211,20 @@ class AuthController
              WHERE code = ?
                AND expires_at > NOW()
                AND use_count < max_uses
+               AND deactivated_at IS NULL
              LIMIT 1'
         );
         $stmt->execute([$code]);
         return $stmt->fetch() ?: null;
+    }
+
+    /** True when an invite code exists but has been manually deactivated by its coach. */
+    private static function inviteIsDeactivated(string $code): bool
+    {
+        $db   = Database::get();
+        $stmt = $db->prepare('SELECT 1 FROM invite_links WHERE code = ? AND deactivated_at IS NOT NULL LIMIT 1');
+        $stmt->execute([$code]);
+        return (bool) $stmt->fetchColumn();
     }
 
     private static function getCoachForInvite(array $invite): ?array

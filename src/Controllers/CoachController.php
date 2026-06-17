@@ -1085,6 +1085,40 @@ class CoachController
         exit;
     }
 
+    /**
+     * POST /app/coach/invites/deactivate — disable an invite link the coach owns.
+     * Body: { invite_id }. Sets deactivated_at so the link can no longer onboard
+     * anyone (getValidInvite() filters on it). Idempotent and owner-scoped: only the
+     * creating coach can deactivate, and only a link that isn't already deactivated.
+     */
+    public static function deactivateInvite(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $db       = Database::get();
+        $coachId  = Auth::userId();
+        $inviteId = (int)($_POST['invite_id'] ?? 0);
+
+        // Owner-scoped + idempotent. Not gated on use_count: a multi-use link can be
+        // partially used yet still active, which is exactly when a coach may want to
+        // kill it. rowCount() tells us whether anything was actually deactivated.
+        $stmt = $db->prepare(
+            'UPDATE invite_links SET deactivated_at = NOW()
+             WHERE id = ? AND created_by = ? AND deactivated_at IS NULL'
+        );
+        $stmt->execute([$inviteId, $coachId]);
+
+        if ($stmt->rowCount() > 0) {
+            $_SESSION['flash_success'] = 'Invite link deactivated.';
+        } else {
+            $_SESSION['flash_error'] = "That invite link couldn't be deactivated.";
+        }
+
+        header('Location: /app/coach/invites');
+        exit;
+    }
+
     public static function coachMessages(array $params): void
     {
         Auth::requireRole(['coach','assistant_coach','admin']);

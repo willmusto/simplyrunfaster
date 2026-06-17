@@ -99,10 +99,12 @@
     <div class="card"><p class="body-text" style="margin:0;">No invite links yet.</p></div>
     <?php else: ?>
     <?php foreach ($links as $l):
+        $deactivated = !empty($l['deactivated_at']);
         $used    = (int)$l['use_count'] >= (int)$l['max_uses'];
         $expired = strtotime($l['expires_at']) < time();
-        $state   = $used ? 'Used' : ($expired ? 'Expired' : 'Active');
-        $stateColor = $used ? 'var(--text-muted)' : ($expired ? 'var(--color-danger)' : 'var(--color-success)');
+        $active  = !$deactivated && !$used && !$expired;
+        $state   = $deactivated ? 'Inactive' : ($used ? 'Used' : ($expired ? 'Expired' : 'Active'));
+        $stateColor = $active ? 'var(--color-success)' : ($expired ? 'var(--color-danger)' : 'var(--text-muted)');
         $url = rtrim(APP_URL, '/') . '/invite/' . $l['code'];
         $disc = (int)($l['discount_percent'] ?? 0);
     ?>
@@ -117,12 +119,18 @@
             <?= (int)$l['use_count'] ?>/<?= (int)$l['max_uses'] ?> used ·
             expires <?= h(date('M j', strtotime($l['expires_at']))) ?>
         </div>
-        <?php if (!$used && !$expired): ?>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+        <?php if ($active): ?>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
             <input type="text" readonly value="<?= h($url) ?>" class="form-input"
                    style="flex:1;min-width:160px;font-size:12px;" onclick="this.select();">
             <button type="button" class="btn btn-secondary btn-sm"
                     onclick="navigator.clipboard.writeText('<?= h($url) ?>');this.textContent='Copied';">Copy</button>
+            <form method="POST" action="/app/coach/invites/deactivate" style="margin:0;"
+                  onsubmit="return confirm('Deactivate this invite link? Anyone with this link will no longer be able to use it.');">
+                <?= Auth::csrfField() ?>
+                <input type="hidden" name="invite_id" value="<?= (int)$l['id'] ?>">
+                <button type="submit" class="btn btn-secondary btn-sm">Deactivate</button>
+            </form>
         </div>
         <?php endif; ?>
     </div>

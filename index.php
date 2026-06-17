@@ -174,6 +174,7 @@ $router->post('/coach/settings/notifications', [CoachController::class, 'notific
 // ── Invite links (coach/admin) ───────────────────────────────
 $router->get('/coach/invites',  [CoachController::class, 'invites']);
 $router->post('/coach/invites', [CoachController::class, 'createInvite']);
+$router->post('/coach/invites/deactivate', [CoachController::class, 'deactivateInvite']);
 
 // ── Admin billing overview ───────────────────────────────────
 $router->get('/admin/billing', [AdminController::class, 'billing']);
