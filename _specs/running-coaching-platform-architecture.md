@@ -128,6 +128,7 @@ Populated by onboarding form(s). The engine reads this at plan generation time.
 | goal_finish_time | VARCHAR | optional time goal |
 | ultra_surface | ENUM | road, trail (nullable) — populated only for ultra goal distances (migration_018); drives trail-vs-road archetype weighting + long-run cues |
 | is_hyrox | BOOL | default false — Hyrox UI facade flag (migration_021); engine runs mile logic underneath, display shows "Hyrox" |
+| hyrox_ever | BOOL | default false — latches to 1 the first time Hyrox is ever selected and never resets (migration_023). Keeps the Hyrox goal-distance pill visible in Training Settings after the athlete switches away to another goal. |
 | current_weekly_mileage | FLOAT | self-reported at onboarding |
 | training_days_per_week | INT | availability |
 | long_run_day | TINYINT | preferred day of week (0=Sun); used when scheduling_preference='fixed' |
@@ -343,13 +344,13 @@ Tune-up and goal races added by coach or athlete.
 | id | INT PK | |
 | athlete_id | INT FK | |
 | added_by | INT FK | user_id of coach or athlete who added it |
-| added_by_role | ENUM | athlete, coach, admin |
+| added_by_role | ENUM | athlete, coach, assistant_coach, admin (assistant_coach added migration_025) |
 | race_name | VARCHAR | free text |
 | race_distance | ENUM | 5K, 10K, 15K, half, marathon, ultra, other + the ultra keys 50k / 50_miler / 100k / 100_miler (migration_019) |
 | distance_override | FLOAT | nullable — miles, used when distance = other |
 | distance_override_unit | ENUM | miles, km (nullable) — the unit the athlete entered for an "other" distance (migration_019) |
 | race_date | DATE | |
-| is_goal_race | BOOL | default false. Marking a goal race syncs `athlete_profiles.goal_race_date`/`goal_race_distance`. |
+| is_goal_race | BOOL | default false. Marking a goal race syncs `athlete_profiles.goal_race_date`/`goal_race_distance`. The goal race is also represented as an `is_goal_race=1` row here; migration_025 backfilled one such row for existing athletes who had a profile goal but no `races` row (race_name 'Goal Race'; distance label mapped to the ENUM, unmappable mile/Hyrox stored as 'other'). |
 | result_time | INT | nullable — finish time in seconds, set after race |
 | result_synced_from_watch | BOOL | default false |
 | result_notes | TEXT | nullable — athlete's free-text notes logged with the result (migration_019; distinct from coach `notes`) |
@@ -605,7 +606,7 @@ Triggered on first login. Completion sets `onboarding_completed_at` and queues p
 
 **Form sections (can be split across multiple screens):**
 
-1. **Goal** — target race, distance, date, time goal (optional). Distance options: 5K, 10K, 15K, Half Marathon, Marathon, Mile / 1500m, Hyrox, and the ultras 50K / 50 Miler / 100K / 100 Miler. Selecting an ultra shows a required trail/road question (`ultra_surface`); selecting Hyrox stores `goal=mile` + `is_hyrox=1` and shows a functional-fitness supplement note on the next screen. See engine spec §9b/§9c.
+1. **Goal** — target race, distance, date, time goal (optional). Distance pills are ordered shortest-first with Hyrox first when shown: Hyrox · Mile / 1500m · 5K · 10K · 15K · Half Marathon · Marathon · 50K · 50 Mile · 100K · 100 Mile (ultra labels drop the "Ultra" suffix). Selecting an ultra shows a required trail/road question (`ultra_surface`); selecting Hyrox stores `goal=mile` + `is_hyrox=1` (and latches `hyrox_ever=1`) and shows a functional-fitness supplement note on the next screen. In **Training Settings** the same pill set is used, and the Hyrox pill is shown only once the athlete has ever selected it (`is_hyrox=1 OR hyrox_ever=1`), so it persists after switching to another goal. See engine spec §9b/§9c.
 2. **Current fitness** — current weekly mileage, longest recent long run, most recent race result (optional)
 3. **Availability** — days per week, preferred long run day, any days unavailable
 4. **History** — years running, injury history, highest-ever weekly mileage
