@@ -349,8 +349,25 @@ class IntervalsService
         if ($n < 1 || $durSec < 1) return '';
         $recMin = (int)($seg['recovery']['minimum_recovery_seconds'] ?? 0);
         $recSec = self::roundSecs($recMin > 0 ? $recMin : max(90, $durSec));
-        $zone   = $type === 'hill_sprints' ? 'Z6 Pace' : 'Z5 Pace';
-        return self::repeatBlock($n, '- ' . self::fmtSeconds($durSec) . ' ' . $zone, $recSec);
+
+        // Hills are effort-, not pace-based, so name each step with the effort cue and
+        // the jog/walk-back recovery so the cue rides along on the watch.
+        if ($type === 'hill_sprints') {
+            $zone      = 'Z6 Pace';
+            $effortCue = 'uphill sprint — near-maximal but controlled';
+        } else {
+            $zone      = 'Z5 Pace';
+            $effortCue = 'uphill — strong, controlled effort';
+        }
+        $between = strtolower((string)($seg['recovery']['between_reps'] ?? ''));
+        $recCue  = str_contains($between, 'walk') ? 'walk back down, full recovery' : 'jog back down';
+
+        $lines = ["Main Set {$n}x"];
+        $lines[] = '- ' . self::fmtSeconds($durSec) . ' ' . $zone . ' ' . $effortCue;
+        if ($recSec > 0) {
+            $lines[] = '- ' . self::fmtSeconds($recSec) . ' Z1 Pace ' . $recCue;
+        }
+        return implode("\n", $lines);
     }
 
     /** Fartlek ladder: one round of the work intervals, repeated $rounds times. */
@@ -493,13 +510,21 @@ class IntervalsService
         };
     }
 
-    /** Format seconds as Xm (whole minutes) or Xs. */
+    /**
+     * Format seconds for Intervals.icu native text in human-readable minutes/seconds:
+     * whole minutes as "Xm", sub-minute as "Xs", and a remainder as compound "XmYs"
+     * (e.g. 135 -> "2m15s", 90 -> "1m30s"). The compact compound form (no space) is
+     * the Intervals.icu duration grammar and stays consistent with the "15m"/"30s"
+     * single-unit steps elsewhere in the text.
+     */
     private static function fmtSeconds(int $secs): string
     {
-        if ($secs > 0 && $secs % 60 === 0) {
-            return ($secs / 60) . 'm';
-        }
-        return $secs . 's';
+        if ($secs <= 0) return '0s';
+        $m = intdiv($secs, 60);
+        $s = $secs % 60;
+        if ($m === 0) return "{$s}s";
+        if ($s === 0) return "{$m}m";
+        return "{$m}m{$s}s";
     }
 
     /** Format meters as Xkm (Intervals.icu treats bare m as minutes). */
