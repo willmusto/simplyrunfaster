@@ -40,7 +40,11 @@ $lastMessageId = $messages ? (int)end($messages)['id'] : 0;
                 $sentAt        = $sentDt->getTimestamp();
                 $mine          = ((int)$msg['sender_id'] === $viewerId);
                 $rowClass      = $mine ? 'athlete' : 'coach';
-                $isSessionNote = in_array($msg['message_type'], ['session_note', 'session_note_reply'], true);
+                $isNote        = $msg['message_type'] === 'session_note';
+                $isReply       = $msg['message_type'] === 'session_note_reply';
+                $cwId          = (int)($msg['completed_workout_id'] ?? 0);
+                $sessionName   = trim((string)($msg['session_title'] ?? ''))
+                    ?: (!empty($msg['session_type']) ? ucfirst(str_replace('_', ' ', $msg['session_type'])) : 'Session note');
                 $switch        = ($prevMine !== null && $prevMine !== $mine) ? ' sender-switch' : '';
 
                 if ($prevTime === null || ($sentAt - $prevTime) > 3600):
@@ -50,19 +54,28 @@ $lastMessageId = $messages ? (int)end($messages)['id'] : 0;
 
             <div class="msg-row <?= $rowClass . $switch ?>"
                  data-msg-id="<?= (int)$msg['id'] ?>" data-ts="<?= $sentAt ?>" data-mine="<?= $mine ? '1' : '0' ?>">
-                <?php if ($isSessionNote): ?>
+                <?php if ($isNote): ?>
                 <div class="msg-session-card">
                     <div class="msg-session-card-header">
-                        📍 <?= h(ucfirst(str_replace('_', ' ', $msg['session_type'] ?? 'workout'))) ?>
+                        📍 <?= h($sessionName) ?>
                         <?php if ($msg['session_date']): ?>
                         · <?= date('M j', strtotime($msg['session_date'])) ?>
                         <?php endif; ?>
                     </div>
                     <div class="msg-session-card-body">
-                        <?= h(mb_substr($msg['body'], 0, 200) . (mb_strlen($msg['body']) > 200 ? '…' : '')) ?>
+                        <?= h(mb_substr($msg['body'], 0, 120) . (mb_strlen($msg['body']) > 120 ? '…' : '')) ?>
                     </div>
-                    <a href="/app/log" class="msg-session-link">View in log →</a>
+                    <?php if ($cwId): ?>
+                    <a href="/app/log/<?= $cwId ?>" class="msg-session-link">View session →</a>
+                    <?php endif; ?>
                 </div>
+                <?php elseif ($isReply): ?>
+                <?php if ($cwId): ?>
+                <div class="msg-reply-label" style="font-size:11px;color:var(--text-muted);margin-bottom:3px;">
+                    Re: <?= h($sessionName) ?>
+                </div>
+                <?php endif; ?>
+                <div class="msg-bubble"><?= nl2br(h($msg['body'])) ?></div>
                 <?php else: ?>
                 <div class="msg-bubble"><?= nl2br(h($msg['body'])) ?></div>
                 <?php endif; ?>

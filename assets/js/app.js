@@ -287,18 +287,25 @@
             row.setAttribute('data-ts', msg.ts);
             row.setAttribute('data-mine', mine);
 
-            var isNote = (msg.type === 'session_note' || msg.type === 'session_note_reply');
-            if (isNote) {
-                var head = '📍 ' + esc(msg.session_type || 'Workout')
+            var wname = msg.workout_name || msg.session_type || 'Session note';
+            var cwId  = msg.completed_workout_id || 0;
+            if (msg.type === 'session_note') {
+                var head = '📍 ' + esc(wname)
                          + (msg.session_date_label ? ' · ' + esc(msg.session_date_label) : '');
-                var link = (role === 'athlete')
-                         ? '<a href="/app/log" class="msg-session-link">View in log →</a>' : '';
+                var prev = (msg.body && msg.body.length > 120) ? msg.body.slice(0, 120) + '…' : (msg.body || '');
+                var link = (role === 'athlete' && cwId)
+                         ? '<a href="/app/log/' + cwId + '" class="msg-session-link">View session →</a>' : '';
                 row.innerHTML =
                     '<div class="msg-session-card">' +
                         '<div class="msg-session-card-header">' + head + '</div>' +
-                        '<div class="msg-session-card-body">' + esc(msg.body) + '</div>' +
+                        '<div class="msg-session-card-body">' + esc(prev) + '</div>' +
                         link +
                     '</div>';
+            } else if (msg.type === 'session_note_reply') {
+                var lbl = cwId
+                    ? '<div class="msg-reply-label" style="font-size:11px;color:var(--text-muted);margin-bottom:3px;">Re: ' + esc(wname) + '</div>'
+                    : '';
+                row.innerHTML = lbl + '<div class="msg-bubble">' + esc(msg.body).replace(/\n/g, '<br>') + '</div>';
             } else {
                 var bubble = document.createElement('div');
                 bubble.className = 'msg-bubble';

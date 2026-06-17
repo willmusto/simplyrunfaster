@@ -96,8 +96,8 @@ class AthleteController
         include __DIR__ . '/../../views/layout/html_close.php';
     }
 
-    /** Two-week athlete day-swap window: current week + next week = 14 days from today. */
-    private const SWAP_WINDOW_DAYS = 14;
+    /** Athlete day-swap window: today through today + 9 days (the 10-day visible window). */
+    private const SWAP_WINDOW_DAYS = 10;
 
     /**
      * POST /app/athlete/workout/swap — athlete moves a workout to another day within
@@ -129,14 +129,14 @@ class AthleteController
         $targetDate = trim((string)($in['target_date'] ?? ''));
         $force      = !empty($in['force']) && $in['force'] !== 'false';
 
-        // Two-week window in the athlete's timezone: today .. today + 13 days.
+        // Swap window in the athlete's timezone: today .. today + 9 days (10-day window).
         $tz        = $athlete['timezone'] ?? Timezone::DEFAULT_TZ;
         $today     = Timezone::dateInZone($tz, 'now');
         $windowEnd = Timezone::dateInZone($tz, '+' . (self::SWAP_WINDOW_DAYS - 1) . ' days');
 
         if (!self::isValidDate($targetDate) || $targetDate < $today || $targetDate > $windowEnd) {
             echo json_encode(['success' => false, 'error' => 'invalid_date',
-                'message' => 'You can only move workouts within the next two weeks.']);
+                'message' => 'You can only move workouts within the next 10 days.']);
             exit;
         }
 
@@ -169,10 +169,10 @@ class AthleteController
         $planId  = (int)$workout['plan_id'];
         $oldDate = (string)$workout['scheduled_date'];
 
-        // The source workout's current day must also sit inside the two-week window.
+        // The source workout's current day must also sit inside the 10-day window.
         if ($oldDate < $today || $oldDate > $windowEnd) {
             echo json_encode(['success' => false, 'error' => 'out_of_window',
-                'message' => 'This workout is outside the two-week window.']);
+                'message' => 'This workout is outside the 10-day window.']);
             exit;
         }
 
@@ -293,6 +293,72 @@ class AthleteController
         include __DIR__ . '/../../views/layout/html_open.php';
         include __DIR__ . '/../../views/layout/nav_athlete.php';
         include __DIR__ . '/../../views/athlete/log.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    /**
+     * GET /app/log/:id — session detail: planned vs. actual, the note entry/edit UI,
+     * and the full session thread (athlete note + coach replies). Owner-scoped.
+     */
+    public static function session(array $params): void
+    {
+        Auth::requireRole('athlete');
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $athlete = Auth::getAthlete();
+        if (!$athlete || !$athlete['onboarding_completed_at']) {
+            header('Location: /app/onboarding');
+            exit;
+        }
+
+        $db        = Database::get();
+        $athleteId = (int)$athlete['id'];
+        $cwId      = (int)($params['id'] ?? 0);
+
+        // Completed workout + its planned counterpart (ownership enforced).
+        $stmt = $db->prepare(
+            'SELECT cw.*, pw.display_title, pw.display_summary, pw.workout_type AS planned_type,
+                    pw.target_duration AS planned_duration, pw.target_distance AS planned_distance,
+                    pw.target_pace_min, pw.target_pace_max,
+                    COALESCE(pw.athlete_instructions, pw.description) AS planned_desc
+             FROM completed_workouts cw
+             LEFT JOIN planned_workouts pw ON pw.id = cw.planned_workout_id
+             WHERE cw.id = ? AND cw.athlete_id = ? LIMIT 1'
+        );
+        $stmt->execute([$cwId, $athleteId]);
+        $session = $stmt->fetch();
+        if (!$session) {
+            header('Location: /app/log');
+            exit;
+        }
+
+        // Session thread: athlete note first, coach replies after.
+        $notesStmt = $db->prepare(
+            'SELECT sn.*, u.name AS author_name
+             FROM session_notes sn
+             LEFT JOIN users u ON u.id = sn.author_id
+             WHERE sn.completed_workout_id = ?
+             ORDER BY sn.created_at ASC, sn.id ASC'
+        );
+        $notesStmt->execute([$cwId]);
+        $notes = $notesStmt->fetchAll();
+
+        $coachName = 'Your coach';
+        if (!empty($athlete['coach_id'])) {
+            $cs = $db->prepare('SELECT name FROM users WHERE id = ? LIMIT 1');
+            $cs->execute([(int)$athlete['coach_id']]);
+            $coachName = $cs->fetchColumn() ?: 'Your coach';
+        }
+
+        $success = $_SESSION['flash_success'] ?? null;
+        unset($_SESSION['flash_success']);
+
+        $unreadMessages = self::getUnreadCount($athleteId, $db);
+        $pageTitle = 'Session';
+        $activeTab = 'log';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_athlete.php';
+        include __DIR__ . '/../../views/athlete/session.php';
         include __DIR__ . '/../../views/layout/html_close.php';
     }
 
@@ -729,9 +795,10 @@ class AthleteController
         // Fetch thread (oldest first)
         $stmt = $db->prepare(
             'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date,
-                    u.name AS sender_name
+                    pw.display_title AS session_title, u.name AS sender_name
              FROM messages m
              LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
+             LEFT JOIN planned_workouts pw ON pw.id = cw.planned_workout_id
              LEFT JOIN users u ON u.id = m.sender_id
              WHERE m.athlete_id = ?
              ORDER BY m.sent_at ASC
@@ -813,9 +880,11 @@ class AthleteController
         $after     = (int)($_GET['after'] ?? 0);
 
         $stmt = $db->prepare(
-            'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date
+            'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date,
+                    pw.display_title AS session_title
              FROM messages m
              LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
+             LEFT JOIN planned_workouts pw ON pw.id = cw.planned_workout_id
              WHERE m.athlete_id = ? AND m.id > ?
              ORDER BY m.sent_at ASC, m.id ASC
              LIMIT 100'
@@ -855,9 +924,11 @@ class AthleteController
     private static function fetchMessageJson(PDO $db, int $id, int $viewerId): ?array
     {
         $stmt = $db->prepare(
-            'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date
+            'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date,
+                    pw.display_title AS session_title
              FROM messages m
              LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
+             LEFT JOIN planned_workouts pw ON pw.id = cw.planned_workout_id
              WHERE m.id = ? LIMIT 1'
         );
         $stmt->execute([$id]);
@@ -871,18 +942,23 @@ class AthleteController
     {
         $out = [];
         foreach ($rows as $m) {
-            $dt = Timezone::toLocal($m['sent_at']);
+            $dt    = Timezone::toLocal($m['sent_at']);
+            $cwId  = !empty($m['completed_workout_id']) ? (int)$m['completed_workout_id'] : null;
             $out[] = [
-                'id'                 => (int)$m['id'],
-                'mine'               => ((int)$m['sender_id'] === $viewerId),
-                'body'               => $m['body'],
-                'type'               => $m['message_type'],
-                'ts'                 => $dt->getTimestamp(),
-                'time_label'         => $dt->format('M j · g:ia'),
-                'session_type'       => !empty($m['session_type'])
+                'id'                   => (int)$m['id'],
+                'mine'                 => ((int)$m['sender_id'] === $viewerId),
+                'body'                 => $m['body'],
+                'type'                 => $m['message_type'],
+                'ts'                   => $dt->getTimestamp(),
+                'time_label'           => $dt->format('M j · g:ia'),
+                'session_type'         => !empty($m['session_type'])
                     ? ucfirst(str_replace('_', ' ', $m['session_type'])) : null,
-                'session_date_label' => !empty($m['session_date'])
+                'session_date_label'   => !empty($m['session_date'])
                     ? date('M j', strtotime($m['session_date'])) : null,
+                // Session-card fields (Section 13): workout name + link target.
+                'workout_name'         => $cwId
+                    ? self::sessionDisplayName($m['session_title'] ?? null, $m['session_type'] ?? null) : null,
+                'completed_workout_id' => $cwId,
             ];
         }
         return $out;
@@ -902,20 +978,19 @@ class AthleteController
         $db        = Database::get();
         $athleteId = (int)$athlete['id'];
         $userId    = Auth::userId();
+        $isAjax    = self::wantsJson();
         $cwId      = (int)($_POST['completed_workout_id'] ?? 0);
         $body      = trim($_POST['body'] ?? '');
 
-        if (!$cwId || !$body || mb_strlen($body) > 1000) {
-            header('Location: /app/log');
-            exit;
+        if (!$cwId || $body === '' || mb_strlen($body) > 1000) {
+            self::redirectOrJson($isAjax, '/app/log', ['ok' => false]);
         }
 
         // Verify workout belongs to this athlete
         $check = $db->prepare('SELECT id FROM completed_workouts WHERE id = ? AND athlete_id = ? LIMIT 1');
         $check->execute([$cwId, $athleteId]);
         if (!$check->fetch()) {
-            header('Location: /app/log');
-            exit;
+            self::redirectOrJson($isAjax, '/app/log', ['ok' => false]);
         }
 
         // Save session note
@@ -923,6 +998,7 @@ class AthleteController
             'INSERT INTO session_notes (completed_workout_id, athlete_id, author_id, author_role, body)
              VALUES (?, ?, ?, "athlete", ?)'
         )->execute([$cwId, $athleteId, $userId, $body]);
+        $noteId = (int)$db->lastInsertId();
 
         // Auto-post to messages thread as session card
         $db->prepare(
@@ -931,6 +1007,7 @@ class AthleteController
         )->execute([$athleteId, $userId, $body, $cwId]);
 
         // Notify the coach a session note was added (controllable, default on).
+        $notified = false;
         if (!empty($athlete['coach_id'])) {
             $w = $db->prepare('SELECT workout_type, activity_date FROM completed_workouts WHERE id = ? LIMIT 1');
             $w->execute([$cwId]);
@@ -941,10 +1018,103 @@ class AthleteController
                 'athlete_name' => $athlete['name'] ?? 'Your athlete',
                 'workout_name' => $label,
             ]);
+            $notified = true;
         }
 
-        header('Location: /app/log');
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => true, 'notified' => $notified, 'note' => [
+                'id'         => $noteId,
+                'mine'       => true,
+                'author'     => 'You',
+                'role'       => 'athlete',
+                'body'       => $body,
+                'time_label' => 'Just now',
+            ]]);
+            exit;
+        }
+
+        $_SESSION['flash_success'] = $notified
+            ? 'Note saved — your coach has been notified.'
+            : 'Note saved.';
+        header('Location: /app/log/' . $cwId);
         exit;
+    }
+
+    /**
+     * POST /app/log/note/edit — athlete edits one of their own session notes.
+     * Body: { note_id, body }. Updates the canonical session_notes row (shown on the
+     * session detail thread) and best-effort syncs the originating thread card when the
+     * edited note is the athlete's first note for that workout. JSON-aware.
+     */
+    public static function sessionNoteEdit(): void
+    {
+        Auth::requireRole('athlete');
+        Auth::verifyCsrf();
+        $isAjax = self::wantsJson();
+
+        $athlete = Auth::getAthlete();
+        if (!$athlete) {
+            self::redirectOrJson($isAjax, '/app/log', ['ok' => false]);
+        }
+
+        $db        = Database::get();
+        $athleteId = (int)$athlete['id'];
+        $userId    = Auth::userId();
+        $noteId    = (int)($_POST['note_id'] ?? 0);
+        $body      = trim($_POST['body'] ?? '');
+
+        if (!$noteId || $body === '' || mb_strlen($body) > 1000) {
+            self::redirectOrJson($isAjax, '/app/log', ['ok' => false]);
+        }
+
+        // Verify the note is this athlete's own.
+        $stmt = $db->prepare(
+            'SELECT completed_workout_id FROM session_notes
+             WHERE id = ? AND athlete_id = ? AND author_id = ? AND author_role = "athlete" LIMIT 1'
+        );
+        $stmt->execute([$noteId, $athleteId, $userId]);
+        $cwId = (int)($stmt->fetchColumn() ?: 0);
+        if (!$cwId) {
+            self::redirectOrJson($isAjax, '/app/log', ['ok' => false]);
+        }
+
+        $db->prepare('UPDATE session_notes SET body = ? WHERE id = ?')->execute([$body, $noteId]);
+
+        // Keep the posted thread card in sync only when this is the athlete's first
+        // note for the workout (the oldest card). Replies are separate and untouched.
+        $firstNote = $db->prepare(
+            'SELECT id FROM session_notes
+             WHERE completed_workout_id = ? AND author_id = ? AND author_role = "athlete"
+             ORDER BY id ASC LIMIT 1'
+        );
+        $firstNote->execute([$cwId, $userId]);
+        if ((int)($firstNote->fetchColumn() ?: 0) === $noteId) {
+            $db->prepare(
+                'UPDATE messages SET body = ?
+                 WHERE completed_workout_id = ? AND sender_id = ? AND message_type = "session_note"
+                 ORDER BY id ASC LIMIT 1'
+            )->execute([$body, $cwId, $userId]);
+        }
+
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => true, 'note' => ['id' => $noteId, 'body' => $body]]);
+            exit;
+        }
+
+        $_SESSION['flash_success'] = 'Note updated.';
+        header('Location: /app/log/' . $cwId);
+        exit;
+    }
+
+    /** Human display name for a session card: planned display_title, else the type, else a generic. */
+    private static function sessionDisplayName($title, $type): string
+    {
+        $t = trim((string)$title);
+        if ($t !== '') return $t;
+        $ty = trim((string)$type);
+        return $ty !== '' ? ucfirst(str_replace('_', ' ', $ty)) : 'Session note';
     }
 
     // ── Billing (Milestone 8) ──────────────────────────────────

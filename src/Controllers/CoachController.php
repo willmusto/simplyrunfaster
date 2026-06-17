@@ -1520,7 +1520,21 @@ class CoachController
                             CASE WHEN cw.planned_workout_id = pw.id THEN 0 ELSE 1 END,
                             cw.synced_at DESC
                         LIMIT 1
-                    ) AS compliance_score
+                    ) AS compliance_score,
+                    (
+                        SELECT cw.id
+                        FROM completed_workouts cw
+                        WHERE cw.planned_workout_id = pw.id
+                           OR (
+                               cw.planned_workout_id IS NULL
+                               AND cw.athlete_id = pw.athlete_id
+                               AND cw.activity_date = pw.scheduled_date
+                           )
+                        ORDER BY
+                            CASE WHEN cw.planned_workout_id = pw.id THEN 0 ELSE 1 END,
+                            cw.synced_at DESC
+                        LIMIT 1
+                    ) AS completed_workout_id
              FROM planned_workouts pw
              WHERE pw.plan_id = ?
                AND (pw.cancelled = 0 OR pw.cancelled IS NULL)

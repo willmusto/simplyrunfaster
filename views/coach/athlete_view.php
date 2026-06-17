@@ -741,6 +741,7 @@ if ($activePlan && !empty($allWorkouts)) {
                                 'summary'         => (string)($w['display_summary'] ?? ''),
                                 'description'     => $description,
                                 'coach_locked'    => !empty($w['coach_locked']) ? 1 : 0,
+                                'completed_workout_id' => (int)($w['completed_workout_id'] ?? 0),
                             ]), ENT_QUOTES, 'UTF-8');
                             ?>
                             <button type="button" class="macro-workout" draggable="true"
@@ -932,6 +933,24 @@ if ($activePlan && !empty($allWorkouts)) {
             <div id="mwd-summary" style="font-size:13px;color:var(--text-muted);margin-bottom:10px;"></div>
             <div id="mwd-desc"
                  style="font-size:13px;color:var(--text-secondary);line-height:1.6;white-space:pre-line;"></div>
+
+            <!-- Comment on session — shown only when the workout has a logged completion -->
+            <div id="mwd-comment-wrap" style="display:none;margin-bottom:14px;">
+                <button type="button" id="mwd-comment-btn" class="btn btn-secondary btn-sm">Comment on session</button>
+                <form id="mwd-comment-form" method="POST"
+                      action="/app/coach/athlete/<?= (int)$athlete['id'] ?>/session-note"
+                      style="display:none;margin-top:10px;">
+                    <?= Auth::csrfField() ?>
+                    <input type="hidden" name="completed_workout_id" id="mwd-comment-cwid" value="">
+                    <textarea name="body" class="form-textarea" rows="3" maxlength="1000"
+                              placeholder="Comment on this session…" style="font-size:13px;"></textarea>
+                    <div style="display:flex;gap:8px;margin-top:8px;">
+                        <button type="submit" class="btn btn-primary btn-sm">Send comment</button>
+                        <button type="button" id="mwd-comment-cancel" class="btn btn-secondary btn-sm">Cancel</button>
+                    </div>
+                </form>
+            </div>
+
             <button type="button" id="mwd-remove">Remove workout</button>
         </div>
     </div>
@@ -1068,6 +1087,21 @@ if ($activePlan && !empty($allWorkouts)) {
             $id('mwd-dur-wrap').style.display = d.target_duration ? '' : 'none';
             setBlock('mwd-summary', d.summary);
             setBlock('mwd-desc', d.description);
+
+            // "Comment on session" appears only when this workout has a logged completion.
+            var cwid  = d.completed_workout_id || 0;
+            var cwrap = $id('mwd-comment-wrap');
+            if (cwrap) {
+                if (cwid) {
+                    $id('mwd-comment-cwid').value   = cwid;
+                    $id('mwd-comment-form').style.display = 'none';
+                    $id('mwd-comment-btn').style.display  = '';
+                    cwrap.style.display = '';
+                } else {
+                    cwrap.style.display = 'none';
+                }
+            }
+
             $id('mwd').classList.add('is-open');
             document.body.style.overflow = 'hidden';
         }
@@ -1343,6 +1377,17 @@ if ($activePlan && !empty($allWorkouts)) {
             if (wbtn) { openMwd(wbtn); return; }
             if (e.target.id === 'mwd-bd' || e.target.id === 'mwd-close') { closeMwd(); return; }
             if (e.target.id === 'mwd-remove') { removeWorkout(); return; }
+            if (e.target.id === 'mwd-comment-btn') {
+                $id('mwd-comment-btn').style.display  = 'none';
+                $id('mwd-comment-form').style.display = '';
+                var cta = $id('mwd-comment-form').querySelector('textarea'); if (cta) cta.focus();
+                return;
+            }
+            if (e.target.id === 'mwd-comment-cancel') {
+                $id('mwd-comment-form').style.display = 'none';
+                $id('mwd-comment-btn').style.display  = '';
+                return;
+            }
 
             var addBtn = e.target.closest('.macro-add-btn');
             if (addBtn) { openAwd(addBtn.getAttribute('data-add-date')); return; }

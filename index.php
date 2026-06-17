@@ -111,6 +111,8 @@ $router->get('/plan',       [AthleteController::class, 'plan']);
 $router->post('/athlete/workout/swap', [AthleteController::class, 'swapWorkout']);
 $router->get('/log',        [AthleteController::class, 'log']);
 $router->post('/log/manual',[AthleteController::class, 'manualLog']);
+$router->post('/log/note/edit',[AthleteController::class, 'sessionNoteEdit']);
+$router->get('/log/:id',    [AthleteController::class, 'session']);
 $router->get('/progress',   [AthleteController::class, 'progress']);
 $router->get('/messages',          [AthleteController::class, 'messages']);
 $router->get('/messages/poll',     [AthleteController::class, 'messagesPoll']);

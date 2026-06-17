@@ -132,7 +132,7 @@ $swapWindowDays = $swapWindowDays ?? 14;
                 <div class="srf-move-title">Move <span data-move-label>workout</span></div>
                 <button type="button" class="srf-move-close" data-move-cancel aria-label="Close">&times;</button>
             </div>
-            <p class="srf-move-sub">Pick a day in the next two weeks.</p>
+            <p class="srf-move-sub">Pick a day in the next 10 days.</p>
             <div data-move-days class="srf-move-days"></div>
             <div data-move-error class="srf-move-error" hidden></div>
         </div>
