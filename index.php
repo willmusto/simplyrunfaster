@@ -24,6 +24,7 @@ require_once __DIR__ . '/src/Notifications.php';
 require_once __DIR__ . '/src/SessionThread.php';
 require_once __DIR__ . '/src/Timezone.php';
 require_once __DIR__ . '/src/Auth.php';
+require_once __DIR__ . '/src/CoachAssignments.php';
 require_once __DIR__ . '/src/Billing.php';
 require_once __DIR__ . '/src/StripeWebhook.php';
 require_once __DIR__ . '/src/Crypto.php';
@@ -80,6 +81,18 @@ if ($uri === '/' || $uri === '') {
     exit;
 }
 
+// ── Forced password change gate ──────────────────────────────
+// Accounts created from the admin panel get a temporary password and must change
+// it before reaching anything else. Allowlist the change screen + logout/theme/
+// offline so the user can complete it. Applies to every role.
+if (Auth::check() && !empty($_SESSION['must_change_password'])) {
+    $allow = ['/app/change-password', '/app/logout', '/app/theme', '/app/offline'];
+    if (!in_array($uri, $allow, true)) {
+        header('Location: /app/change-password');
+        exit;
+    }
+}
+
 // ── Athlete subscription gate ────────────────────────────────
 // Lapsed athletes are funnelled to the billing/reactivation flow; allowlisted
 // areas (onboarding, billing, logout, offline) always pass. Coaches/admins are
@@ -100,6 +113,10 @@ $router->post('/register',[AuthController::class, 'registerSubmit']);
 // Invite-link registration
 $router->get('/invite/:code',  [AuthController::class, 'inviteForm']);
 $router->post('/invite/:code', [AuthController::class, 'inviteSubmit']);
+
+// Forced password change (admin-created accounts; any role)
+$router->get('/change-password',  [AuthController::class, 'forcePasswordForm']);
+$router->post('/change-password', [AuthController::class, 'forcePasswordSubmit']);
 
 // ── Onboarding ───────────────────────────────────────────────
 $router->get('/onboarding',           [OnboardingController::class, 'start']);
@@ -190,6 +207,21 @@ $router->post('/coach/invites/deactivate', [CoachController::class, 'deactivateI
 // ── Admin billing overview ───────────────────────────────────
 $router->get('/admin/billing', [AdminController::class, 'billing']);
 $router->post('/admin/billing/comp', [AdminController::class, 'comp']);
+
+// ── Admin user management ────────────────────────────────────
+$router->get('/admin/users',                [AdminController::class, 'users']);
+$router->get('/admin/users/create',         [AdminController::class, 'createUserForm']);
+$router->post('/admin/users/create',        [AdminController::class, 'createUserSubmit']);
+$router->post('/admin/users/role',          [AdminController::class, 'updateRole']);
+$router->post('/admin/users/deactivate',    [AdminController::class, 'deactivateUser']);
+$router->get('/admin/athletes',             [AdminController::class, 'athletes']);
+$router->post('/admin/athletes/reassign',   [AdminController::class, 'reassignAthlete']);
+
+// ── Head-coach assistant assignment + regeneration requests ──
+$router->post('/coach/athlete/:id/assistant',             [CoachController::class, 'assignAssistant']);
+$router->post('/coach/athlete/:id/request-regeneration',  [CoachController::class, 'requestRegeneration']);
+$router->post('/coach/regeneration/:reqId/approve',       [CoachController::class, 'approveRegeneration']);
+$router->post('/coach/regeneration/:reqId/dismiss',       [CoachController::class, 'dismissRegeneration']);
 
 // ── Theme toggle (POST, returns to referrer) ─────────────────
 $router->post('/theme', function () {

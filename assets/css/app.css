@@ -1775,3 +1775,14 @@ body.is-offline .offline-banner { display: block; }
     .install-banner { bottom: 0; }
     .ios-install-tip { bottom: 76px; }
 }
+
+/* Coach-only "AC" badge on workouts added by an assistant coach (never shown to athletes). */
+.macro-ac-badge {
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    background: var(--recessed-bg);
+    color: var(--text-secondary);
+}

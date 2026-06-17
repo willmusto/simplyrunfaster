@@ -171,6 +171,45 @@ class AuthController
         exit;
     }
 
+    // ── Forced password change (admin-created accounts) ────────
+
+    public static function forcePasswordForm(): void
+    {
+        Auth::requireLogin();
+        $error = $_SESSION['flash_error'] ?? null;
+        unset($_SESSION['flash_error']);
+        include __DIR__ . '/../../views/auth/change_password.php';
+    }
+
+    public static function forcePasswordSubmit(): void
+    {
+        Auth::requireLogin();
+        Auth::verifyCsrf();
+
+        $password = $_POST['password']         ?? '';
+        $confirm  = $_POST['password_confirm'] ?? '';
+
+        if (strlen($password) < PASSWORD_MIN_LENGTH) {
+            $_SESSION['flash_error'] = 'Password must be at least ' . PASSWORD_MIN_LENGTH . ' characters.';
+            header('Location: /app/change-password');
+            exit;
+        }
+        if ($password !== $confirm) {
+            $_SESSION['flash_error'] = 'Passwords do not match.';
+            header('Location: /app/change-password');
+            exit;
+        }
+
+        $db   = Database::get();
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        $db->prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?')
+           ->execute([$hash, Auth::userId()]);
+        Auth::clearMustChangePassword();
+
+        $_SESSION['flash_success'] = 'Password updated. Welcome to SimplyRunFaster.';
+        self::redirectByRole();
+    }
+
     // ── Helpers ────────────────────────────────────────────────
 
     private static function redirectByRole(): void

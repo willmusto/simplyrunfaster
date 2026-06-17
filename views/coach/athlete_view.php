@@ -713,6 +713,10 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                     <?php if (!empty($w['coach_locked'])): ?>
                     <span title="Coach-locked" style="font-size:14px;">🔒</span>
                     <?php endif; ?>
+                    <?php if (($w['added_by_role'] ?? '') === 'assistant_coach'): ?>
+                    <span class="pill" title="Added by assistant coach (not shown to the athlete)"
+                          style="background:var(--recessed-bg);color:var(--text-secondary);font-size:10px;font-weight:600;">AC</span>
+                    <?php endif; ?>
                     <?php if ($w['visible_to_athlete']): ?>
                     <span class="pill" style="background:var(--recessed-bg);color:var(--text-muted);font-size:10px;">visible</span>
                     <?php endif; ?>
@@ -851,6 +855,9 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                                     <?php if (!empty($w['coach_locked'])): ?>
                                     <span class="macro-lock" title="Coach-locked">&#128274;</span>
                                     <?php endif; ?>
+                                    <?php if (($w['added_by_role'] ?? '') === 'assistant_coach'): ?>
+                                    <span class="macro-ac-badge" title="Added by assistant coach (not shown to the athlete)">AC</span>
+                                    <?php endif; ?>
                                     <?php if ($isPastWorkout): ?>
                                     <span class="compliance-dot <?= $complianceClass ?> macro-compliance"
                                           title="<?= h($complianceTitle) ?>"></span>
@@ -887,8 +894,17 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
     <!-- Right sidebar -->
     <div>
 
-        <!-- Generate plan -->
+        <!-- Plan actions -->
         <div style="margin-bottom:16px;">
+            <?php if (($viewerRole ?? '') === 'assistant_coach'): ?>
+            <form method="POST" action="/app/coach/athlete/<?= (int)$athlete['id'] ?>/request-regeneration"
+                  onsubmit="return confirm('Request a plan regeneration for <?= h(addslashes($athlete['name'])) ?>? Your head coach will review it.');">
+                <?= Auth::csrfField() ?>
+                <button type="submit" class="btn btn-primary btn-full">
+                    Request plan regeneration
+                </button>
+            </form>
+            <?php else: ?>
             <form method="POST" action="/app/coach/athlete/<?= (int)$athlete['id'] ?>/generate-plan"
                   onsubmit="return confirm('Generate a new plan for <?= h(addslashes($athlete['name'])) ?>? Any pending plan in the queue will be replaced.');">
                 <?= Auth::csrfField() ?>
@@ -896,11 +912,59 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                     Generate Plan
                 </button>
             </form>
+            <?php endif; ?>
             <a href="/app/coach/athlete/<?= (int)$athlete['id'] ?>/edit"
                class="btn btn-secondary btn-full" style="margin-top:8px;">
                 Edit Training Profile
             </a>
         </div>
+
+        <?php if (!empty($pendingRegen)): ?>
+        <!-- Pending regeneration request (head coach / admin) -->
+        <div class="card" style="margin-bottom:16px;border:1px solid var(--color-warning);">
+            <div style="font-size:13px;margin-bottom:8px;">
+                Pending regeneration request from
+                <strong><?= h($pendingRegen['requester_name'] ?? 'an assistant coach') ?></strong>
+                &middot; <?= h(date('M j', strtotime((string)$pendingRegen['requested_at']))) ?>
+            </div>
+            <div style="display:flex;gap:8px;">
+                <form method="POST" action="/app/coach/regeneration/<?= (int)$pendingRegen['id'] ?>/approve" style="flex:1;"
+                      onsubmit="return confirm('Approve and regenerate this plan now? Any pending plan in the queue will be replaced.');">
+                    <?= Auth::csrfField() ?>
+                    <button type="submit" class="btn btn-primary btn-full btn-sm">Approve</button>
+                </form>
+                <form method="POST" action="/app/coach/regeneration/<?= (int)$pendingRegen['id'] ?>/dismiss" style="flex:1;">
+                    <?= Auth::csrfField() ?>
+                    <button type="submit" class="btn btn-secondary btn-full btn-sm">Dismiss</button>
+                </form>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!empty($isHeadOrAdmin)): ?>
+        <!-- Assistant coach assignment (head coach / admin) -->
+        <div class="section-label">ASSISTANT COACH</div>
+        <div class="card" style="margin-bottom:16px;">
+            <form method="POST" action="/app/coach/athlete/<?= (int)$athlete['id'] ?>/assistant"
+                  style="display:flex;gap:8px;align-items:center;">
+                <?= Auth::csrfField() ?>
+                <select name="assistant_coach_id" class="form-select" style="flex:1;">
+                    <option value="">None</option>
+                    <?php foreach (($assistantOptions ?? []) as $ac): ?>
+                    <option value="<?= (int)$ac['id'] ?>" <?= (int)($currentAssistant ?? 0) === (int)$ac['id'] ? 'selected' : '' ?>>
+                        <?= h($ac['name']) ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+                <button type="submit" class="btn btn-secondary btn-sm">Save</button>
+            </form>
+            <?php if (empty($assistantOptions)): ?>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">
+                No assistant coaches available<?= ($viewerRole ?? '') === 'admin' ? '' : ' under your account' ?>.
+            </div>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
 
         <!-- Training load -->
         <div class="section-label">TRAINING LOAD</div>

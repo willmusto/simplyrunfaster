@@ -113,6 +113,35 @@ class CoachController
         $openFlags        = self::getOpenFlagsCount($coachId, $db);
         $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
 
+        // Assistant-coach context for the quick actions (head coach / admin only).
+        $viewerRole       = Auth::role();
+        $isHeadOrAdmin    = in_array($viewerRole, ['coach', 'admin'], true);
+        $currentAssistant = CoachAssignments::assistantCoachId($athleteId, $db);
+        $assistantOptions = [];
+        if ($isHeadOrAdmin) {
+            $aSql  = 'SELECT id, name FROM users WHERE role = "assistant_coach" AND active = 1';
+            $aArgs = [];
+            if ($viewerRole !== 'admin') { $aSql .= ' AND managed_by = ?'; $aArgs[] = $coachId; }
+            $aSql .= ' ORDER BY name';
+            $aStmt = $db->prepare($aSql);
+            $aStmt->execute($aArgs);
+            $assistantOptions = $aStmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        // Pending plan-regeneration request (assistant coach → head coach).
+        $pendingRegen = null;
+        if ($isHeadOrAdmin) {
+            $rStmt2 = $db->prepare(
+                'SELECT prr.id, prr.requested_at, u.name AS requester_name
+                 FROM plan_regeneration_requests prr
+                 LEFT JOIN users u ON u.id = prr.requested_by
+                 WHERE prr.athlete_id = ? AND prr.status = "pending"
+                 ORDER BY prr.requested_at DESC LIMIT 1'
+            );
+            $rStmt2->execute([$athleteId]);
+            $pendingRegen = $rStmt2->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+
         $flashSuccess = $_SESSION['flash_success'] ?? null;
         $flashError   = $_SESSION['flash_error']   ?? null;
         unset($_SESSION['flash_success'], $_SESSION['flash_error']);
@@ -165,7 +194,9 @@ class CoachController
 
     public static function editProfileSave(array $params): void
     {
-        Auth::requireRole(['coach','admin']);
+        // Assistant coaches may edit the profile (the only path to pace zones); an
+        // info flag is raised on save so the head coach can review (spec Part 4).
+        Auth::requireRole(['coach','assistant_coach','admin']);
         Auth::verifyCsrf();
 
         $db        = Database::get();
@@ -208,6 +239,17 @@ class CoachController
             Timezone::clearCache((int)$athlete['user_id']);
         }
 
+        // Assistant coach edits apply immediately but raise an info flag for the head
+        // coach to review (pace-zone edits are the headline capability here).
+        if (Auth::role() === 'assistant_coach') {
+            $msg = 'Assistant coach updated pace zones for ' . $athlete['name'] . '. Review recommended.';
+            $db->prepare(
+                'INSERT INTO engine_flags (athlete_id, flag_type, severity, flag_date, message, status, created_at)
+                 VALUES (?, "assistant_pace_zone_edit", "info", CURDATE(), ?, "open", NOW())'
+            )->execute([$athleteId, $msg]);
+            Notifications::notifyFlag($athleteId, 'info', $msg);
+        }
+
         $_SESSION['flash_success'] = 'Training profile updated.';
         header('Location: /app/coach/athlete/' . $athleteId . '/edit');
         exit;
@@ -241,6 +283,136 @@ class CoachController
         }
 
         header('Location: /app/coach/athlete/' . $athleteId);
+        exit;
+    }
+
+    // ── Assistant coach assignment (head coach / admin) ────────────────────────
+
+    /** POST /app/coach/athlete/{id}/assistant — set or clear the assistant coach. */
+    public static function assignAssistant(array $params): void
+    {
+        // Only head coaches and admins manage assistant assignments.
+        Auth::requireRole(['coach', 'admin']);
+        Auth::verifyCsrf();
+
+        $coachId   = (int)Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+        $db        = Database::get();
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) { header('Location: /app/coach/athletes'); exit; }
+
+        $assistantId = (int)($_POST['assistant_coach_id'] ?? 0) ?: null;
+        if ($assistantId !== null) {
+            // The assistant must be active and (unless the actor is an admin) managed
+            // by this head coach.
+            $sql  = 'SELECT 1 FROM users WHERE id = ? AND role = "assistant_coach" AND active = 1';
+            $args = [$assistantId];
+            if (Auth::role() !== 'admin') { $sql .= ' AND managed_by = ?'; $args[] = $coachId; }
+            $sql .= ' LIMIT 1';
+            $chk = $db->prepare($sql);
+            $chk->execute($args);
+            if (!$chk->fetchColumn()) {
+                $_SESSION['flash_error'] = 'That assistant coach is not available to assign.';
+                header('Location: /app/coach/athlete/' . $athleteId);
+                exit;
+            }
+        }
+
+        CoachAssignments::setAssistant($athleteId, $assistantId, $coachId, $db);
+        $_SESSION['flash_success'] = $assistantId ? 'Assistant coach assigned.' : 'Assistant coach removed.';
+        header('Location: /app/coach/athlete/' . $athleteId);
+        exit;
+    }
+
+    // ── Plan regeneration requests (assistant coach → head coach) ──────────────
+
+    /** POST /app/coach/athlete/{id}/request-regeneration — assistant asks for a rebuild. */
+    public static function requestRegeneration(array $params): void
+    {
+        // Assistant coaches request; head coaches/admins generate directly.
+        Auth::requireRole(['assistant_coach']);
+        Auth::verifyCsrf();
+
+        $uid       = (int)Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+        $db        = Database::get();
+
+        $athlete = self::getAthleteForCoach($athleteId, $uid, $db);
+        if (!$athlete) { header('Location: /app/coach/athletes'); exit; }
+
+        // One open request at a time.
+        $exists = $db->prepare('SELECT 1 FROM plan_regeneration_requests WHERE athlete_id = ? AND status = "pending" LIMIT 1');
+        $exists->execute([$athleteId]);
+        if (!$exists->fetchColumn()) {
+            $db->prepare(
+                'INSERT INTO plan_regeneration_requests (athlete_id, requested_by, requested_at, status)
+                 VALUES (?, ?, NOW(), "pending")'
+            )->execute([$athleteId, $uid]);
+        }
+
+        $_SESSION['flash_success'] = 'Plan regeneration requested. Your head coach will review it.';
+        header('Location: /app/coach/athlete/' . $athleteId);
+        exit;
+    }
+
+    /** POST /app/coach/regeneration/{reqId}/approve — head coach approves → generate. */
+    public static function approveRegeneration(array $params): void
+    {
+        Auth::requireRole(['coach', 'admin']);
+        Auth::verifyCsrf();
+
+        $uid   = (int)Auth::userId();
+        $reqId = (int)($params['reqId'] ?? 0);
+        $db    = Database::get();
+
+        $stmt = $db->prepare('SELECT id, athlete_id FROM plan_regeneration_requests WHERE id = ? AND status = "pending" LIMIT 1');
+        $stmt->execute([$reqId]);
+        $req = $stmt->fetch();
+
+        if ($req && self::getAthleteForCoach((int)$req['athlete_id'], $uid, $db)) {
+            $athleteId = (int)$req['athlete_id'];
+            try {
+                PlanGenerator::generate($athleteId, 'coach_manual');
+                $_SESSION['flash_success'] = 'Plan regenerated and added to the approval queue.';
+            } catch (Throwable $e) {
+                error_log('approveRegeneration generate failed for athlete ' . $athleteId . ': ' . $e->getMessage());
+                $_SESSION['flash_error'] = 'Plan generation failed: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES);
+            }
+            $db->prepare('UPDATE plan_regeneration_requests SET status = "approved", actioned_by = ?, actioned_at = NOW() WHERE id = ?')
+               ->execute([$uid, $reqId]);
+            header('Location: /app/coach/athlete/' . $athleteId);
+            exit;
+        }
+
+        header('Location: /app/coach/athletes');
+        exit;
+    }
+
+    /** POST /app/coach/regeneration/{reqId}/dismiss — head coach dismisses (optional note). */
+    public static function dismissRegeneration(array $params): void
+    {
+        Auth::requireRole(['coach', 'admin']);
+        Auth::verifyCsrf();
+
+        $uid   = (int)Auth::userId();
+        $reqId = (int)($params['reqId'] ?? 0);
+        $notes = trim($_POST['notes'] ?? '') ?: null;
+        $db    = Database::get();
+
+        $stmt = $db->prepare('SELECT id, athlete_id FROM plan_regeneration_requests WHERE id = ? AND status = "pending" LIMIT 1');
+        $stmt->execute([$reqId]);
+        $req = $stmt->fetch();
+
+        if ($req && self::getAthleteForCoach((int)$req['athlete_id'], $uid, $db)) {
+            $db->prepare('UPDATE plan_regeneration_requests SET status = "dismissed", actioned_by = ?, actioned_at = NOW(), notes = ? WHERE id = ?')
+               ->execute([$uid, $notes, $reqId]);
+            $_SESSION['flash_success'] = 'Regeneration request dismissed.';
+            header('Location: /app/coach/athlete/' . (int)$req['athlete_id']);
+            exit;
+        }
+
+        header('Location: /app/coach/athletes');
         exit;
     }
 
@@ -448,14 +620,18 @@ class CoachController
      */
     public static function addWorkout(array $params): void
     {
-        Auth::requireRole(['coach', 'admin']);
+        // Assistant coaches may add workouts, but only from the archetype picker
+        // (no free-form entry); those rows are tagged added_by_role='assistant_coach'.
+        Auth::requireRole(['coach', 'assistant_coach', 'admin']);
         Auth::verifyCsrf();
         require_once __DIR__ . '/../../views/layout/base.php'; // pill_class / pill_label / format_duration
         header('Content-Type: application/json');
 
-        $coachId   = Auth::userId();
-        $athleteId = (int)($params['id'] ?? 0);
-        $db        = Database::get();
+        $coachId      = Auth::userId();
+        $isAssistant  = Auth::role() === 'assistant_coach';
+        $addedByRole  = $isAssistant ? 'assistant_coach' : null;
+        $athleteId    = (int)($params['id'] ?? 0);
+        $db           = Database::get();
 
         $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
         if (!$athlete) { http_response_code(403); echo json_encode(['success' => false, 'error' => 'forbidden']); exit; }
@@ -464,6 +640,13 @@ class CoachController
         $type    = ($in['type'] ?? '') === 'freeform' ? 'freeform' : 'archetype';
         $date    = trim((string)($in['scheduled_date'] ?? ''));
         $preview = !empty($in['preview']);
+
+        // Assistant coaches are restricted to the archetype picker.
+        if ($isAssistant && $type === 'freeform') {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'forbidden', 'message' => 'Assistant coaches can only add workouts from the archetype picker.']);
+            exit;
+        }
 
         $plan = self::getActivePlanDetail($athleteId, $db);
         if (!$plan) { echo json_encode(['success' => false, 'error' => 'no_plan', 'message' => 'This athlete has no active plan.']); exit; }
@@ -510,8 +693,8 @@ class CoachController
                    workout_archetype_id, archetype_version_snapshot, instance_signature,
                    structure, display_title, display_summary, athlete_instructions,
                    description, target_duration, intensity_load,
-                   coach_locked, coach_edited_by, coach_edited_at, visible_to_athlete)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW(), 1)'
+                   coach_locked, coach_edited_by, coach_edited_at, visible_to_athlete, added_by_role)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW(), 1, ?)'
             );
             $insert->execute([
                 $planId, $athleteId, $date, $composed['workout_type'],
@@ -519,7 +702,7 @@ class CoachController
                 $composed['workout_archetype_id'], $composed['archetype_version_snapshot'], $composed['instance_signature'],
                 $composed['structure'], $composed['display_title'], $composed['display_summary'], $composed['athlete_instructions'],
                 $composed['athlete_instructions'], $composed['target_duration'], $composed['intensity_load'],
-                $coachId,
+                $coachId, $addedByRole,
             ]);
             $id = (int)$db->lastInsertId();
 
@@ -585,7 +768,8 @@ class CoachController
      */
     public static function removeWorkout(array $params): void
     {
-        Auth::requireRole(['coach', 'admin']);
+        // Assistant coaches may remove workouts (spec Part 4).
+        Auth::requireRole(['coach', 'assistant_coach', 'admin']);
         Auth::verifyCsrf();
         header('Content-Type: application/json');
 
@@ -688,7 +872,8 @@ class CoachController
 
     public static function approvePlan(array $params): void
     {
-        Auth::requireRole(['coach','admin']);
+        // Assistant coaches may approve plans (spec Part 4); generation stays coach-only.
+        Auth::requireRole(['coach','assistant_coach','admin']);
         Auth::verifyCsrf();
 
         $planId   = (int)($params['planId'] ?? 0);
@@ -696,15 +881,16 @@ class CoachController
         $db       = Database::get();
         $notes    = trim($_POST['coach_notes'] ?? '');
 
-        // Verify plan belongs to one of this coach's athletes
+        // Verify plan belongs to one of this user's athletes
+        [$scope, $sp] = self::athleteScope('a');
         $stmt = $db->prepare(
             'SELECT paq.id, paq.athlete_id
              FROM plan_approval_queue paq
-             JOIN athletes a ON a.id = paq.athlete_id AND a.coach_id = ?
+             JOIN athletes a ON a.id = paq.athlete_id AND ' . $scope . '
              WHERE paq.plan_id = ? AND paq.status = "pending"
              LIMIT 1'
         );
-        $stmt->execute([$coachId, $planId]);
+        $stmt->execute(array_merge($sp, [$planId]));
         $queue = $stmt->fetch();
 
         if ($queue) {
@@ -740,7 +926,8 @@ class CoachController
 
     public static function rejectPlan(array $params): void
     {
-        Auth::requireRole(['coach','admin']);
+        // Assistant coaches action the approval queue alongside approve (spec Part 4).
+        Auth::requireRole(['coach','assistant_coach','admin']);
         Auth::verifyCsrf();
 
         $planId  = (int)($params['planId'] ?? 0);
@@ -748,12 +935,13 @@ class CoachController
         $db      = Database::get();
         $notes   = trim($_POST['coach_notes'] ?? '');
 
+        [$scope, $sp] = self::athleteScope('a');
         $stmt = $db->prepare(
             'SELECT paq.id FROM plan_approval_queue paq
-             JOIN athletes a ON a.id = paq.athlete_id AND a.coach_id = ?
+             JOIN athletes a ON a.id = paq.athlete_id AND ' . $scope . '
              WHERE paq.plan_id = ? AND paq.status = "pending" LIMIT 1'
         );
-        $stmt->execute([$coachId, $planId]);
+        $stmt->execute(array_merge($sp, [$planId]));
         $queue = $stmt->fetch();
 
         if ($queue) {
@@ -821,14 +1009,22 @@ class CoachController
         $db      = Database::get();
         $reason  = trim($_POST['dismiss_reason'] ?? '');
 
-        // Verify flag belongs to a coach's athlete
+        // Verify flag belongs to one of this user's athletes
+        [$scope, $sp] = self::athleteScope('a');
         $stmt = $db->prepare(
             'SELECT ef.id, ef.severity FROM engine_flags ef
-             JOIN athletes a ON a.id = ef.athlete_id AND a.coach_id = ?
+             JOIN athletes a ON a.id = ef.athlete_id AND ' . $scope . '
              WHERE ef.id = ? LIMIT 1'
         );
-        $stmt->execute([$coachId, $flagId]);
+        $stmt->execute(array_merge($sp, [$flagId]));
         $flag = $stmt->fetch();
+
+        // Assistant coaches may only dismiss info-level flags (spec Part 4).
+        if ($flag && Auth::role() === 'assistant_coach' && ($flag['severity'] ?? '') !== 'info') {
+            http_response_code(403);
+            include __DIR__ . '/../../views/errors/403.php';
+            exit;
+        }
 
         if ($flag) {
             $db->prepare(
@@ -1292,7 +1488,10 @@ class CoachController
             exit;
         }
 
-        $role = Auth::role() === 'assistant_coach' ? 'assistant_coach' : 'coach';
+        // Athlete-facing neutrality (spec Part 4/7): assistant coach messages are
+        // stored as 'coach' so the athlete sees no role distinction (sender name only)
+        // and read/unread tracking, which keys on the 'coach' role, works correctly.
+        $role = 'coach';
 
         // Save session note + post to thread as a session reply card (planned_workout_id
         // resolved from the completion so the workout thread sees coach replies — migration_022).
@@ -1387,7 +1586,10 @@ class CoachController
             exit;
         }
 
-        $role = Auth::role() === 'assistant_coach' ? 'assistant_coach' : 'coach';
+        // Athlete-facing neutrality (spec Part 4/7): assistant coach messages are
+        // stored as 'coach' so the athlete sees no role distinction (sender name only)
+        // and read/unread tracking, which keys on the 'coach' role, works correctly.
+        $role = 'coach';
 
         $cw = $db->prepare('SELECT id FROM completed_workouts WHERE planned_workout_id = ? AND athlete_id = ? ORDER BY id DESC LIMIT 1');
         $cw->execute([$pwId, $athleteId]);
@@ -1561,6 +1763,7 @@ class CoachController
 
     private static function getRosterAthletes(int $coachId, PDO $db): array
     {
+        [$scope, $sp] = self::athleteScope('a');
         $stmt = $db->prepare(
             'SELECT
                 a.id, a.user_id, a.billing_status,
@@ -1571,47 +1774,51 @@ class CoachController
                 (SELECT race_date FROM races r WHERE r.athlete_id=a.id AND r.race_date >= CURDATE() ORDER BY race_date LIMIT 1) as next_race_date,
                 (SELECT race_distance FROM races r WHERE r.athlete_id=a.id AND r.race_date >= CURDATE() ORDER BY race_date LIMIT 1) as next_race_distance,
                 (SELECT AVG(cw.compliance_score) FROM completed_workouts cw WHERE cw.athlete_id=a.id AND cw.compliance_score IS NOT NULL AND cw.activity_date >= DATE_SUB(CURDATE(), INTERVAL 28 DAY)) as avg_compliance,
-                (SELECT COUNT(*) FROM messages m WHERE m.athlete_id=a.id AND m.sender_role="athlete" AND m.read_at IS NULL) as unread_messages
+                (SELECT COUNT(*) FROM messages m WHERE m.athlete_id=a.id AND m.sender_role="athlete" AND m.read_at IS NULL) as unread_messages,
+                (SELECT COUNT(*) FROM plan_regeneration_requests prr WHERE prr.athlete_id=a.id AND prr.status="pending") as pending_regen
              FROM athletes a
              JOIN users u ON u.id = a.user_id
              LEFT JOIN athlete_profiles ap ON ap.athlete_id = a.id
-             WHERE a.coach_id = ? AND a.status = "active"
+             WHERE ' . $scope . ' AND a.status = "active"
              ORDER BY u.name ASC'
         );
-        $stmt->execute([$coachId]);
+        $stmt->execute($sp);
         return $stmt->fetchAll();
     }
 
     private static function getOpenFlagsCount(int $coachId, PDO $db): int
     {
+        [$scope, $sp] = self::athleteScope('a');
         $stmt = $db->prepare(
             'SELECT COUNT(*) FROM engine_flags ef
-             JOIN athletes a ON a.id = ef.athlete_id AND a.coach_id = ?
+             JOIN athletes a ON a.id = ef.athlete_id AND ' . $scope . '
              WHERE ef.status = "open"'
         );
-        $stmt->execute([$coachId]);
+        $stmt->execute($sp);
         return (int)$stmt->fetchColumn();
     }
 
     private static function getPendingApprovalsCount(int $coachId, PDO $db): int
     {
+        [$scope, $sp] = self::athleteScope('a');
         $stmt = $db->prepare(
             'SELECT COUNT(*) FROM plan_approval_queue paq
-             JOIN athletes a ON a.id = paq.athlete_id AND a.coach_id = ?
+             JOIN athletes a ON a.id = paq.athlete_id AND ' . $scope . '
              WHERE paq.status = "pending"'
         );
-        $stmt->execute([$coachId]);
+        $stmt->execute($sp);
         return (int)$stmt->fetchColumn();
     }
 
     private static function getOpenFlags(int $coachId, PDO $db, ?string $severity = null, int $limit = 20): array
     {
+        [$scope, $sp] = self::athleteScope('a');
         $sql = 'SELECT ef.*, u.name as athlete_name
                 FROM engine_flags ef
-                JOIN athletes a ON a.id = ef.athlete_id AND a.coach_id = ?
+                JOIN athletes a ON a.id = ef.athlete_id AND ' . $scope . '
                 JOIN users u ON u.id = a.user_id
                 WHERE ef.status = "open"';
-        $params = [$coachId];
+        $params = $sp;
         if ($severity) {
             $sql    .= ' AND ef.severity = ?';
             $params[] = $severity;
@@ -1624,59 +1831,70 @@ class CoachController
 
     private static function getPendingPlans(int $coachId, PDO $db, int $limit = 10): array
     {
+        [$scope, $sp] = self::athleteScope('a');
         $stmt = $db->prepare(
             'SELECT paq.*, tp.plan_type, tp.plan_start_date, tp.plan_end_date, u.name as athlete_name
              FROM plan_approval_queue paq
              JOIN training_plans tp ON tp.id = paq.plan_id
-             JOIN athletes a ON a.id = paq.athlete_id AND a.coach_id = ?
+             JOIN athletes a ON a.id = paq.athlete_id AND ' . $scope . '
              JOIN users u ON u.id = a.user_id
              WHERE paq.status = "pending"
              ORDER BY paq.requested_at ASC
              LIMIT ' . $limit
         );
-        $stmt->execute([$coachId]);
+        $stmt->execute($sp);
         return $stmt->fetchAll();
     }
 
     private static function getUpcomingRaces(int $coachId, PDO $db, int $days): array
     {
+        [$scope, $sp] = self::athleteScope('a');
         $stmt = $db->prepare(
             'SELECT r.*, u.name as athlete_name
              FROM races r
-             JOIN athletes a ON a.id = r.athlete_id AND a.coach_id = ?
+             JOIN athletes a ON a.id = r.athlete_id AND ' . $scope . '
              JOIN users u ON u.id = a.user_id
              WHERE r.race_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)
              ORDER BY r.race_date ASC'
         );
-        $stmt->execute([$coachId, $days]);
+        $stmt->execute(array_merge($sp, [$days]));
         return $stmt->fetchAll();
     }
 
     private static function getUnreadMessageThreads(int $coachId, PDO $db): array
     {
+        [$scope, $sp] = self::athleteScope('a');
         $stmt = $db->prepare(
             'SELECT m.athlete_id, u.name as athlete_name, m.body, m.sent_at
              FROM messages m
-             JOIN athletes a ON a.id = m.athlete_id AND a.coach_id = ?
+             JOIN athletes a ON a.id = m.athlete_id AND ' . $scope . '
              JOIN users u ON u.id = a.user_id
              WHERE m.sender_role = "athlete" AND m.read_at IS NULL
              GROUP BY m.athlete_id
              ORDER BY m.sent_at DESC
              LIMIT 10'
         );
-        $stmt->execute([$coachId]);
+        $stmt->execute($sp);
         return $stmt->fetchAll();
+    }
+
+    /** [sqlFragment, params] scoping `athletes a` to the current coach/assistant/admin. */
+    private static function athleteScope(string $alias = 'a'): array
+    {
+        return CoachAssignments::scope((int)Auth::userId(), Auth::role(), $alias);
     }
 
     private static function getAthleteForCoach(int $athleteId, int $coachId, PDO $db): ?array
     {
-        $stmt = $db->prepare(
-            'SELECT a.*, u.name, u.email, u.theme_preference, u.timezone
-             FROM athletes a JOIN users u ON u.id = a.user_id
-             WHERE a.id = ? AND (a.coach_id = ? OR ? IN (SELECT id FROM users WHERE role = "admin"))
-             LIMIT 1'
-        );
-        $stmt->execute([$athleteId, $coachId, $coachId]);
+        // Head coaches/admins resolve via coach_id (kept in sync); assistant coaches
+        // via coach_assignments.assistant_coach_id. Admins additionally see everyone.
+        [$scope, $sp] = self::athleteScope('a');
+        $sql = 'SELECT a.*, u.name, u.email, u.theme_preference, u.timezone
+                FROM athletes a JOIN users u ON u.id = a.user_id
+                WHERE a.id = ? AND (' . $scope . ' OR ? IN (SELECT id FROM users WHERE role = "admin"))
+                LIMIT 1';
+        $stmt = $db->prepare($sql);
+        $stmt->execute(array_merge([$athleteId], $sp, [$coachId]));
         return $stmt->fetch() ?: null;
     }
 
@@ -1700,7 +1918,7 @@ class CoachController
                     pw.display_title                                          AS template_name,
                     COALESCE(pw.athlete_instructions, pw.description, pw.display_summary, \'\') AS description,
                     pw.structure, pw.target_duration, pw.intensity_load,
-                    pw.coach_locked, pw.visible_to_athlete,
+                    pw.coach_locked, pw.visible_to_athlete, pw.added_by_role,
                     (
                         SELECT cw.compliance_score
                         FROM completed_workouts cw

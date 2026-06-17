@@ -14,7 +14,10 @@ CREATE TABLE IF NOT EXISTS `users` (
     `id`                INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `email`             VARCHAR(255) NOT NULL,
     `password_hash`     VARCHAR(255) NOT NULL,
+    `must_change_password` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'force a password change on next login',
+    `active`            TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'deactivated accounts (0) cannot log in',
     `role`              ENUM('athlete','coach','assistant_coach','admin') NOT NULL DEFAULT 'athlete',
+    `managed_by`        INT DEFAULT NULL COMMENT 'head coach user_id for assistant coaches; NULL otherwise',
     `name`              VARCHAR(150) NOT NULL,
     `theme_preference`  ENUM('light','dark','system') NOT NULL DEFAULT 'system',
     `timezone`          VARCHAR(64) NOT NULL DEFAULT 'America/New_York' COMMENT 'IANA tz id; DB stays UTC, converted in PHP',
@@ -52,6 +55,39 @@ CREATE TABLE IF NOT EXISTS `invite_links` (
     KEY `idx_invite_created_by` (`created_by`),
     KEY `idx_invite_coach` (`assigned_coach_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+-- ============================================================
+-- COACH ASSIGNMENTS (athlete -> head coach + optional assistant coach)
+-- Authoritative for the permission model; athletes.coach_id is kept in sync
+-- with coach_assignments.coach_id by the app so existing reads keep working.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `coach_assignments` (
+    `id`                 INT AUTO_INCREMENT PRIMARY KEY,
+    `athlete_id`         INT NOT NULL,
+    `coach_id`           INT NOT NULL,
+    `assistant_coach_id` INT NULL,
+    `assigned_at`        DATETIME NOT NULL,
+    `assigned_by`        INT NOT NULL,
+    UNIQUE KEY `unique_athlete` (`athlete_id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8;
+
+-- ============================================================
+-- PLAN REGENERATION REQUESTS (assistant coach -> head coach)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `plan_regeneration_requests` (
+    `id`           INT AUTO_INCREMENT PRIMARY KEY,
+    `athlete_id`   INT NOT NULL,
+    `requested_by` INT NOT NULL,
+    `requested_at` DATETIME NOT NULL,
+    `status`       ENUM('pending','approved','dismissed') NOT NULL DEFAULT 'pending',
+    `actioned_by`  INT NULL,
+    `actioned_at`  DATETIME NULL,
+    `notes`        TEXT NULL,
+    KEY `idx_prr_athlete` (`athlete_id`),
+    KEY `idx_prr_status` (`status`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8;
 
 -- ============================================================
 -- ATHLETES
@@ -302,6 +338,7 @@ CREATE TABLE IF NOT EXISTS `planned_workouts` (
     `cancelled`                 TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'coach soft-deleted; day renders as rest',
     `cancelled_at`              DATETIME DEFAULT NULL,
     `cancelled_by`              INT DEFAULT NULL COMMENT 'user_id of the coach who cancelled it',
+    `added_by_role`             VARCHAR(32) DEFAULT NULL COMMENT "'assistant_coach' when added by an assistant coach (coach-only AC badge)",
     PRIMARY KEY (`id`),
     KEY `idx_pw_plan` (`plan_id`),
     KEY `idx_pw_athlete_date` (`athlete_id`, `scheduled_date`),
@@ -376,7 +413,7 @@ CREATE TABLE IF NOT EXISTS `engine_flags` (
                         'profile_updated','pace_zones_missing',
                         'schedule_day_ramp','ultra_surface_reminder',
                         'race_added','goal_race_changed','pace_recalibration',
-                        'hyrox_supplement_reminder'
+                        'hyrox_supplement_reminder','assistant_pace_zone_edit'
                     ) NOT NULL,
     `severity`      ENUM('info','warning','critical') NOT NULL DEFAULT 'info',
     `flag_date`     DATE NOT NULL,

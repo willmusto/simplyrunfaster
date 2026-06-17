@@ -243,6 +243,15 @@ class OnboardingController
         // Trigger plan generation
         $athlete = Auth::getAthlete();
         if ($athlete) {
+            // Establish the authoritative coach assignment from the invite link's
+            // created_by (fallback user 1). This also mirrors coach_id onto the
+            // athletes row, so it must run before the welcome message is scheduled.
+            try {
+                self::ensureCoachAssignment((int)$athlete['id']);
+            } catch (Throwable $e) {
+                error_log('ensureCoachAssignment failed for athlete ' . $athlete['id'] . ': ' . $e->getMessage());
+            }
+
             try {
                 PlanGenerator::generate((int)$athlete['id'], 'onboarding');
             } catch (Throwable $e) {
@@ -333,8 +342,15 @@ class OnboardingController
         );
         $stmt->execute([$athleteId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$row || empty($row['coach_id'])) {
-            return; // organic signup with no coach yet — nothing to send from
+        if (!$row) {
+            return;
+        }
+
+        // Resolve the sender from coach_assignments (authoritative), falling back to
+        // the mirrored athletes.coach_id. No coach → nothing to send from.
+        $senderId = CoachAssignments::coachId($athleteId, $db) ?? (int)($row['coach_id'] ?? 0);
+        if (!$senderId) {
+            return;
         }
 
         // Already scheduled (e.g. a re-submitted final step)? Don't duplicate.
@@ -353,7 +369,28 @@ class OnboardingController
         $db->prepare(
             'INSERT INTO scheduled_messages (athlete_id, sender_id, body, send_after)
              VALUES (?, ?, ?, NOW() + INTERVAL 12 MINUTE)'
-        )->execute([$athleteId, (int)$row['coach_id'], $body]);
+        )->execute([$athleteId, $senderId, $body]);
+    }
+
+    /**
+     * Create the authoritative coach_assignments row for a freshly-onboarded athlete.
+     * coach_id resolves from the invite link's created_by (the inviting coach); for
+     * organic signups or a missing/invalid invite it falls back to user 1 (admin).
+     * CoachAssignments::assignCoach also mirrors coach_id onto the athletes row.
+     */
+    private static function ensureCoachAssignment(int $athleteId): void
+    {
+        $db = Database::get();
+        $stmt = $db->prepare(
+            'SELECT il.created_by
+             FROM invite_links il
+             JOIN users u ON u.invite_code = il.code
+             WHERE u.id = (SELECT user_id FROM athletes WHERE id = ?)
+             LIMIT 1'
+        );
+        $stmt->execute([$athleteId]);
+        $coachId = (int)($stmt->fetchColumn() ?: 0) ?: 1;
+        CoachAssignments::assignCoach($athleteId, $coachId, $coachId, $db);
     }
 
     private static function persistToDatabase(): void

@@ -1552,3 +1552,37 @@ These must be answered before Milestone 2 begins. The engine's rule logic depend
 ---
 
 *This document should be treated as the source of truth for v1 architecture. All implementation decisions should reference back to the principles in Section 2. The engine logic in Section 5 is intentionally underspecified pending coach input (Section 12).*
+
+---
+
+## Appendix: Coach assignments & the assistant-coach permission model (migration 024)
+
+### Source of truth
+`coach_assignments` (one row per athlete, `UNIQUE(athlete_id)`) is the authority for who coaches an athlete:
+- `coach_id` — the head coach (user_id).
+- `assistant_coach_id` — optional assistant coach (user_id).
+
+**`athletes.coach_id` is kept in sync** with `coach_assignments.coach_id` on every write (via `CoachAssignments::assignCoach`), so all pre-existing reads (`Auth::getAthlete`, `Notifications::athleteContext`, the billing join, the coach roster queries) keep working unchanged. Never write `athletes.coach_id` directly for assignment changes — go through `CoachAssignments`.
+
+`src/CoachAssignments.php` owns this: `assignCoach()`, `setAssistant()`, `ensure()`, `coachId()`, `assistantCoachId()`, `canAccess()`, and `scope()`.
+
+### Roles & access
+- **admin** — full access to every athlete plus the admin panel (`/app/admin/*`).
+- **coach** (head coach) — their assigned athletes (`coach_assignments.coach_id`). No admin panel.
+- **assistant_coach** — only athletes where `coach_assignments.assistant_coach_id = their id`.
+
+`CoachAssignments::scope($userId, $role, 'a')` returns an `[sqlFragment, params]` pair used by every roster/list query in `CoachController` (head coaches/admins scope by `a.coach_id`, assistants by an `IN (coach_assignments …)` subquery). `getAthleteForCoach()` is the per-athlete gate (scope OR admin-override).
+
+### Assistant-coach capability matrix
+Allowed: view roster/plan/flags/load/profile (assigned athletes only); message athletes (stored `sender_role='coach'` — no role distinction athlete-facing); approve/reject plans; add workouts **from the archetype picker only** (tagged `planned_workouts.added_by_role='assistant_coach'`, shown as a coach-only "AC" badge, never to the athlete); remove workouts; edit the profile (the only path to pace zones — raises an `assistant_pace_zone_edit` info flag for the head coach); request plan regeneration; dismiss **info-level** engine flags only.
+
+Denied (403): generate plans from scratch (they request regeneration instead); admin panel / billing; dismiss warning/critical flags; free-form workout entry; any athlete not assigned to them; create/deactivate accounts.
+
+### Regeneration request flow
+Assistant coaches can't generate. On an assigned athlete they get a **Request plan regeneration** button (replaces Generate Plan), inserting a `plan_regeneration_requests` row (`status='pending'`). The head coach sees a "Regen request" badge on the roster row and an Approve/Dismiss banner on the athlete detail view. Approve runs `PlanGenerator::generate(..., 'coach_manual')` and marks the request approved; Dismiss marks it dismissed (optional note).
+
+### Account creation & forced password change
+Admins create coach / assistant-coach accounts from `/app/admin/users/create`: a temporary password is generated, `users.must_change_password=1` is set, and a Resend welcome email is sent. A front-controller gate (`index.php`) redirects any logged-in user with `must_change_password=1` to `/app/change-password` (allowlisting that screen + logout/theme/offline) until they set a new password. `users.active=0` blocks login (deactivation). Assistant coaches carry `users.managed_by` = their head coach's user_id.
+
+### Onboarding wiring
+On onboarding completion, `OnboardingController::ensureCoachAssignment()` creates the `coach_assignments` row with `coach_id = invite_links.created_by` (the inviting coach; fallback user 1 for organic/missing invites) and mirrors it to `athletes.coach_id`. The scheduled welcome message resolves its sender from `coach_assignments.coach_id`.

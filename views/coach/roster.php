@@ -78,6 +78,10 @@ $sort = $_GET['sort'] ?? 'alerts';
                         <?= (int)$a['unread_messages'] > 9 ? '9+' : (int)$a['unread_messages'] ?>
                     </span>
                     <?php endif; ?>
+                    <?php if (!empty($a['pending_regen'])): ?>
+                    <span class="pill" style="background:#FEF9C3;color:#92400E;font-size:10px;"
+                          title="Pending plan regeneration request">Regen request</span>
+                    <?php endif; ?>
                 </div>
                 <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
                     <?php if ($a['plan_type']): ?>

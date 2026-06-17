@@ -41,11 +41,16 @@ class Auth
     public static function attempt(string $email, string $password): bool
     {
         $db   = Database::get();
-        $stmt = $db->prepare('SELECT id, password_hash, role, name, theme_preference, timezone FROM users WHERE email = ? LIMIT 1');
+        $stmt = $db->prepare('SELECT id, password_hash, role, name, theme_preference, timezone, must_change_password, active FROM users WHERE email = ? LIMIT 1');
         $stmt->execute([strtolower(trim($email))]);
         $user = $stmt->fetch();
 
         if (!$user || !password_verify($password, $user['password_hash'])) {
+            return false;
+        }
+
+        // Deactivated accounts cannot log in.
+        if (isset($user['active']) && (int)$user['active'] === 0) {
             return false;
         }
 
@@ -103,6 +108,13 @@ class Auth
         $_SESSION['theme']     = $user['theme_preference'];
         $_SESSION['timezone']  = Timezone::isValid($user['timezone'] ?? null)
             ? $user['timezone'] : Timezone::DEFAULT_TZ;
+        $_SESSION['must_change_password'] = (int)($user['must_change_password'] ?? 0);
+    }
+
+    /** Clear the forced-password-change flag for the current user (after a change). */
+    public static function clearMustChangePassword(): void
+    {
+        unset($_SESSION['must_change_password']);
     }
 
     public static function logout(): void
