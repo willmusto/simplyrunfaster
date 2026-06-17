@@ -1,6 +1,8 @@
 
 <footer class="app-footer">
     <a href="/app/privacy">Privacy Policy</a>
+    <span>&middot;</span>
+    <a href="/app/terms">Terms of Service</a>
     <span>&middot; &copy; <?= date('Y') ?> SimplyRunFaster</span>
 </footer>
 

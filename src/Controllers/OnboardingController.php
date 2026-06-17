@@ -213,8 +213,9 @@ class OnboardingController
         // convenience only and must not be trusted.
         $consentAge     = isset($_POST['consent_age']);
         $consentPrivacy = isset($_POST['consent_privacy']);
-        if (!$consentAge || !$consentPrivacy) {
-            $_SESSION['flash_error'] = 'Please confirm you meet the age requirement and agree to the Privacy Policy to finish.';
+        $consentTos     = isset($_POST['consent_tos']);
+        if (!$consentAge || !$consentPrivacy || !$consentTos) {
+            $_SESSION['flash_error'] = 'Please confirm you meet the age requirement and agree to the Privacy Policy and Terms of Service to finish.';
             // Preserve the units selection the athlete just made.
             if (in_array($_POST['units'] ?? '', ['miles','km'], true)) {
                 $_SESSION['onboarding_data']['units'] = $_POST['units'];
@@ -303,7 +304,8 @@ class OnboardingController
     {
         $db = Database::get();
         $db->prepare(
-            'UPDATE users SET consent_age = 1, consent_privacy = 1, consent_given_at = NOW() WHERE id = ?'
+            'UPDATE users SET consent_age = 1, consent_privacy = 1, consent_given_at = NOW(),
+                              consent_tos = 1, consent_tos_at = NOW() WHERE id = ?'
         )->execute([Auth::userId()]);
     }
 

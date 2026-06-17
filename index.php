@@ -257,4 +257,9 @@ $router->get('/privacy', function () {
     include __DIR__ . '/views/static/privacy.php';
 });
 
+// ── Terms of Service (public, no auth) ───────────────────────
+$router->get('/terms', function () {
+    include __DIR__ . '/views/static/terms.php';
+});
+
 $router->dispatch();

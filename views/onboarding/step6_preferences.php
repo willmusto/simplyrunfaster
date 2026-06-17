@@ -67,12 +67,20 @@ include __DIR__ . '/../../views/layout/html_open.php';
                 <span>I am 18 years of age or older, or I have obtained parental or guardian
                       consent to use SimplyRunFaster.</span>
             </label>
-            <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;line-height:1.5;cursor:pointer;">
+            <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;line-height:1.5;cursor:pointer;margin-bottom:14px;">
                 <input type="checkbox" name="consent_privacy" value="1" required
                        style="margin-top:3px;flex:none;width:18px;height:18px;"
                        <?= !empty($_POST['consent_privacy']) ? 'checked' : '' ?>>
                 <span>I have read and agree to the
                       <a href="/app/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</span>
+            </label>
+            <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;line-height:1.5;cursor:pointer;">
+                <input type="checkbox" name="consent_tos" value="1" required
+                       style="margin-top:3px;flex:none;width:18px;height:18px;"
+                       <?= !empty($_POST['consent_tos']) ? 'checked' : '' ?>>
+                <span>I have read and agree to the
+                      <a href="/app/terms" target="_blank" rel="noopener">Terms of Service</a>,
+                      including the assumption of risk and liability waiver in Section 5.</span>
             </label>
         </div>
 
