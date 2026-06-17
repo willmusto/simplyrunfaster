@@ -4,6 +4,15 @@ Options -Indexes
 RewriteEngine On
 RewriteBase /
 
+# ── Force HTTPS ───────────────────────────────────────────────
+# NearlyFreeSpeech terminates TLS at an upstream proxy, so the backend always
+# sees %{HTTPS}=off even for HTTPS requests — the real scheme arrives in
+# X-Forwarded-Proto. Redirect only when BOTH say plaintext, so this never loops
+# on NFSN (proxied) or on a server with direct TLS.
+RewriteCond %{HTTP:X-Forwarded-Proto} !https
+RewriteCond %{HTTPS} off
+RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
 # Block access to .git and other dot-files (except .well-known)
 RewriteRule ^\.git(/.*)?$ - [F,L]
 RewriteRule ^\.(?!well-known) - [F,L]

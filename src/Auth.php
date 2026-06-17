@@ -15,10 +15,10 @@ class Auth
 
         session_set_cookie_params([
             'lifetime' => SESSION_LIFETIME,
-            'path'     => '/app',
-            'secure'   => true,
-            'httponly' => true,
-            'samesite' => 'Lax',
+            'path'     => '/',          // site-wide so the session cookie is sent on every route
+            'secure'   => true,         // HTTPS only (relies on the .htaccess HTTPS redirect)
+            'httponly' => true,         // no JS access
+            'samesite' => 'Lax',        // mobile Safari is strict; Lax allows normal navigation
         ]);
     }
 
@@ -194,10 +194,36 @@ class Auth
     public static function verifyCsrf(): void
     {
         $token = $_POST[CSRF_TOKEN_NAME] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-        if (!hash_equals($_SESSION['csrf_token'] ?? '', $token)) {
-            http_response_code(403);
-            exit('CSRF token mismatch.');
+        if (hash_equals($_SESSION['csrf_token'] ?? '', $token)) {
+            return;
         }
+
+        http_response_code(403);
+
+        // Fetch/JSON callers get a machine-readable error they can surface inline;
+        // ordinary browser form posts get the styled "session expired" page instead
+        // of a white screen.
+        $wantsJson = (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'fetch')
+            || stripos((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json') !== false
+            || stripos((string)($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json') !== false;
+
+        if ($wantsJson) {
+            header('Content-Type: application/json');
+            echo json_encode([
+                'success' => false,
+                'error'   => 'csrf',
+                'message' => 'Your session expired. Please refresh the page and try again.',
+            ]);
+            exit;
+        }
+
+        $errorView = __DIR__ . '/../views/errors/csrf.php';
+        if (is_file($errorView)) {
+            include $errorView;
+        } else {
+            echo 'Your session expired. Please refresh the page and try again.';
+        }
+        exit;
     }
 
     public static function csrfField(): string
