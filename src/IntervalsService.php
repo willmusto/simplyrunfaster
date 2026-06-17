@@ -222,7 +222,16 @@ class IntervalsService
         return $text !== '' ? $text : $fallback;
     }
 
-    /** Render one structure segment to an Intervals.icu text block. */
+    /**
+     * Render one structure segment to an Intervals.icu text block.
+     *
+     * The stored structure JSON is the engine's resolved structure_template — note it
+     * can still carry unresolved {{mapped_effort}} tokens (the engine resolves effort
+     * for display text, not for the structure leaves), so effort is derived from the
+     * segment TYPE here, not trusted from the token. Each quality archetype uses its
+     * own segment_type (tempo_intervals, speed_repeats, hill_repeats, …); they are all
+     * mapped explicitly so the main set is never silently dropped.
+     */
     private static function renderSegment(array $seg, array $params, array $context): string
     {
         $type = strtolower((string)($seg['segment_type'] ?? ''));
@@ -245,42 +254,103 @@ class IntervalsService
             case 'continuous':
                 $m = (int)($seg['duration_minutes'] ?? $params['duration_minutes'] ?? 0);
                 if ($m < 1) return '';
-                $zone = self::zoneFor($seg['effort'] ?? $seg['pace_zone'] ?? 'easy', $context, $seg);
-                return "- {$m}m {$zone}";
+                return "- {$m}m " . self::zoneFor($seg['effort'] ?? $seg['pace_zone'] ?? 'easy', $context, 'Z2 Pace');
 
             case 'progression':
+                // Single continuous block that lifts; split the time (don't double it).
                 $m = (int)($seg['duration_minutes'] ?? $params['duration_minutes'] ?? 0);
                 if ($m < 1) return '';
-                // Continuous progression: start easy, lift toward the finish zone.
-                $finish = self::zoneFor($seg['finish_zone'] ?? 'tempo', $context, $seg);
-                return "- {$m}m Z1 Pace\n- {$m}m {$finish}";
+                $finish = self::zoneFor($seg['finish_zone'] ?? '', $context, 'Z4 Pace');
+                $a = max(1, (int)round($m * 0.6));
+                return "- {$a}m Z1 Pace\n- " . max(1, $m - $a) . "m {$finish}";
+
+            case 'continuous_progression':
+                $m = (int)($seg['continuous_work_minutes'] ?? $params['continuous_work_minutes'] ?? $params['duration_minutes'] ?? 0);
+                if ($m < 1) return '';
+                $a = max(1, (int)round($m * 0.6));
+                return "- {$a}m Z2 Pace\n- " . max(1, $m - $a) . "m Z4 Pace";
 
             case 'repeats':
-                return self::renderRepeats($seg, $params, $context);
+                return self::renderDistanceRepeats($seg, $params, $context, 'Z5 Pace', 'vo2_standard');
+
+            case 'speed_repeats':
+                return self::renderDistanceRepeats($seg, $params, $context, 'Z6 Pace', 'speed_standard');
+
+            case 'tempo_intervals':
+                return self::renderTempoIntervals($seg, $params, $context);
+
+            case 'hill_repeats':
+            case 'hill_sprints':
+                return self::renderHillReps($type, $seg, $params);
 
             case 'fartlek_ladder':
                 return self::renderFartlek($seg, $params, $context);
 
             default:
-                // Unknown / time-interval style segments: best-effort generic block.
+                // Unknown segment: detect a distance/time rep block, else nothing.
                 return self::renderGenericWork($seg, $params, $context);
         }
     }
 
-    /** Distance-based repeats: "Main Set Nx" + rep + recovery jog. */
-    private static function renderRepeats(array $seg, array $params, array $context): string
+    /** Distance-based repeats: "Main Set Nx" + rep distance + recovery jog. */
+    private static function renderDistanceRepeats(array $seg, array $params, array $context, string $fallbackZone, string $defaultRecModel): string
     {
-        $n      = (int)($seg['repetitions'] ?? $params['rep_count'] ?? 0);
+        $n      = (int)($seg['repetitions'] ?? $seg['rep_count'] ?? $params['rep_count'] ?? 0);
         $meters = (int)($seg['rep_distance_meters'] ?? $params['rep_distance_meters'] ?? 0);
         if ($n < 1 || $meters < 1) return '';
 
-        $effort   = $seg['target_effort'] ?? $params['target_effort'] ?? 'interval';
-        $zone     = self::zoneFor($effort, $context, $seg);
-        $recovery = self::repRecoveryText($seg, $params, $meters, $effort, $context);
+        $effort = $seg['target_effort'] ?? $seg['effort'] ?? $seg['effort_zone'] ?? $params['target_effort'] ?? '';
+        $zone   = self::zoneFor($effort, $context, $fallbackZone);
 
-        $work = '- ' . self::fmtMeters($meters) . ' ' . $zone;
-        $step = $recovery !== '' ? "{$work}\n{$recovery}" : $work;
-        return "Main Set {$n}x\n{$step}";
+        $recModel = (string)($seg['recovery_model'] ?? $params['recovery_model'] ?? $defaultRecModel);
+        $recSec   = (int)($params['recovery_duration_seconds'] ?? 0);
+        if ($recSec < 1) {
+            $repSec = self::estimateRepSeconds($meters, (string)$effort, $context);
+            $recSec = self::modelRecoverySeconds($recModel, $repSec);
+        }
+        return self::repeatBlock($n, '- ' . self::fmtMeters($meters) . ' ' . $zone, self::roundSecs($recSec ?: 120));
+    }
+
+    /** tempo_intervals: time- (preferred) or distance-based reps at threshold. */
+    private static function renderTempoIntervals(array $seg, array $params, array $context): string
+    {
+        $n = (int)($seg['rep_count'] ?? $params['rep_count'] ?? 0);
+        if ($n < 1) return '';
+        $zone     = self::zoneFor($seg['effort'] ?? '', $context, 'Z4 Pace');
+        $recModel = (string)($seg['recovery_model'] ?? $params['recovery_model'] ?? 'threshold_standard');
+
+        $workSec = 0;
+        if (isset($seg['rep_duration_minutes'])) $workSec = (int)round((float)$seg['rep_duration_minutes'] * 60);
+        elseif (isset($seg['rep_duration_seconds'])) $workSec = (int)$seg['rep_duration_seconds'];
+        elseif (isset($params['work_duration_seconds'])) $workSec = (int)$params['work_duration_seconds'];
+
+        if ($workSec > 0) {
+            $recSec = self::roundSecs(self::modelRecoverySeconds($recModel, $workSec));
+            return self::repeatBlock($n, '- ' . self::fmtSeconds($workSec) . ' ' . $zone, $recSec);
+        }
+        if (isset($seg['rep_distance_miles'])) {
+            $meters = (int)round((float)$seg['rep_distance_miles'] * self::METERS_PER_MILE);
+            $recSec = self::roundSecs(self::modelRecoverySeconds($recModel, self::estimateRepSeconds($meters, 'half_marathon', $context)));
+            return self::repeatBlock($n, '- ' . self::fmtMeters($meters) . ' ' . $zone, $recSec);
+        }
+        return '';
+    }
+
+    /**
+     * Hill reps / sprints. Hills are effort-based, not pace-based (flat pace zones do
+     * not transfer to a climb — engine spec §18.5), so this approximates with a hard
+     * zone label + jog/walk-back recovery. Reviewer note: refine if a hill-specific
+     * target is preferred over Z5/Z6.
+     */
+    private static function renderHillReps(string $type, array $seg, array $params): string
+    {
+        $n      = (int)($seg['repetitions'] ?? $seg['rep_count'] ?? $params['rep_count'] ?? 0);
+        $durSec = (int)($seg['rep_duration_seconds'] ?? $seg['duration_seconds'] ?? 0);
+        if ($n < 1 || $durSec < 1) return '';
+        $recMin = (int)($seg['recovery']['minimum_recovery_seconds'] ?? 0);
+        $recSec = self::roundSecs($recMin > 0 ? $recMin : max(90, $durSec));
+        $zone   = $type === 'hill_sprints' ? 'Z6 Pace' : 'Z5 Pace';
+        return self::repeatBlock($n, '- ' . self::fmtSeconds($durSec) . ' ' . $zone, $recSec);
     }
 
     /** Fartlek ladder: one round of the work intervals, repeated $rounds times. */
@@ -292,7 +362,7 @@ class IntervalsService
         if (!is_array($works) || empty($works)) {
             $works = [60, 90, 120];
         }
-        $zone  = self::zoneFor('interval', $context, $seg);
+        $zone  = self::zoneFor('interval', $context, 'Z5 Pace');
         $lines = ["Main Set {$rounds}x"];
         foreach ($works as $w) {
             $w = (int)$w;
@@ -303,41 +373,45 @@ class IntervalsService
         return count($lines) > 1 ? implode("\n", $lines) : '';
     }
 
-    /**
-     * Generic time-interval block for segment types we don't special-case (e.g.
-     * tempo_intervals). Uses resolved work/recovery durations from params when the
-     * segment itself doesn't carry them.
-     */
+    /** Generic fallback: detect a distance or time rep block, else nothing. */
     private static function renderGenericWork(array $seg, array $params, array $context): string
     {
-        $n        = (int)($seg['repetitions'] ?? $params['rep_count'] ?? 0);
-        $workSec  = (int)($seg['work_duration_seconds'] ?? $params['work_duration_seconds'] ?? 0);
-        $workMin  = (int)($seg['duration_minutes'] ?? 0);
-        if ($workSec < 1 && $workMin > 0) $workSec = $workMin * 60;
+        $n = (int)($seg['repetitions'] ?? $seg['rep_count'] ?? $params['rep_count'] ?? 0);
+        if ($n >= 1 && (int)($seg['rep_distance_meters'] ?? 0) >= 1) {
+            return self::renderDistanceRepeats($seg, $params, $context, 'Z5 Pace', 'vo2_standard');
+        }
+
+        $workSec = (int)($seg['work_duration_seconds'] ?? $params['work_duration_seconds'] ?? 0);
+        if ($workSec < 1 && isset($seg['rep_duration_minutes'])) $workSec = (int)round((float)$seg['rep_duration_minutes'] * 60);
+        if ($workSec < 1 && isset($seg['duration_minutes']))     $workSec = (int)$seg['duration_minutes'] * 60;
         if ($n < 1 || $workSec < 1) return '';
 
         $recSec = (int)($seg['recovery_duration_seconds'] ?? $params['recovery_duration_seconds'] ?? 0);
         if ($recSec < 1) {
             $recSec = self::modelRecoverySeconds((string)($seg['recovery_model'] ?? $params['recovery_model'] ?? ''), $workSec);
         }
-        $zone  = self::zoneFor($seg['effort'] ?? $seg['target_effort'] ?? 'tempo', $context, $seg);
-        $work  = '- ' . self::fmtSeconds($workSec) . ' ' . $zone;
-        $rec   = $recSec > 0 ? "\n- " . self::fmtSeconds($recSec) . ' Z1 Pace' : '';
-        return "Main Set {$n}x\n{$work}{$rec}";
+        $zone = self::zoneFor($seg['effort'] ?? $seg['target_effort'] ?? '', $context, 'Z5 Pace');
+        return self::repeatBlock($n, '- ' . self::fmtSeconds($workSec) . ' ' . $zone, self::roundSecs($recSec));
     }
 
-    /** Recovery line for a distance-repeat rep, derived from the recovery model. */
-    private static function repRecoveryText(array $seg, array $params, int $meters, $effort, array $context): string
+    /** Assemble a "Main Set Nx" block from a work line and an optional recovery jog. */
+    private static function repeatBlock(int $n, string $workLine, ?int $recSec): string
     {
-        $recSec = (int)($params['recovery_duration_seconds'] ?? 0);
-        if ($recSec < 1) {
-            // Estimate the rep duration from the athlete's pace zones (if supplied),
-            // then apply the recovery model's work:rest ratio (vo2_standard ≈ 1:1).
-            $repSec = self::estimateRepSeconds($meters, $effort, $context);
-            $recSec = self::modelRecoverySeconds((string)($seg['recovery_model'] ?? 'vo2_standard'), $repSec);
+        if ($n < 1 || $workLine === '') return '';
+        $lines = ["Main Set {$n}x", $workLine];
+        if ($recSec !== null && $recSec > 0) {
+            $lines[] = '- ' . self::fmtSeconds($recSec) . ' Z1 Pace';
         }
-        if ($recSec < 1) $recSec = 120; // documented default when nothing is derivable
-        return '- ' . self::fmtSeconds($recSec) . ' Z1 Pace';
+        return implode("\n", $lines);
+    }
+
+    /** Round a recovery duration to a tidy value (5s under 1min, 15s under 3min, else 30s). */
+    private static function roundSecs(int $s): int
+    {
+        if ($s <= 0)   return 0;
+        if ($s < 60)   return (int)(round($s / 5) * 5);
+        if ($s < 180)  return (int)(round($s / 15) * 15);
+        return (int)(round($s / 30) * 30);
     }
 
     /** Estimate a single rep's duration (seconds) from pace zones, else a flat guess. */
@@ -371,10 +445,17 @@ class IntervalsService
 
     // ── Effort / zone / formatting helpers ───────────────────────────────────
 
-    /** Map a segment effort/zone to an Intervals.icu pace target string. */
-    private static function zoneFor($effort, array $context, array $seg = []): string
+    /**
+     * Map a segment effort/zone to an Intervals.icu pace target string. Unresolved
+     * tokens (e.g. "{{mapped_effort}}") and empty values fall back to $fallback so the
+     * caller's type-appropriate default (Z4 tempo, Z5 interval, Z6 speed) is used.
+     */
+    private static function zoneFor($effort, array $context, string $fallback = 'Z2 Pace'): string
     {
         $e = strtolower(trim((string)$effort));
+        if ($e === '' || str_contains($e, '{{')) {
+            return $fallback;
+        }
 
         // race_pace: prefer the athlete's goal pace from supplied pace zones.
         if ($e === 'race_pace' || $e === 'goal_pace') {
@@ -394,7 +475,7 @@ class IntervalsService
             in_array($e, ['tempo', 'threshold', 'half_marathon', 'steady_state', 'z4'], true)            => 'Z4 Pace',
             in_array($e, ['interval', 'vo2', 'vo2max', '10k', '5k', '3k', 'z5'], true)                   => 'Z5 Pace',
             in_array($e, ['speed', 'sprint', 'mile', '800', '400', 'rep', 'neuromuscular', 'z6'], true)  => 'Z6 Pace',
-            default                                                                                       => 'Z2 Pace',
+            default                                                                                       => $fallback,
         };
     }
 
