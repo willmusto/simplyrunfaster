@@ -455,7 +455,27 @@ Strava's API would provide a universal pull layer — any watch platform that sy
 
 **Architecture decision:** Build direct watch integrations as the primary data layer. Strava is a parallel application in progress, not a milestone dependency.
 
-### Phase 1: Garmin (Build First)
+### Phase 1: Intervals.icu (Watch Integration Layer) *(implemented & deployed)*
+
+Rather than integrate each watch brand's API directly first, **Intervals.icu is the Phase 1 watch integration layer.** Athletes connect their watch to a free Intervals.icu account, then connect Intervals.icu to SimplyRunFaster via OAuth — one integration covering **Garmin, COROS, Polar, Suunto, Wahoo, Amazfit, Apple Watch, and Huawei**. We push structured workouts to the athlete's Intervals.icu calendar (which syncs to the watch) and pull completed runs back. Direct per-brand integrations are **Phase 2+** (below), pursued only if a brand needs richer fidelity than Intervals.icu provides.
+
+**OAuth & tokens.** OAuth 2.0, scope `ACTIVITY:READ,CALENDAR:WRITE` (`IntervalsService::getAuthUrl()` / `exchangeCode()`). Access tokens are stored **encrypted at rest** — AES-256-GCM via `src/Crypto.php`, keyed by `APP_ENCRYPTION_KEY` (64-hex / 32-byte key, set only in `config/config.local.php`) — in `intervals_connections`. Intervals.icu OAuth returns no refresh token and tokens don't expire per current docs. Athletes connect / disconnect (and re-sync) from Settings → Connected Devices; connect/callback are CSRF-protected.
+
+**Schema (`migration_014`).** `intervals_connections` (one row per user, encrypted token), `intervals_push_log`, `intervals_webhook_log`; plus `planned_workouts.intervals_event_id`, `completed_workouts.source_device`, the `'intervals'` value on the `completed_workouts.source` enum, and a `(source, external_activity_id)` uniqueness key. NOTE: the production DB is **MyISAM throughout**, so these tables are created **MyISAM with plain indexes and no foreign keys** — an InnoDB child → MyISAM parent FK fails to create, and the rest of the schema is FK-free anyway.
+
+**Push (plan → watch).** `planned_workouts.structure` JSON → Intervals.icu native workout text (`generateWorkoutText()`), upserted as a calendar `WORKOUT` event keyed by stable `external_id = srf_{planned_workout_id}` (re-pushing moves/updates the same event — never duplicates). Text rendering:
+- **Effort language, not zone labels** — `easy` / `moderate effort` / `tempo effort` / `interval effort` / `speed effort` (no Z1–Z6). Easy running is time-on-feet only (§3); hills are effort-based and carry cue text only (§18.5).
+- **Pace-range citations on quality steps only** (§18.9), drawn from the athlete's *visible* `pace_zones`, e.g. `- 11m tempo effort (7:33–7:54/mi)`; omitted when zones are hidden/empty. Tempo → 10K–half band; intervals/speed → nearest of 5K/mile/800/400 ±5s; mixed → mile–5K; fartlek → 5K–10K.
+- Rep distances render in **miles** (`0.37mi`); durations as `15m` / `90s → 1m30s`; warmup **strides are folded into the Warmup section** as an inline `Nx` block.
+- Triggers: a workout entering the visible window (`cron_update_visibility.php`), plan approval (`approvePlan` → `pushNewlyVisible`), and coach add / reschedule / remove. When a plan is **archived** (regeneration or rejection) its events are bulk-deleted via `deleteEventsForPlan()` (`PlanGenerator::archivePreviousPlans()` and `CoachController::rejectPlan()`).
+
+**Pull (watch → log).** Webhook `POST /webhook/intervals` (shared-secret verified, every event logged to `intervals_webhook_log`) on `ACTIVITY_UPLOADED` / `ACTIVITY_ANALYZED`, plus a 30-day backfill on connect. Run activities map to `completed_workouts` (`source='intervals'`), idempotent on the `(source, external_activity_id)` key, then the post-completion pipeline runs (compliance, training-load recompute, RPE prompt, return-to-running progression). Unmatched activities insert as unplanned and raise an `unmatched_activity` info flag.
+
+**Manual re-sync.** `IntervalsService::repushAllVisible($userId, $db)` re-pushes every visible, non-cancelled workout in the active plan (upsert, each logged to `intervals_push_log`). Exposed two ways: coaches via `POST /app/integrations/intervals/repush` (their own athletes); athletes via a **"Sync workouts now"** button in Settings → `POST /app/integrations/intervals/sync-athlete`.
+
+**Routes / config.** `GET /app/integrations/intervals/connect` · `GET …/callback` · `POST …/disconnect` · `POST …/repush` · `POST …/sync-athlete` · public `GET …/guide` (setup walkthrough, `views/static/intervals_setup.php`). Secrets `INTERVALS_CLIENT_ID` / `INTERVALS_CLIENT_SECRET` / `INTERVALS_WEBHOOK_SECRET` / `INTERVALS_REDIRECT_URI` are empty placeholders in `config/config.php`; real values live only in `config/config.local.php`.
+
+### Phase 2+: Garmin (direct)
 
 **APIs:**
 - Garmin Health API — push structured workouts, pull completed activity data
