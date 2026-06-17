@@ -12,7 +12,7 @@
 // CACHE_NAME. If this string never changes, stale CSS/HTML stays
 // cached indefinitely. Update to today's date (YYYYMMDD) before
 // committing; the deploy checklist runs the cache-bump command.
-const CACHE_NAME    = 'srf-20260617';
+const CACHE_NAME    = 'srf-2026061701';
 const OFFLINE_URL   = '/app/offline';
 
 // Resources to pre-cache on install.
@@ -115,15 +115,26 @@ self.addEventListener('push', function (event) {
         data = { title: 'SimplyRunFaster', body: event.data.text() };
     }
 
+    // Always-on (high-value) types stay on screen until the user taps them, which
+    // also signals to Chrome that these notifications are intentional, not spam.
+    const ALWAYS_ON = ['plan_approved', 'critical_flag', 'message_from_coach', 'message_from_athlete'];
+
     const options = {
         body:    data.body    || '',
-        icon:    data.icon    || '/assets/icons/icon-192.png',
-        badge:   data.badge   || '/assets/icons/icon-192.png',
+        icon:    '/assets/icons/icon-192.png',
+        badge:   '/assets/icons/icon-192.png',
         data:    data.url     || '/',
-        tag:     data.tag     || 'srf-20260617notification',
+        // Tag by notification type so Chrome groups/dedupes related notifications;
+        // renotify makes a new one of the same type replace + re-alert (not silently drop).
+        tag:      data.type   || 'srf-notification',
         renotify: true,
-        actions: data.actions || [],
+        vibrate:  [200, 100, 200],
+        actions:  data.actions || [],
     };
+
+    if (data.type && ALWAYS_ON.indexOf(data.type) !== -1) {
+        options.requireInteraction = true;
+    }
 
     event.waitUntil(
         self.registration.showNotification(data.title || 'SimplyRunFaster', options)

@@ -315,7 +315,7 @@ class Notifications
 
         $pushOk = false;
         if ($wantPush) {
-            $pushOk = self::sendPush($userId, $push['title'], $push['body'], $push['url']);
+            $pushOk = self::sendPush($userId, $push['title'], $push['body'], $push['url'], $type);
             $result['push'] = $pushOk;
         }
 
@@ -347,7 +347,7 @@ class Notifications
      * the push service reports as gone (404/410). Returns true if at least one
      * device was delivered to.
      */
-    public static function sendPush(int $userId, string $title, string $body, ?string $url = null): bool
+    public static function sendPush(int $userId, string $title, string $body, ?string $url = null, ?string $type = null): bool
     {
         if (!class_exists('Minishlink\\WebPush\\WebPush')) {
             error_log('Notifications: web-push library not loaded; push to user ' . $userId . ' skipped.');
@@ -377,7 +377,10 @@ class Notifications
                 'title' => $title,
                 'body'  => $body,
                 'url'   => $url ?: '/app',
-                'tag'   => 'srf-' . substr(md5($title . $body), 0, 8),
+                // The SW uses `type` for the notification tag (grouping/dedup) and to
+                // decide requireInteraction for always-on types. Fallback groups any
+                // type-less push under one tag.
+                'type'  => $type ?: 'srf-notification',
             ]);
 
             $byEndpoint = [];
@@ -444,7 +447,7 @@ class Notifications
         $name    = $data['athlete_name'] ?? ($data['sender_name'] ?? 'Your athlete');
         $sender  = $data['sender_name']  ?? 'Your coach';
         $workout = $data['workout_name'] ?? 'your workout';
-        $snippet = isset($data['message']) ? self::snip($data['message'], 60) : '';
+        $snippet = isset($data['message']) ? self::snip($data['message'], 80) : '';
 
         switch ($type) {
             case 'plan_approved':
@@ -459,7 +462,8 @@ class Notifications
                     '/app/billing', true, true);
 
             case 'payment_failed_coach':
-                return self::push('Payment failed', $name . "'s payment failed.",
+                return self::push('Payment failed',
+                    $name . "'s subscription payment failed — they may lose access. Open their profile to follow up.",
                     '/app/coach/athlete/' . (int)($data['athlete_id'] ?? 0), true);
 
             case 'message_from_athlete':
@@ -470,13 +474,22 @@ class Notifications
                 return self::push('Plan ready for review', $name . "'s plan is ready for your review.", '/app/coach/approvals');
 
             case 'critical_flag':
-                return self::push('Attention needed', 'Attention needed: ' . $name . ' — ' . ($data['flag_message'] ?? ''), '/app/coach/flags');
+                $flag = trim((string)($data['flag_message'] ?? ''));
+                return self::push('Action needed: ' . $name,
+                    $flag !== '' ? $name . ' — ' . $flag : $name . ' has a critical flag that needs your attention right away.',
+                    '/app/coach/flags');
 
             case 'warning_flag':
-                return self::push('Heads up: ' . $name, $data['flag_message'] ?? 'A warning flag was raised.', '/app/coach/flags');
+                $flag = trim((string)($data['flag_message'] ?? ''));
+                return self::push('Heads up: ' . $name,
+                    $flag !== '' ? $name . ' — ' . $flag : $name . ' has a warning flag worth a look when you have a moment.',
+                    '/app/coach/flags');
 
             case 'info_flag':
-                return self::push('Info: ' . $name, $data['flag_message'] ?? 'An info flag was raised.', '/app/coach/flags');
+                $flag = trim((string)($data['flag_message'] ?? ''));
+                return self::push('Info: ' . $name,
+                    $flag !== '' ? $name . ' — ' . $flag : $name . ' has a new info flag in their training.',
+                    '/app/coach/flags');
 
             case 'coach_session_comment':
                 return self::push('New coach comment', 'Your coach commented on ' . $workout, '/app/log');
@@ -486,7 +499,7 @@ class Notifications
 
             case 'tomorrow_plan':
                 $sub = trim(($data['workout_title'] ?? $workout) . (isset($data['duration']) ? ' · ' . $data['duration'] : ''));
-                return self::push("Tomorrow's run", 'Tomorrow: ' . $sub, '/app/plan', !empty($data['bypass_quiet']));
+                return self::push("Tomorrow's run", 'Tomorrow: ' . $sub . '. Tap to see the full session.', '/app/plan', !empty($data['bypass_quiet']));
 
             case 'long_run_reminder':
                 return self::push('Long run tomorrow', 'Tomorrow is your long run: ' . ($data['workout_title'] ?? $workout) . '.', '/app/plan');
@@ -507,7 +520,7 @@ class Notifications
                     '/app/coach/athlete/' . (int)($data['athlete_id'] ?? 0) . '/messages');
 
             case 'athlete_manual_log':
-                return self::push('New manual log', $name . ' logged ' . $workout . '.',
+                return self::push('New manual log', $name . ' logged ' . $workout . '. Tap to review their session.',
                     '/app/coach/athlete/' . (int)($data['athlete_id'] ?? 0));
 
             case 'athlete_day_swap':
@@ -524,7 +537,9 @@ class Notifications
                     '/app/coach/athlete/' . (int)($data['athlete_id'] ?? 0));
 
             default:
-                return self::push('SimplyRunFaster', $data['body'] ?? '', $data['url'] ?? '/app');
+                return self::push('SimplyRunFaster',
+                    ($data['body'] ?? '') !== '' ? $data['body'] : 'You have a new update in SimplyRunFaster. Open the app to see it.',
+                    $data['url'] ?? '/app');
         }
     }
 
