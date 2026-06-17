@@ -217,12 +217,28 @@ class IntervalsService
             return $fallback;
         }
 
-        $segments = $structure['segments'];
         $blocks   = [];
-        foreach ($segments as $seg) {
+        $lastType = ''; // segment_type of the last segment that produced a block
+        foreach ($structure['segments'] as $seg) {
             if (!is_array($seg)) continue;
+            $type = strtolower((string)($seg['segment_type'] ?? ''));
+
+            // Fold a strides segment into the Warmup section it immediately follows —
+            // Intervals.icu inline repeat (a bare "Nx" line, no peer section header).
+            // Strides without a preceding warmup stay a standalone section.
+            if ($type === 'strides' && $lastType === 'warmup' && $blocks) {
+                $folded = self::renderStrides($seg, $params, true);
+                if ($folded !== '') {
+                    $blocks[count($blocks) - 1] .= "\n" . $folded;
+                }
+                continue; // keep $lastType = 'warmup' so consecutive strides also fold
+            }
+
             $rendered = self::renderSegment($seg, $params, $context);
-            if ($rendered !== '') $blocks[] = $rendered;
+            if ($rendered !== '') {
+                $blocks[] = $rendered;
+                $lastType = $type;
+            }
         }
 
         $text = trim(implode("\n\n", $blocks));
@@ -253,10 +269,7 @@ class IntervalsService
                 return $m > 0 ? "Cooldown\n- {$m}m easy" : '';
 
             case 'strides':
-                $n = (int)($seg['repetitions'] ?? $params['stride_count'] ?? 4);
-                $s = (int)($seg['duration_seconds'] ?? $params['stride_duration_seconds'] ?? 15);
-                if ($n < 1 || $s < 1) return '';
-                return "Strides {$n}x\n- " . self::fmtSeconds($s) . " speed effort\n- 45s easy";
+                return self::renderStrides($seg, $params, false);
 
             case 'continuous':
                 $m = (int)($seg['duration_minutes'] ?? $params['duration_minutes'] ?? 0);
@@ -297,6 +310,19 @@ class IntervalsService
                 // Unknown segment: detect a distance/time rep block, else nothing.
                 return self::renderGenericWork($seg, $params, $context);
         }
+    }
+
+    /**
+     * Strides block. Standalone form leads with a "Strides Nx" header; the folded form
+     * (when appended into a Warmup section) uses a bare "Nx" inline-repeat line.
+     */
+    private static function renderStrides(array $seg, array $params, bool $folded): string
+    {
+        $n = (int)($seg['repetitions'] ?? $params['stride_count'] ?? 4);
+        $s = (int)($seg['duration_seconds'] ?? $params['stride_duration_seconds'] ?? 15);
+        if ($n < 1 || $s < 1) return '';
+        $header = $folded ? "{$n}x" : "Strides {$n}x";
+        return "{$header}\n- " . self::fmtSeconds($s) . " speed effort\n- 45s easy";
     }
 
     /** Distance-based repeats: "Main Set Nx" + rep distance + recovery jog. */
