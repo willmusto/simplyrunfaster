@@ -277,6 +277,9 @@ $swapWindowDays = $swapWindowDays ?? 14;
     <style>
     .srf-move-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:1000;
         display:flex; align-items:flex-end; justify-content:center; }
+    /* The class selector above outranks the UA [hidden] rule, so the attribute alone
+       won't hide the overlay — restore it explicitly (also makes closeModal work). */
+    .srf-move-overlay[hidden] { display:none; }
     .srf-move-sheet { background:var(--surface-bg,var(--card-bg,#fff)); color:var(--text-primary,#111);
         width:100%; max-width:480px; border-radius:16px 16px 0 0; padding:18px 18px 28px;
         max-height:85vh; overflow-y:auto; box-shadow:0 -8px 32px rgba(0,0,0,0.25); }
