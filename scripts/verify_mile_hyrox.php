@@ -72,7 +72,8 @@ function planWeeks(PDO $db, int $planId): int {
     $r = $db->prepare('SELECT plan_start_date, plan_end_date FROM training_plans WHERE id = ?');
     $r->execute([$planId]);
     $row = $r->fetch(PDO::FETCH_ASSOC);
-    return (int)round((strtotime($row['plan_end_date']) - strtotime($row['plan_start_date'])) / (7 * 86400)) + 1;
+    // Calendar weeks covering [start, end] inclusive.
+    return (int)ceil((strtotime($row['plan_end_date']) - strtotime($row['plan_start_date']) + 86400) / (7 * 86400));
 }
 function hasFlag(PDO $db, int $aid, string $type): bool {
     $r = $db->prepare('SELECT 1 FROM engine_flags WHERE athlete_id = ? AND flag_type = ? LIMIT 1');
