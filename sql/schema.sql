@@ -208,7 +208,7 @@ CREATE TABLE IF NOT EXISTS `races` (
     `id`                            INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `athlete_id`                    INT UNSIGNED NOT NULL,
     `added_by`                      INT UNSIGNED NOT NULL,
-    `added_by_role`                 ENUM('athlete','coach','admin') NOT NULL,
+    `added_by_role`                 ENUM('athlete','coach','assistant_coach','admin') NOT NULL,
     `race_name`                     VARCHAR(255) NOT NULL,
     `race_distance`                 ENUM('5K','10K','15K','half','marathon','ultra','other','50k','50_miler','100k','100_miler') NOT NULL,
     `distance_override`             FLOAT DEFAULT NULL COMMENT 'miles, when distance=other',

@@ -240,14 +240,23 @@ class RaceController
 
         $coachNote = ($role !== 'athlete') ? (trim((string)($post['coach_notes'] ?? '')) ?: null) : null;
 
-        $db->prepare(
-            'INSERT INTO races
-             (athlete_id, added_by, added_by_role, race_name, race_distance, distance_override,
-              distance_override_unit, race_date, is_goal_race, notes, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
-        )->execute([
-            $athleteId, $userId, $role, $name, $dist, $override, $overrideUnit, $date, $isGoal ? 1 : 0, $coachNote,
-        ]);
+        // added_by_role is an ENUM('athlete','coach','assistant_coach','admin'); guard
+        // against any unexpected role value silently truncating to '' on insert.
+        $roleVal = in_array($role, ['athlete', 'coach', 'assistant_coach', 'admin'], true) ? $role : 'coach';
+
+        try {
+            $db->prepare(
+                'INSERT INTO races
+                 (athlete_id, added_by, added_by_role, race_name, race_distance, distance_override,
+                  distance_override_unit, race_date, is_goal_race, notes, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
+            )->execute([
+                $athleteId, $userId, $roleVal, $name, $dist, $override, $overrideUnit, $date, $isGoal ? 1 : 0, $coachNote,
+            ]);
+        } catch (\Throwable $e) {
+            error_log('RaceController saveRace INSERT failed for athlete ' . $athleteId . ': ' . $e->getMessage());
+            return 'Something went wrong saving the race. Please try again.';
+        }
 
         $label = self::distanceLabel($dist);
         $when  = date('M j, Y', strtotime($date));
