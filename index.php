@@ -21,6 +21,7 @@ require_once __DIR__ . '/src/Router.php';
 require_once __DIR__ . '/src/Mailer.php';
 require_once __DIR__ . '/src/EmailTemplates.php';
 require_once __DIR__ . '/src/Notifications.php';
+require_once __DIR__ . '/src/SessionThread.php';
 require_once __DIR__ . '/src/Timezone.php';
 require_once __DIR__ . '/src/Auth.php';
 require_once __DIR__ . '/src/Billing.php';

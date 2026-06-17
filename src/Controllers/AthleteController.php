@@ -429,10 +429,8 @@ class AthleteController
                  VALUES (?, ?, ?, "athlete", ?)'
             )->execute([$cwId, $athleteId, Auth::userId(), $notes]);
 
-            $db->prepare(
-                'INSERT INTO messages (athlete_id, sender_id, sender_role, body, message_type, completed_workout_id)
-                 VALUES (?, ?, "athlete", ?, "session_note", ?)'
-            )->execute([$athleteId, Auth::userId(), $notes, $cwId]);
+            // Re-float (or create) the single session card for this workout.
+            SessionThread::recordComment($db, $athleteId, (int)Auth::userId(), 'athlete', (int)$cwId, $notes);
         }
 
         // Recompute training load
@@ -878,6 +876,12 @@ class AthleteController
         $db        = Database::get();
         $athleteId = (int)$athlete['id'];
         $after     = (int)($_GET['after'] ?? 0);
+        $since     = (int)($_GET['since'] ?? 0);
+
+        // New messages by id, plus session cards that re-floated since the client's
+        // last-seen timestamp (a re-float keeps the card's id and only bumps sent_at).
+        $floatSql = $since > 0 ? ' OR (m.message_type = "session_note" AND m.sent_at > FROM_UNIXTIME(?))' : '';
+        $params   = $since > 0 ? [$athleteId, $after, $since] : [$athleteId, $after];
 
         $stmt = $db->prepare(
             'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date,
@@ -885,18 +889,21 @@ class AthleteController
              FROM messages m
              LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
              LEFT JOIN planned_workouts pw ON pw.id = cw.planned_workout_id
-             WHERE m.athlete_id = ? AND m.id > ?
+             WHERE m.athlete_id = ? AND (m.id > ?' . $floatSql . ')
              ORDER BY m.sent_at ASC, m.id ASC
              LIMIT 100'
         );
-        $stmt->execute([$athleteId, $after]);
+        $stmt->execute($params);
         $rows = $stmt->fetchAll();
 
-        // The athlete is actively viewing — mark newly-arrived coach messages read.
+        // Athlete is actively viewing — mark coach messages read, including a coach
+        // reply that just re-floated an existing session card.
+        $markSql    = $since > 0 ? ' OR (message_type = "session_note" AND sent_at > FROM_UNIXTIME(?))' : '';
+        $markParams = $since > 0 ? [$athleteId, $after, $since] : [$athleteId, $after];
         $db->prepare(
             'UPDATE messages SET read_at = NOW()
-             WHERE athlete_id = ? AND id > ? AND sender_role = "coach" AND read_at IS NULL'
-        )->execute([$athleteId, $after]);
+             WHERE athlete_id = ? AND sender_role = "coach" AND read_at IS NULL AND (id > ?' . $markSql . ')'
+        )->execute($markParams);
 
         echo json_encode(self::serializeMessages($rows, (int)Auth::userId()));
         exit;
@@ -955,10 +962,11 @@ class AthleteController
                     ? ucfirst(str_replace('_', ' ', $m['session_type'])) : null,
                 'session_date_label'   => !empty($m['session_date'])
                     ? date('M j', strtotime($m['session_date'])) : null,
-                // Session-card fields (Section 13): workout name + link target.
+                // Session-card fields (Section 13): workout name + link target + reply tally.
                 'workout_name'         => $cwId
                     ? self::sessionDisplayName($m['session_title'] ?? null, $m['session_type'] ?? null) : null,
                 'completed_workout_id' => $cwId,
+                'reply_count'          => (int)($m['reply_count'] ?? 0),
             ];
         }
         return $out;
@@ -1000,11 +1008,8 @@ class AthleteController
         )->execute([$cwId, $athleteId, $userId, $body]);
         $noteId = (int)$db->lastInsertId();
 
-        // Auto-post to messages thread as session card
-        $db->prepare(
-            'INSERT INTO messages (athlete_id, sender_id, sender_role, body, message_type, completed_workout_id)
-             VALUES (?, ?, "athlete", ?, "session_note", ?)'
-        )->execute([$athleteId, $userId, $body, $cwId]);
+        // Re-float (or create) the single session card for this workout.
+        SessionThread::recordComment($db, $athleteId, $userId, 'athlete', $cwId, $body);
 
         // Notify the coach a session note was added (controllable, default on).
         $notified = false;
@@ -1081,21 +1086,9 @@ class AthleteController
 
         $db->prepare('UPDATE session_notes SET body = ? WHERE id = ?')->execute([$body, $noteId]);
 
-        // Keep the posted thread card in sync only when this is the athlete's first
-        // note for the workout (the oldest card). Replies are separate and untouched.
-        $firstNote = $db->prepare(
-            'SELECT id FROM session_notes
-             WHERE completed_workout_id = ? AND author_id = ? AND author_role = "athlete"
-             ORDER BY id ASC LIMIT 1'
-        );
-        $firstNote->execute([$cwId, $userId]);
-        if ((int)($firstNote->fetchColumn() ?: 0) === $noteId) {
-            $db->prepare(
-                'UPDATE messages SET body = ?
-                 WHERE completed_workout_id = ? AND sender_id = ? AND message_type = "session_note"
-                 ORDER BY id ASC LIMIT 1'
-            )->execute([$body, $cwId, $userId]);
-        }
+        // Keep the single session card's preview pointed at the latest comment (an
+        // edit doesn't re-float the card or change the reply count).
+        SessionThread::refreshCardPreview($db, $cwId);
 
         if ($isAjax) {
             header('Content-Type: application/json');

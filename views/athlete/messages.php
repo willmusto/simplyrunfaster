@@ -45,6 +45,7 @@ $lastMessageId = $messages ? (int)end($messages)['id'] : 0;
                 $cwId          = (int)($msg['completed_workout_id'] ?? 0);
                 $sessionName   = trim((string)($msg['session_title'] ?? ''))
                     ?: (!empty($msg['session_type']) ? ucfirst(str_replace('_', ' ', $msg['session_type'])) : 'Session note');
+                $replyCount    = (int)($msg['reply_count'] ?? 0);
                 $switch        = ($prevMine !== null && $prevMine !== $mine) ? ' sender-switch' : '';
 
                 if ($prevTime === null || ($sentAt - $prevTime) > 3600):
@@ -65,6 +66,11 @@ $lastMessageId = $messages ? (int)end($messages)['id'] : 0;
                     <div class="msg-session-card-body">
                         <?= h(mb_substr($msg['body'], 0, 120) . (mb_strlen($msg['body']) > 120 ? '…' : '')) ?>
                     </div>
+                    <?php if ($replyCount > 0): ?>
+                    <div class="msg-session-replies" style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                        <?= $replyCount ?> <?= $replyCount === 1 ? 'reply' : 'replies' ?>
+                    </div>
+                    <?php endif; ?>
                     <?php if ($cwId): ?>
                     <a href="/app/log/<?= $cwId ?>" class="msg-session-link">View session →</a>
                     <?php endif; ?>

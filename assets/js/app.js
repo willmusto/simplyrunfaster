@@ -257,6 +257,14 @@
         var POLL_MS = 10000;
         var pollTimer = null;
 
+        // Newest sent_at seen (unix secs), used to detect re-floated session cards
+        // (whose id is unchanged, so the id-based poll alone would miss them).
+        var lastTs = 0;
+        thread.querySelectorAll('.msg-row').forEach(function (r) {
+            var t = parseInt(r.getAttribute('data-ts'), 10) || 0;
+            if (t > lastTs) lastTs = t;
+        });
+
         function scrollToBottom() { scroll.scrollTop = scroll.scrollHeight; }
         function nearBottom() {
             return (scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight) < 80;
@@ -295,10 +303,16 @@
                 var prev = (msg.body && msg.body.length > 120) ? msg.body.slice(0, 120) + '…' : (msg.body || '');
                 var link = (role === 'athlete' && cwId)
                          ? '<a href="/app/log/' + cwId + '" class="msg-session-link">View session →</a>' : '';
+                var rc      = msg.reply_count || 0;
+                var replies = rc > 0
+                    ? '<div class="msg-session-replies" style="font-size:11px;color:var(--text-muted);margin-top:4px;">'
+                      + rc + (rc === 1 ? ' reply' : ' replies') + '</div>'
+                    : '';
                 row.innerHTML =
                     '<div class="msg-session-card">' +
                         '<div class="msg-session-card-header">' + head + '</div>' +
                         '<div class="msg-session-card-body">' + esc(prev) + '</div>' +
+                        replies +
                         link +
                     '</div>';
             } else if (msg.type === 'session_note_reply') {
@@ -315,7 +329,7 @@
             return row;
         }
 
-        // Append one message; returns true if it was new (deduped by id).
+        // Append one new message at the bottom; returns true if it was added.
         function appendMessage(msg) {
             if (!msg || !msg.id) return false;
             if (thread.querySelector('[data-msg-id="' + msg.id + '"]')) return false;
@@ -328,7 +342,23 @@
             }
             thread.appendChild(makeRow(msg));
             if (msg.id > lastId) lastId = msg.id;
+            if (msg.ts > lastTs) lastTs = msg.ts;
             return true;
+        }
+
+        // Poll merge: append new messages, and re-float an existing session card
+        // (same id, newer sent_at) by removing it and re-appending at the bottom.
+        function mergeMessage(msg) {
+            if (!msg || !msg.id) return false;
+            var existing = thread.querySelector('[data-msg-id="' + msg.id + '"]');
+            if (existing) {
+                if (msg.type !== 'session_note') return false; // only cards re-float
+                existing.remove();
+                thread.appendChild(makeRow(msg));
+                if (msg.ts > lastTs) lastTs = msg.ts;
+                return true;
+            }
+            return appendMessage(msg);
         }
 
         // ── Send ──
@@ -376,13 +406,13 @@
 
         // ── Poll ──
         function poll() {
-            fetch(pollUrl + '?after=' + lastId, { headers: { 'X-Requested-With': 'fetch' } })
+            fetch(pollUrl + '?after=' + lastId + '&since=' + lastTs, { headers: { 'X-Requested-With': 'fetch' } })
                 .then(function (r) { return r.json(); })
                 .then(function (list) {
                     if (!Array.isArray(list) || !list.length) return;
                     var stick = nearBottom();
                     var added = false;
-                    list.forEach(function (m) { if (appendMessage(m)) added = true; });
+                    list.forEach(function (m) { if (mergeMessage(m)) added = true; });
                     if (added && stick) scrollToBottom();
                 }).catch(function () {});
         }

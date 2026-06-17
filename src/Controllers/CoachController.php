@@ -1218,10 +1218,9 @@ class CoachController
              VALUES (?, ?, ?, ?, ?)'
         )->execute([$cwId, $athleteId, $coachId, $role, $body]);
 
-        $db->prepare(
-            'INSERT INTO messages (athlete_id, sender_id, sender_role, body, message_type, completed_workout_id)
-             VALUES (?, ?, ?, ?, "session_note_reply", ?)'
-        )->execute([$athleteId, $coachId, $role, $body, $cwId]);
+        // Re-float (or create) the single session card for this workout — coach
+        // replies fold into that card rather than spawning a new one.
+        SessionThread::recordComment($db, $athleteId, $coachId, $role, $cwId, $body);
 
         // Notify the athlete a coach comment was added (controllable, default on).
         $ctx = Notifications::athleteContext($athleteId);
@@ -1254,23 +1253,34 @@ class CoachController
         if (!$athlete) { http_response_code(404); echo json_encode([]); exit; }
 
         $after = (int)($_GET['after'] ?? 0);
+        $since = (int)($_GET['since'] ?? 0);
+
+        // New messages by id, plus session cards re-floated since the client's
+        // last-seen timestamp (a re-float keeps the card's id and only bumps sent_at).
+        $floatSql = $since > 0 ? ' OR (m.message_type = "session_note" AND m.sent_at > FROM_UNIXTIME(?))' : '';
+        $params   = $since > 0 ? [$athleteId, $after, $since] : [$athleteId, $after];
 
         $stmt = $db->prepare(
-            'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date
+            'SELECT m.*, cw.workout_type AS session_type, cw.activity_date AS session_date,
+                    pw.display_title AS session_title
              FROM messages m
              LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
-             WHERE m.athlete_id = ? AND m.id > ?
+             LEFT JOIN planned_workouts pw ON pw.id = cw.planned_workout_id
+             WHERE m.athlete_id = ? AND (m.id > ?' . $floatSql . ')
              ORDER BY m.sent_at ASC, m.id ASC
              LIMIT 100'
         );
-        $stmt->execute([$athleteId, $after]);
+        $stmt->execute($params);
         $rows = $stmt->fetchAll();
 
-        // Coach is actively viewing — mark newly-arrived athlete messages read.
+        // Coach is actively viewing — mark athlete messages read, including an athlete
+        // reply that just re-floated an existing session card.
+        $markSql    = $since > 0 ? ' OR (message_type = "session_note" AND sent_at > FROM_UNIXTIME(?))' : '';
+        $markParams = $since > 0 ? [$athleteId, $after, $since] : [$athleteId, $after];
         $db->prepare(
             'UPDATE messages SET read_at = NOW()
-             WHERE athlete_id = ? AND id > ? AND sender_role = "athlete" AND read_at IS NULL'
-        )->execute([$athleteId, $after]);
+             WHERE athlete_id = ? AND sender_role = "athlete" AND read_at IS NULL AND (id > ?' . $markSql . ')'
+        )->execute($markParams);
 
         echo json_encode(self::serializeMessages($rows, $coachId));
         exit;
@@ -1326,6 +1336,8 @@ class CoachController
                     ? ucfirst(str_replace('_', ' ', $m['session_type'])) : null,
                 'session_date_label' => !empty($m['session_date'])
                     ? date('M j', strtotime($m['session_date'])) : null,
+                'completed_workout_id' => !empty($m['completed_workout_id']) ? (int)$m['completed_workout_id'] : null,
+                'reply_count'        => (int)($m['reply_count'] ?? 0),
             ];
         }
         return $out;

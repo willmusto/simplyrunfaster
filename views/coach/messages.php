@@ -49,6 +49,7 @@ $lastMessageId = $messages ? (int)end($messages)['id'] : 0;
                 $mine          = ((int)$msg['sender_id'] === $viewerId);
                 $rowClass      = $mine ? 'athlete' : 'coach';
                 $isSessionNote = in_array($msg['message_type'], ['session_note', 'session_note_reply'], true);
+                $replyCount    = (int)($msg['reply_count'] ?? 0);
                 $switch        = ($prevMine !== null && $prevMine !== $mine) ? ' sender-switch' : '';
 
                 if ($prevTime === null || ($sentAt - $prevTime) > 3600):
@@ -67,8 +68,13 @@ $lastMessageId = $messages ? (int)end($messages)['id'] : 0;
                         <?php endif; ?>
                     </div>
                     <div class="msg-session-card-body">
-                        <?= h(mb_substr($msg['body'], 0, 200) . (mb_strlen($msg['body']) > 200 ? '…' : '')) ?>
+                        <?= h(mb_substr($msg['body'], 0, 120) . (mb_strlen($msg['body']) > 120 ? '…' : '')) ?>
                     </div>
+                    <?php if ($replyCount > 0): ?>
+                    <div class="msg-session-replies" style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                        <?= $replyCount ?> <?= $replyCount === 1 ? 'reply' : 'replies' ?>
+                    </div>
+                    <?php endif; ?>
                     <?php if (!empty($msg['completed_workout_id'])): ?>
                     <button type="button" class="msg-session-comment-toggle"
                             onclick="this.style.display='none';document.getElementById('sc-<?= (int)$msg['id'] ?>').style.display='block'">
