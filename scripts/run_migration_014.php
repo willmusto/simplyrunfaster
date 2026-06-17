@@ -53,8 +53,15 @@ $columnType = function (string $table, string $col) use ($db): string {
     return (string)($stmt->fetchColumn() ?: '');
 };
 
+// NOTE: the live database is MyISAM throughout (verified against the production
+// schema) and therefore carries no foreign keys. MyISAM cannot be the parent of an
+// InnoDB foreign key, so these tables intentionally use ENGINE=MyISAM and plain
+// indexes (not FK constraints) — matching every other table in the schema. Without
+// FK enforcement, a log row may reference a since-deleted planned_workout (e.g. after
+// return-to-running window regeneration); that is harmless for append-only log tables.
+
 // ── intervals_connections ─────────────────────────────────────────────────
-// user_id is INT UNSIGNED to match users.id (FK type must match exactly).
+// user_id is INT UNSIGNED to match users.id (kept consistent even without an FK).
 echo "Creating intervals_connections…\n";
 $db->exec(
     "CREATE TABLE IF NOT EXISTS `intervals_connections` (
@@ -69,9 +76,8 @@ $db->exec(
         `last_error`           TEXT DEFAULT NULL,
         PRIMARY KEY (`id`),
         UNIQUE KEY `uniq_intervals_user` (`user_id`),
-        KEY `idx_intervals_athlete` (`intervals_athlete_id`),
-        CONSTRAINT `fk_intervals_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci"
+        KEY `idx_intervals_athlete` (`intervals_athlete_id`)
+    ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci"
 );
 echo "  ok.\n";
 
@@ -86,12 +92,8 @@ $db->exec(
         `status`             ENUM('success','failed','skipped') NOT NULL,
         `error_message`      TEXT DEFAULT NULL,
         PRIMARY KEY (`id`),
-        KEY `idx_push_workout` (`planned_workout_id`),
-        -- ON DELETE CASCADE: planned_workouts rows are hard-deleted during
-        -- return-to-running window regeneration; the push log follows the workout.
-        CONSTRAINT `fk_push_workout` FOREIGN KEY (`planned_workout_id`)
-            REFERENCES `planned_workouts` (`id`) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci"
+        KEY `idx_push_workout` (`planned_workout_id`)
+    ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci"
 );
 echo "  ok.\n";
 
@@ -110,7 +112,7 @@ $db->exec(
         PRIMARY KEY (`id`),
         KEY `idx_webhook_athlete` (`athlete_id`),
         KEY `idx_webhook_status` (`status`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci"
+    ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci"
 );
 echo "  ok.\n";
 
