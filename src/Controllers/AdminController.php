@@ -54,7 +54,7 @@ class AdminController
         unset($_SESSION['flash_success'], $_SESSION['flash_error']);
 
         $pageTitle = 'Billing overview';
-        $activeNav = 'settings';
+        $activeNav = 'admin_billing';
         include __DIR__ . '/../../views/layout/html_open.php';
         include __DIR__ . '/../../views/layout/nav_coach.php';
         include __DIR__ . '/../../views/admin/billing.php';
