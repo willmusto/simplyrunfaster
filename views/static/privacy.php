@@ -4,8 +4,7 @@
  *
  * Routed from index.php at GET /app/privacy. Uses the app layout shell
  * (html_open / html_close) but no authenticated nav. Policy text is embedded
- * directly below; update the "Last updated" line and the effective date
- * together whenever the text changes.
+ * directly below; update the "Last updated" line when the text changes.
  */
 require_once __DIR__ . '/../../views/layout/base.php';
 
@@ -75,268 +74,292 @@ CSS;
 include __DIR__ . '/../../views/layout/html_open.php';
 ?>
 <main class="privacy-page">
-    <h1>Privacy Policy</h1>
-    <p class="privacy-effective">Effective date: June 16, 2026 &middot; Last updated: June 16, 2026</p>
-
-    <p>
-        This Privacy Policy explains how SimplyRunFaster collects, uses, shares, and protects
-        your personal information, and the rights you have over that information. We have written
-        it to comply with the privacy laws that apply to our users, including the California
-        Consumer Privacy Act (CCPA/CPRA) in the United States, the General Data Protection
-        Regulation (GDPR) in the European Union, the UK GDPR and Data Protection Act in the United
-        Kingdom, the Personal Information Protection and Electronic Documents Act (PIPEDA) in
-        Canada, and the Federal Law on Protection of Personal Data Held by Private Parties
-        (LFPDPPP) in Mexico.
-    </p>
+    <h1>SimplyRunFaster Privacy Policy</h1>
+    <p class="privacy-effective">Effective Date: June 16, 2026 &middot; Last Updated: June 16, 2026</p>
 
     <h2>1. Who We Are</h2>
     <p>
-        SimplyRunFaster is a running-coaching service operated by <strong>Will Musto</strong>, as a
-        sole proprietorship. For the purposes of GDPR and UK GDPR, Will Musto is the
-        &ldquo;data controller&rdquo; responsible for your personal information. For the purposes
-        of the LFPDPPP, Will Musto is the &ldquo;responsable&rdquo; (data controller).
+        SimplyRunFaster (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;) is a personalized
+        running coaching platform operated as a sole proprietorship by Will Musto. Our platform is
+        accessible at simplyrunfaster.com and provides customized training plans, coach messaging,
+        and progress tracking services.
     </p>
-    <p>
-        If you have any questions about this policy or your personal information, you can reach us
-        at <a href="mailto:privacy@simplyrunfaster.com">privacy@simplyrunfaster.com</a>.
-    </p>
+    <p>For privacy-related inquiries, contact us at:</p>
+    <p><a href="mailto:privacy@simplyrunfaster.com">privacy@simplyrunfaster.com</a></p>
 
-    <h2>2. Scope</h2>
+    <h2>2. Scope of This Policy</h2>
     <p>
-        This policy applies to personal information we collect through the SimplyRunFaster web
-        application and progressive web app at simplyrunfaster.com (the &ldquo;Service&rdquo;), and
-        through any related communications such as email. It does not apply to third-party
-        services we link to or integrate with, each of which has its own privacy policy.
+        This Privacy Policy applies to all users of SimplyRunFaster, including athletes and coaches,
+        regardless of where they are located. We are committed to complying with applicable privacy
+        laws including:
     </p>
+    <ul>
+        <li><strong>United States:</strong> California Consumer Privacy Act (CCPA) and applicable federal privacy law</li>
+        <li><strong>European Union / EEA:</strong> General Data Protection Regulation (GDPR)</li>
+        <li><strong>United Kingdom:</strong> UK GDPR</li>
+        <li><strong>Canada:</strong> Personal Information Protection and Electronic Documents Act (PIPEDA)</li>
+        <li><strong>Mexico:</strong> Ley Federal de Protecci&oacute;n de Datos Personales en Posesi&oacute;n de los Particulares (LFPDPPP)</li>
+    </ul>
 
-    <h2>3. Age Requirements</h2>
+    <h2>3. Age Requirements and Parental Consent</h2>
     <p>
-        You must be at least <strong>18 years old</strong> to create an account on your own behalf.
-        A person under 18 may use the Service only with the verifiable consent of a parent or legal
-        guardian, who accepts this policy on the minor&rsquo;s behalf and is responsible for the
-        minor&rsquo;s use of the Service.
+        SimplyRunFaster is available to users of all ages. Users under the age of 18 must have
+        parental or guardian consent to use the platform. By creating an account, you confirm that
+        you are 18 years of age or older, or that you have obtained verifiable parental or guardian
+        consent.
     </p>
     <p>
-        We do not knowingly collect personal information from children under 13 without verifiable
-        parental consent. If you believe a child under 13 has provided us personal information
-        without such consent, please contact us at
-        <a href="mailto:privacy@simplyrunfaster.com">privacy@simplyrunfaster.com</a> and we will
-        delete it.
+        We do not knowingly collect personal data from children under 13 without verifiable parental
+        consent. If you believe we have collected data from a child under 13 without consent, contact
+        us immediately at <a href="mailto:privacy@simplyrunfaster.com">privacy@simplyrunfaster.com</a>
+        and we will delete it promptly.
     </p>
 
     <h2>4. Data We Collect</h2>
-    <p>We collect the following categories of personal information:</p>
+    <h3>Account and profile data:</h3>
     <ul>
-        <li>
-            <strong>Account information</strong> — your name, email address, password (stored only
-            as a one-way hash), time zone, display preferences, and, if you choose to provide it,
-            your phone number.
-        </li>
-        <li>
-            <strong>Training and health information</strong> — information you provide during
-            onboarding and ongoing use, such as your running history, goals, current fitness,
-            injury history, training availability, completed workouts, and any notes or messages
-            you exchange with your coach. Some of this may be considered health-related data.
-        </li>
-        <li>
-            <strong>Billing information</strong> — your subscription status and billing history. We
-            do <strong>not</strong> collect or store your full payment card details; these are
-            handled entirely by Stripe (see Section 7).
-        </li>
-        <li>
-            <strong>Communications</strong> — messages you send to your coach or to us, and your
-            email and notification preferences.
-        </li>
-        <li>
-            <strong>Technical information</strong> — limited technical data necessary to operate the
-            Service, such as your browser/user-agent string for active push-notification devices
-            and basic server logs. We do <strong>not</strong> use third-party advertising or
-            analytics trackers.
-        </li>
+        <li>Name, email address, password (stored as a one-way hash &mdash; we cannot read your password)</li>
+        <li>Phone number (optional, for SMS notifications if enabled)</li>
+        <li>Timezone and theme preference</li>
+    </ul>
+    <h3>Training and health data:</h3>
+    <ul>
+        <li>Goal race date, goal race distance, goal finish time</li>
+        <li>Current weekly training volume, training history, experience level</li>
+        <li>Typical easy pace, availability and scheduling preferences</li>
+        <li>Must-off days, injury history</li>
+        <li>Pace zones and heart rate zones (derived or imported)</li>
+        <li>Completed workout data including duration, distance, RPE, and session notes</li>
+    </ul>
+    <h3>Billing data:</h3>
+    <ul>
+        <li>Subscription status and billing interval</li>
+        <li>We do not store payment card numbers or full payment details &mdash; these are handled exclusively by Stripe (see Section 7)</li>
+    </ul>
+    <h3>Communications:</h3>
+    <ul>
+        <li>Messages between athletes and coaches within the platform</li>
+        <li>Notification preferences</li>
+    </ul>
+    <h3>Technical data:</h3>
+    <ul>
+        <li>IP address, browser type, device type</li>
+        <li>Web Push notification subscription tokens</li>
+        <li>Session cookies for authentication</li>
     </ul>
 
     <h2>5. How We Use Your Data</h2>
-    <p>We use your personal information to:</p>
+    <p>We use your data to:</p>
     <ul>
-        <li>provide the coaching Service, including building and adjusting your training plan;</li>
-        <li>enable communication between you and your coach;</li>
-        <li>manage your account, subscription, and billing;</li>
-        <li>send you service-related notifications you have opted into;</li>
-        <li>secure the Service and prevent abuse; and</li>
-        <li>comply with our legal obligations.</li>
+        <li>Create and manage your account</li>
+        <li>Generate personalized training plans</li>
+        <li>Facilitate communication between athletes and coaches</li>
+        <li>Send notifications about your training plan, messages, and account</li>
+        <li>Process subscription payments</li>
+        <li>Sync workouts to and from connected third-party platforms (with your consent)</li>
+        <li>Improve the platform based on aggregate, anonymized usage patterns</li>
+        <li>Comply with legal obligations</li>
     </ul>
+    <h3>Legal basis for processing (GDPR / UK GDPR):</h3>
+    <ul>
+        <li><strong>Contract performance:</strong> Processing necessary to deliver the coaching services you signed up for</li>
+        <li><strong>Legitimate interests:</strong> Platform security, fraud prevention, and service improvement</li>
+        <li><strong>Consent:</strong> Push notifications, optional integrations (e.g. Intervals.icu), and marketing communications</li>
+        <li><strong>Legal obligation:</strong> Compliance with applicable law</li>
+    </ul>
+    <h3>Legal basis for processing (LFPDPPP &mdash; Mexico):</h3>
     <p>
-        <strong>Legal bases (GDPR / UK GDPR).</strong> Where GDPR or UK GDPR applies, we rely on the
-        following legal bases: <strong>performance of a contract</strong> (to provide the Service you
-        sign up for); <strong>consent</strong> (for example, for optional push notifications and for
-        processing health-related training data, which you may withdraw at any time);
-        <strong>legitimate interests</strong> (to secure and improve the Service, where not
-        overridden by your rights); and <strong>legal obligation</strong> (for example, retaining
-        billing records).
-    </p>
-    <p>
-        <strong>Legal basis (LFPDPPP, Mexico).</strong> Where the LFPDPPP applies, we process your
-        personal data to fulfil the service relationship you enter into with us, and, for sensitive
-        data such as health-related training information, on the basis of your express consent,
-        which you provide during onboarding and may revoke at any time.
+        We process your data with your consent, as necessary for the performance of our contractual
+        relationship, and as required by applicable law. This notice (aviso de privacidad)
+        constitutes the required disclosure under Mexican law.
     </p>
 
     <h2>6. Data Sharing</h2>
+    <p>We do not sell your personal data. We do not share your data with advertisers.</p>
     <p>
-        We do not sell your personal information. We share it only with the service providers
-        (&ldquo;processors&rdquo;) we rely on to operate the Service, and only to the extent needed
-        for them to perform their function:
+        We share data only with the following categories of service providers, strictly for the
+        purpose of operating the platform:
     </p>
     <table class="privacy-table">
         <thead>
             <tr>
                 <th>Provider</th>
                 <th>Purpose</th>
-                <th>Data shared</th>
+                <th>Location</th>
             </tr>
         </thead>
         <tbody>
             <tr>
-                <td>NearlyFreeSpeech.NET</td>
-                <td>Web and database hosting</td>
-                <td>All data stored by the Service (hosted on their infrastructure)</td>
+                <td>NearlyFreeSpeech.net</td>
+                <td>Web hosting and database</td>
+                <td>United States</td>
             </tr>
             <tr>
-                <td>Stripe</td>
-                <td>Subscription payments and billing</td>
-                <td>Name, email, and payment details you enter at checkout</td>
+                <td>Stripe, LLC</td>
+                <td>Payment processing</td>
+                <td>United States / Ireland (EU users)</td>
             </tr>
             <tr>
                 <td>Resend</td>
                 <td>Transactional email delivery</td>
-                <td>Email address and the contents of service emails</td>
+                <td>United States</td>
             </tr>
             <tr>
                 <td>Intervals.icu</td>
-                <td>Optional training-data integration</td>
-                <td>Training/activity data, only if you connect the integration</td>
+                <td>Training plan sync and watch integration (optional, consent required)</td>
+                <td>United States</td>
             </tr>
         </tbody>
     </table>
     <p>
-        We may also disclose personal information where required by law, to enforce our terms, or to
-        protect the rights, safety, and security of our users or the Service.
+        Each provider is bound by data processing terms consistent with applicable law. Stripe
+        maintains a GDPR-compliant Data Processing Agreement automatically included in their terms of
+        service. International data transfers from the EU/EEA to the United States are covered by
+        Standard Contractual Clauses where required.
+    </p>
+    <p>
+        We may disclose your data if required by law, court order, or to protect the rights and
+        safety of our users.
     </p>
 
     <h2>7. Payment Data</h2>
     <p>
-        All payments are processed by <strong>Stripe</strong>. When you subscribe, your payment card
-        details are entered directly into Stripe&rsquo;s secure systems and are never transmitted to
-        or stored on our servers. We store only a Stripe customer reference and your subscription
-        status. Stripe&rsquo;s handling of your payment data is governed by
-        <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Stripe&rsquo;s Privacy Policy</a>.
+        All payment processing is handled by Stripe, LLC. When you enter payment information, it is
+        transmitted directly to Stripe over an encrypted connection. SimplyRunFaster stores only your
+        Stripe customer ID and subscription status &mdash; never your card number, CVV, or full
+        billing details. Stripe&rsquo;s privacy policy is available at
+        <a href="https://stripe.com/privacy" target="_blank" rel="noopener">stripe.com/privacy</a>.
     </p>
 
     <h2>8. Third-Party Integrations</h2>
+    <h3>Intervals.icu (optional):</h3>
     <p>
-        SimplyRunFaster offers an <strong>optional</strong> integration with
-        <strong>Intervals.icu</strong>. If you choose to connect it, you authorize the connection
-        through Intervals.icu&rsquo;s OAuth flow, and we exchange training and activity data with
-        your Intervals.icu account to inform your coaching. This integration is entirely optional,
-        you control whether to enable it, and you can disconnect it at any time. Data handled within
-        Intervals.icu is subject to its own privacy policy.
+        If you choose to connect your Intervals.icu account, we will access your Intervals.icu
+        calendar to push structured workouts and receive completed activity data. This integration
+        requires your explicit authorization via Intervals.icu&rsquo;s OAuth consent flow. You can
+        revoke this access at any time from your Settings page or directly within Intervals.icu.
+    </p>
+    <p>
+        We do not access any Intervals.icu data beyond what is necessary to push planned workouts and
+        receive completed activity confirmations.
     </p>
 
     <h2>9. Data Retention</h2>
-    <p>We keep your personal information only as long as we need it:</p>
+    <p>
+        We retain your data for as long as your account is active. When your account is cancelled or
+        subscription lapses:
+    </p>
     <ul>
-        <li>
-            <strong>Active accounts</strong> — we retain your information for as long as your account
-            is active.
-        </li>
-        <li>
-            <strong>After cancellation</strong> — if you cancel your subscription, we retain your
-            account data for <strong>90 days</strong>, after which it is automatically anonymized or
-            deleted. This window lets you reactivate without losing your training history.
-        </li>
-        <li>
-            <strong>Billing records</strong> — we retain billing and transaction records for up to
-            <strong>7 years</strong> as required for tax and accounting purposes, even after an
-            account is otherwise deleted.
-        </li>
-        <li>
-            <strong>On request</strong> — if you ask us to delete your account, we will do so within
-            <strong>30 days</strong>, subject to the billing-record retention noted above.
-        </li>
+        <li>Your training data, messages, and profile are retained for 90 days to allow reactivation</li>
+        <li>After 90 days, your personal data is permanently deleted from our systems</li>
+        <li>Billing records are retained for 7 years as required for tax and accounting compliance &mdash; these records contain only transaction amounts and dates, not payment card details</li>
+        <li>Anonymized, aggregate training data (with no personally identifying information) may be retained indefinitely for platform improvement purposes</li>
     </ul>
+    <p>
+        You may request deletion of your data at any time by emailing
+        <a href="mailto:privacy@simplyrunfaster.com">privacy@simplyrunfaster.com</a>. We will process
+        deletion requests within 30 days. Note that billing records required for legal compliance
+        cannot be deleted within the legally mandated retention period.
+    </p>
 
     <h2>10. Your Rights</h2>
-    <h3>All users</h3>
     <p>
-        Regardless of where you live, you can access, correct, or delete your personal information,
-        and you can contact us at
-        <a href="mailto:privacy@simplyrunfaster.com">privacy@simplyrunfaster.com</a> with any privacy
-        request. We will not discriminate against you for exercising your rights.
+        Depending on your location, you may have the following rights regarding your personal data:
     </p>
-    <h3>European Union and United Kingdom (GDPR / UK GDPR)</h3>
+    <h3>All users:</h3>
+    <ul>
+        <li>Access the personal data we hold about you</li>
+        <li>Correct inaccurate data</li>
+        <li>Request deletion of your data (subject to legal retention requirements)</li>
+        <li>Withdraw consent for optional processing (e.g. push notifications, third-party integrations)</li>
+    </ul>
+    <h3>EU / UK users (GDPR / UK GDPR):</h3>
+    <ul>
+        <li>Data portability &mdash; receive your data in a machine-readable format</li>
+        <li>Object to processing based on legitimate interests</li>
+        <li>Restrict processing in certain circumstances</li>
+        <li>Lodge a complaint with your local supervisory authority</li>
+    </ul>
+    <h3>California users (CCPA):</h3>
+    <ul>
+        <li>Know what personal data we collect and how it is used</li>
+        <li>Delete your personal data</li>
+        <li>Opt out of the sale of personal data (we do not sell personal data)</li>
+        <li>Non-discrimination for exercising your privacy rights</li>
+    </ul>
+    <h3>Canadian users (PIPEDA):</h3>
+    <ul>
+        <li>Access your personal data and challenge its accuracy</li>
+        <li>Withdraw consent (subject to legal or contractual restrictions)</li>
+        <li>File a complaint with the Office of the Privacy Commissioner of Canada</li>
+    </ul>
+    <h3>Mexican users (LFPDPPP):</h3>
+    <ul>
+        <li>Access, rectify, cancel, or oppose (derechos ARCO) the processing of your personal data by contacting us at <a href="mailto:privacy@simplyrunfaster.com">privacy@simplyrunfaster.com</a></li>
+        <li>Revoke your consent at any time</li>
+        <li>Limit the use or disclosure of your data</li>
+    </ul>
     <p>
-        If you are in the EU or UK, you have the right to access, rectify, erase, restrict, or object
-        to the processing of your personal data; the right to data portability; and the right to
-        withdraw consent at any time where processing is based on consent. You also have the right to
-        lodge a complaint with your local supervisory authority or, at EU level, the European Data
-        Protection Board (EDPB).
-    </p>
-    <h3>California (CCPA/CPRA)</h3>
-    <p>
-        If you are a California resident, you have the right to know what personal information we
-        collect and how we use it, the right to access and delete it, the right to correct
-        inaccurate information, and the right to opt out of the &ldquo;sale&rdquo; or
-        &ldquo;sharing&rdquo; of personal information. <strong>We do not sell or share your personal
-        information.</strong>
-    </p>
-    <h3>Canada (PIPEDA)</h3>
-    <p>
-        If you are in Canada, you have the right to access your personal information and to challenge
-        its accuracy, and to withdraw consent subject to legal and contractual limits. You may also
-        file a complaint with the Office of the Privacy Commissioner of Canada (OPC).
-    </p>
-    <h3>Mexico (LFPDPPP)</h3>
-    <p>
-        If you are in Mexico, you have your &ldquo;ARCO&rdquo; rights — Access, Rectification,
-        Cancellation, and Opposition — as well as the right to revoke your consent and to limit the
-        use or disclosure of your data. You may also file a complaint with the Instituto Nacional de
-        Transparencia, Acceso a la Informaci&oacute;n y Protecci&oacute;n de Datos Personales (INAI).
+        To exercise any of these rights, contact us at
+        <a href="mailto:privacy@simplyrunfaster.com">privacy@simplyrunfaster.com</a>. We will respond
+        within 30 days (or within the timeframe required by applicable law).
     </p>
 
-    <h2>11. Cookies</h2>
+    <h2>11. Cookies and Tracking</h2>
     <p>
-        SimplyRunFaster uses a single <strong>session cookie</strong> that is strictly necessary to
-        keep you logged in. We do <strong>not</strong> use advertising cookies, third-party
-        analytics, or cross-site tracking of any kind.
+        SimplyRunFaster uses session cookies solely for authentication purposes &mdash; to keep you
+        logged in during your session. We do not use tracking cookies, advertising cookies, or
+        analytics cookies. We do not use Google Analytics or any third-party analytics service.
+    </p>
+    <p>
+        Web Push notification tokens are stored to deliver notifications you have opted into. You can
+        revoke push notification permission at any time through your browser or device settings.
     </p>
 
     <h2>12. Security</h2>
     <p>
-        We protect your information using industry-standard measures, including encryption in transit
-        (HTTPS), one-way hashing of passwords, and access controls that limit who can view your data.
-        No method of transmission or storage is perfectly secure, but we work to protect your
-        information and to address vulnerabilities promptly.
+        We implement appropriate technical and organizational measures to protect your personal data,
+        including:
+    </p>
+    <ul>
+        <li>HTTPS encryption for all data in transit</li>
+        <li>Passwords stored as one-way hashes (bcrypt)</li>
+        <li>Payment data handled exclusively by PCI-compliant Stripe</li>
+        <li>Access to production data restricted to authorized personnel only</li>
+    </ul>
+    <p>
+        No method of transmission or storage is 100% secure. If we become aware of a data breach
+        affecting your personal data, we will notify you as required by applicable law.
     </p>
 
     <h2>13. Changes to This Policy</h2>
     <p>
-        We may update this policy from time to time. When we make material changes, we will update
-        the &ldquo;Effective date&rdquo; above and, where appropriate, notify you through the Service
-        or by email. Your continued use of the Service after an update means you accept the revised
-        policy.
+        We may update this Privacy Policy from time to time. We will notify you of material changes by
+        email or via an in-app notification. The &ldquo;Last Updated&rdquo; date at the top of this
+        policy reflects the most recent revision. Continued use of SimplyRunFaster after changes are
+        posted constitutes acceptance of the updated policy.
     </p>
 
     <h2>14. Contact Us</h2>
+    <p>For any privacy-related questions, requests, or complaints:</p>
     <p>
-        For any privacy question or to exercise your rights, contact us at
-        <a href="mailto:privacy@simplyrunfaster.com">privacy@simplyrunfaster.com</a>.
+        Email: <a href="mailto:privacy@simplyrunfaster.com">privacy@simplyrunfaster.com</a><br>
+        Operator: Will Musto, SimplyRunFaster<br>
+        Website: simplyrunfaster.com
     </p>
-    <p>You also have the right to contact your local data-protection authority, including:</p>
-    <ul>
-        <li><strong>Mexico</strong> — Instituto Nacional de Transparencia, Acceso a la Informaci&oacute;n y Protecci&oacute;n de Datos Personales (INAI).</li>
-        <li><strong>Canada</strong> — Office of the Privacy Commissioner of Canada (OPC).</li>
-        <li><strong>European Union</strong> — your national supervisory authority or the European Data Protection Board (EDPB).</li>
-        <li><strong>United Kingdom</strong> — the Information Commissioner&rsquo;s Office (ICO).</li>
-    </ul>
+    <p>
+        EU/UK users may also lodge complaints with their local data protection authority. A list of EU
+        supervisory authorities is available at
+        <a href="https://edpb.europa.eu" target="_blank" rel="noopener">edpb.europa.eu</a>.
+    </p>
+    <p>
+        Mexican users may contact the Instituto Nacional de Transparencia, Acceso a la
+        Informaci&oacute;n y Protecci&oacute;n de Datos Personales (INAI) at
+        <a href="https://inai.org.mx" target="_blank" rel="noopener">inai.org.mx</a>.
+    </p>
+    <p>
+        Canadian users may contact the Office of the Privacy Commissioner of Canada at
+        <a href="https://priv.gc.ca" target="_blank" rel="noopener">priv.gc.ca</a>.
+    </p>
 </main>
 <?php include __DIR__ . '/../../views/layout/html_close.php'; ?>

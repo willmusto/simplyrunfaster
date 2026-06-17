@@ -46,7 +46,7 @@ $columns = [
 $consentColumnsJustCreated = false;
 foreach ($columns as $col => $ddl) {
     if (!$hasColumn($col)) {
-        echo "Adding users.$col…\n";
+        echo "Adding users.{$col}…\n";
         $db->exec("ALTER TABLE `users` $ddl");
         echo "  ok.\n";
         if ($col === 'consent_given_at') {
