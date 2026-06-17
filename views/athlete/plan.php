@@ -10,11 +10,24 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
 <div class="page-content">
 
     <div class="page-heading" style="margin-bottom:4px;">Your Plan</div>
-    <p class="body-text" style="margin-bottom:20px;">
+    <p class="body-text" style="margin-bottom:12px;">
         The next <?= ATHLETE_WINDOW_DAYS ?> days of training.
     </p>
 
-    <?php if (empty($workouts)): ?>
+    <?php if (!empty($success)): ?>
+    <div class="flash flash-success" style="margin-bottom:16px;"><?= h($success) ?></div>
+    <?php endif; ?>
+    <?php if (!empty($error)): ?>
+    <div class="flash flash-error" style="margin-bottom:16px;"><?= h($error) ?></div>
+    <?php endif; ?>
+
+    <button type="button" class="btn btn-secondary btn-sm" data-race-add
+            style="margin-bottom:18px;">+ Add a race</button>
+
+    <?php
+    $racesByDate = $racesByDate ?? [];
+    $goalRace    = $goalRace ?? null;
+    if (empty($workouts) && empty($racesByDate) && empty($goalRace)): ?>
     <div class="empty-state">
         <div class="empty-state-icon">📋</div>
         <div class="empty-state-title">No workouts in your window yet</div>
@@ -64,10 +77,34 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
             </span>
         </div>
 
+        <?php
+        // Race pills for this day (terracotta). Goal-race pill when the profile goal
+        // race falls on this day and isn't already a races-table entry.
+        $dayRaces = $racesByDate[$date] ?? [];
+        foreach ($dayRaces as $r):
+            $rLabel = RaceController::distanceLabel($r['race_distance']);
+        ?>
+        <button type="button" class="srf-race-pill" data-race
+                data-race-id="<?= (int)$r['id'] ?>"
+                data-race-name="<?= h($r['race_name']) ?>"
+                data-race-date="<?= h($r['race_date']) ?>"
+                data-race-distance="<?= h($rLabel) ?>"
+                data-race-goal="<?= (int)$r['is_goal_race'] ?>"
+                data-race-result="<?= $r['result_time'] !== null ? h(RaceController::secondsToHms((int)$r['result_time'])) : '' ?>"
+                data-race-past="<?= ($r['race_date'] < $today && $r['result_time'] === null) ? '1' : '0' ?>">
+            <?= $r['is_goal_race'] ? 'GOAL: ' . h($rLabel) : h($rLabel) . ' · ' . h($r['race_name']) ?>
+        </button>
+        <?php endforeach; ?>
+        <?php if ($goalRace && $goalRace['date'] === $date): ?>
+        <div class="srf-race-pill srf-race-pill-static">GOAL: <?= h(race_distance_label($goalRace['distance'])) ?></div>
+        <?php endif; ?>
+
         <?php if (empty($dayWkts)): ?>
+        <?php if (empty($dayRaces) && !($goalRace && $goalRace['date'] === $date)): ?>
         <div class="card" style="color:var(--text-muted);font-size:13px;">
             No workout scheduled
         </div>
+        <?php endif; ?>
         <?php else: ?>
         <?php foreach ($dayWkts as $w): ?>
         <div class="card <?= $isToday ? 'card-next-up' : '' ?>">
@@ -309,4 +346,179 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
     </style>
 
     <?php endif; ?>
+
+    <!-- Race pills + race management (§26) -->
+    <style>
+    .srf-race-pill { display:inline-block; margin:0 0 8px; padding:6px 12px; border-radius:14px;
+        background:#C0392B; color:#fff; border:none; font:inherit; font-size:12px; font-weight:600;
+        cursor:pointer; text-align:left; }
+    .srf-race-pill-static { cursor:default; }
+    .srf-race-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:1000;
+        display:flex; align-items:flex-end; justify-content:center; }
+    .srf-race-overlay[hidden] { display:none; }
+    .srf-race-sheet { background:var(--surface-bg,var(--card-bg,#fff)); color:var(--text-primary,#111);
+        width:100%; max-width:480px; border-radius:16px 16px 0 0; padding:18px 18px 28px;
+        max-height:88vh; overflow-y:auto; box-shadow:0 -8px 32px rgba(0,0,0,0.25); }
+    @media (min-width:520px) { .srf-race-overlay { align-items:center; } .srf-race-sheet { border-radius:16px; } }
+    .srf-race-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+    .srf-race-title { font-size:16px; font-weight:600; }
+    .srf-race-close { background:none; border:none; font-size:26px; line-height:1; cursor:pointer; color:var(--text-muted); }
+    .srf-race-warn { background:#FEF3C7; color:#92400E; border-radius:8px; padding:10px 12px; font-size:13px; margin-top:8px; }
+    </style>
+
+    <!-- Add-a-race modal -->
+    <div data-race-add-modal class="srf-race-overlay" hidden>
+        <div class="srf-race-sheet" role="dialog" aria-modal="true" aria-label="Add a race">
+            <div class="srf-race-head">
+                <div class="srf-race-title">Add a race</div>
+                <button type="button" class="srf-race-close" data-race-close aria-label="Close">&times;</button>
+            </div>
+            <form method="POST" action="/app/athlete/race/add">
+                <?= Auth::csrfField() ?>
+                <div class="form-group">
+                    <label class="form-label" for="race_name">Race name</label>
+                    <input type="text" id="race_name" name="race_name" class="form-input" required
+                           placeholder="e.g. Chickamauga Chase">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Distance</label>
+                    <div class="pill-choices">
+                        <?php foreach ([
+                            '5K'=>'5K','10K'=>'10K','15K'=>'15K','half'=>'Half Marathon','marathon'=>'Marathon',
+                            '50k'=>'50K','50_miler'=>'50 Miler','100k'=>'100K','100_miler'=>'100 Miler','other'=>'Other',
+                        ] as $val => $label): ?>
+                        <label class="pill-choice">
+                            <input type="radio" name="race_distance" value="<?= h($val) ?>" data-race-dist required>
+                            <?= h($label) ?>
+                        </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <div class="form-group" data-race-custom style="display:none;">
+                    <label class="form-label" for="custom_distance">Distance</label>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <input type="number" step="0.1" min="0" id="custom_distance" name="custom_distance"
+                               class="form-input" placeholder="e.g. 12.4" style="flex:1;">
+                        <select name="custom_distance_unit" class="form-input" style="max-width:110px;">
+                            <option value="miles">miles</option>
+                            <option value="km">km</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="race_date">Date</label>
+                    <input type="date" id="race_date" name="race_date" class="form-input" required
+                           min="<?= date('Y-m-d', strtotime('+1 day')) ?>">
+                </div>
+                <div class="form-group">
+                    <label class="toggle-wrap" style="cursor:pointer;">
+                        <span>Is this your goal race?</span>
+                        <input type="checkbox" name="is_goal_race" value="1" data-race-goal-toggle
+                               style="width:18px;height:18px;">
+                    </label>
+                    <div class="srf-race-warn" data-race-goal-warn style="display:none;">
+                        Marking this as your goal race may trigger a plan rebuild. Your coach will be notified.
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%;">Save race</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Race detail modal -->
+    <div data-race-detail-modal class="srf-race-overlay" hidden>
+        <div class="srf-race-sheet" role="dialog" aria-modal="true" aria-label="Race detail">
+            <div class="srf-race-head">
+                <div class="srf-race-title" data-rd-title>Race</div>
+                <button type="button" class="srf-race-close" data-race-close aria-label="Close">&times;</button>
+            </div>
+            <p class="body-text" data-rd-meta style="margin-bottom:12px;"></p>
+            <div data-rd-result style="display:none;">
+                <div class="section-label">RESULT</div>
+                <p class="body-text" data-rd-result-text></p>
+            </div>
+            <form method="POST" action="/app/athlete/race/result" data-rd-form style="display:none;">
+                <?= Auth::csrfField() ?>
+                <input type="hidden" name="race_id" data-rd-race-id>
+                <div class="form-group">
+                    <label class="form-label" for="rd_time">Finish time (HH:MM:SS)</label>
+                    <input type="text" id="rd_time" name="result_time" class="form-input"
+                           placeholder="0:48:30" pattern="\d{1,2}(:\d{1,2}){0,2}" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="rd_notes">Notes (optional)</label>
+                    <textarea id="rd_notes" name="result_notes" class="form-input" rows="2"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%;">Log result</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    (function () {
+        function overlay(sel){ return document.querySelector(sel); }
+        var addModal = overlay('[data-race-add-modal]');
+        var detModal = overlay('[data-race-detail-modal]');
+
+        function open(m){ if(m){ m.hidden=false; document.body.style.overflow='hidden'; } }
+        function close(m){ if(m){ m.hidden=true; document.body.style.overflow=''; } }
+
+        document.querySelectorAll('[data-race-add]').forEach(function(b){
+            b.addEventListener('click', function(){ open(addModal); });
+        });
+        document.querySelectorAll('[data-race-close]').forEach(function(b){
+            b.addEventListener('click', function(){ close(addModal); close(detModal); });
+        });
+        [addModal, detModal].forEach(function(m){
+            if(!m) return;
+            m.addEventListener('click', function(e){ if(e.target===m) close(m); });
+        });
+        document.addEventListener('keydown', function(e){
+            if(e.key==='Escape'){ close(addModal); close(detModal); }
+        });
+
+        // Add form: toggle custom distance + goal warning.
+        var customBox = addModal ? addModal.querySelector('[data-race-custom]') : null;
+        document.querySelectorAll('[data-race-dist]').forEach(function(r){
+            r.addEventListener('change', function(){
+                if(customBox) customBox.style.display = (r.checked && r.value==='other') ? '' : 'none';
+            });
+        });
+        var goalToggle = addModal ? addModal.querySelector('[data-race-goal-toggle]') : null;
+        var goalWarn   = addModal ? addModal.querySelector('[data-race-goal-warn]') : null;
+        if(goalToggle && goalWarn){
+            goalToggle.addEventListener('change', function(){
+                goalWarn.style.display = goalToggle.checked ? '' : 'none';
+            });
+        }
+
+        // Detail modal population.
+        document.querySelectorAll('[data-race]').forEach(function(p){
+            p.addEventListener('click', function(){
+                if(!detModal) return;
+                var name = p.getAttribute('data-race-name');
+                var dist = p.getAttribute('data-race-distance');
+                var date = p.getAttribute('data-race-date');
+                var goal = p.getAttribute('data-race-goal')==='1';
+                var result = p.getAttribute('data-race-result');
+                var past = p.getAttribute('data-race-past')==='1';
+                detModal.querySelector('[data-rd-title]').textContent = (goal?'GOAL · ':'') + dist;
+                detModal.querySelector('[data-rd-meta]').textContent = name + ' · ' + date;
+                var resBox = detModal.querySelector('[data-rd-result]');
+                var resTxt = detModal.querySelector('[data-rd-result-text]');
+                var form   = detModal.querySelector('[data-rd-form]');
+                if(result){
+                    resBox.style.display=''; resTxt.textContent = result; form.style.display='none';
+                } else if(past){
+                    resBox.style.display='none';
+                    form.style.display='';
+                    form.querySelector('[data-rd-race-id]').value = p.getAttribute('data-race-id');
+                } else {
+                    resBox.style.display='none'; form.style.display='none';
+                }
+                open(detModal);
+            });
+        });
+    })();
+    </script>
 </div>

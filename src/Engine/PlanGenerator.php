@@ -587,11 +587,187 @@ class PlanGenerator
 
         if ($planId) {
             self::ensurePlanStartEasyRun($planId, $athleteId, $profile, $db, $selector);
+            // Patch the plan around any races on file (pre-race aerobic taper, no quality
+            // within 3 days, race-day skip, post-race recovery) — §26 / ultra-spec Part 5.
+            self::applyRaceAdjustments($athleteId, $db);
             self::validateGeneratedDisplays($planId, $athleteId, $db);
             self::createApprovalQueueEntry($planId, $athleteId, $trigger, $db);
         }
 
         return $planId;
+    }
+
+    // ── Race-aware plan adjustments (§26 Tune-Up Race Handling) ───────────────
+
+    /** Easy/rest recovery days inserted after a race, by race distance. */
+    const RACE_RECOVERY_DAYS = [
+        '5K' => 3, '10K' => 5, '15K' => 6, 'half' => 7, 'marathon' => 14,
+        'ultra' => 18, '50k' => 14, '50_miler' => 16, '100k' => 21, '100_miler' => 21,
+        'other' => 5,
+    ];
+
+    /** Pure-aerobic archetypes a pre-race long run is allowed to use. */
+    const PURE_AEROBIC_CODES = ['continuous_long', 'continuous_easy'];
+
+    private static function recoveryDaysForRace(string $distance): int
+    {
+        return self::RACE_RECOVERY_DAYS[$distance] ?? 5;
+    }
+
+    /**
+     * Patch the athlete's ACTIVE (or pending) plan around every race on file. Idempotent:
+     * all changes are expressed as caps / type swaps / deletes, so re-running (e.g. on each
+     * race add, and at plan generation) converges rather than compounding.
+     *
+     *   - Race day: training workouts removed (the race renders as its own calendar entry).
+     *   - ≤7 days before: long runs forced to pure aerobic; 3–4 days out capped to 60% of a
+     *     normal long run; 1–2 days out becomes a ≤30 min shakeout.
+     *   - ≤3 days before: no quality sessions (converted to easy).
+     *   - After the race: recovery/rest days inserted per distance.
+     *
+     * Coach-locked workouts are never touched.
+     */
+    public static function applyRaceAdjustments(int $athleteId, ?PDO $db = null): void
+    {
+        $db = $db ?? Database::get();
+
+        $planStmt = $db->prepare(
+            'SELECT id, plan_start_date, plan_end_date FROM training_plans
+             WHERE athlete_id = ? AND status IN ("active","pending_approval")
+             ORDER BY id DESC LIMIT 1'
+        );
+        $planStmt->execute([$athleteId]);
+        $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$plan) return;
+        $planId = (int)$plan['id'];
+
+        $racesStmt = $db->prepare('SELECT * FROM races WHERE athlete_id = ? ORDER BY race_date');
+        $racesStmt->execute([$athleteId]);
+        $races = $racesStmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!$races) return;
+
+        // Stable "normal long run" reference (max long in the plan) so the 60% cap never
+        // compounds across re-runs — a reduced long run is never the max when a full one exists.
+        $nl = $db->prepare("SELECT MAX(target_duration) FROM planned_workouts WHERE plan_id = ? AND workout_type = 'long'");
+        $nl->execute([$planId]);
+        $normalLong = (int)($nl->fetchColumn() ?: 0);
+        if ($normalLong < 60) $normalLong = 120;
+
+        foreach ($races as $race) {
+            self::applyOneRaceAdjustment($planId, $athleteId, $race, $normalLong, (string)$plan['plan_end_date'], $db);
+        }
+    }
+
+    private static function applyOneRaceAdjustment(
+        int $planId, int $athleteId, array $race, int $normalLong, string $planEnd, PDO $db
+    ): void {
+        $raceDate = (string)$race['race_date'];
+        $raceTs   = strtotime($raceDate);
+        $quality  = ['interval', 'tempo', 'hill', 'fartlek', 'speed', 'race_pace'];
+
+        // Race day: clear non-locked training workouts (the race is its own calendar entry).
+        $db->prepare('DELETE FROM planned_workouts WHERE plan_id = ? AND scheduled_date = ? AND coach_locked = 0')
+           ->execute([$planId, $raceDate]);
+
+        // Pre-race window (7 days before .. day before).
+        $pre = $db->prepare(
+            'SELECT * FROM planned_workouts
+             WHERE plan_id = ? AND coach_locked = 0 AND scheduled_date BETWEEN ? AND ?'
+        );
+        $pre->execute([
+            $planId,
+            date('Y-m-d', strtotime($raceDate . ' -7 days')),
+            date('Y-m-d', strtotime($raceDate . ' -1 day')),
+        ]);
+
+        $upd = $db->prepare(
+            'UPDATE planned_workouts
+             SET workout_type = ?, archetype_code = ?, archetype_variant = NULL, archetype_params = NULL,
+                 structure = NULL, target_duration = ?, target_pace_min = NULL, target_pace_max = NULL,
+                 intensity_load = ?, display_title = ?, display_summary = ?, athlete_instructions = ?, description = ?
+             WHERE id = ?'
+        );
+
+        foreach ($pre->fetchAll(PDO::FETCH_ASSOC) as $w) {
+            $daysOut   = (int)round(($raceTs - strtotime((string)$w['scheduled_date'])) / 86400);
+            $type      = (string)$w['workout_type'];
+            $dur       = (int)$w['target_duration'];
+            $isLong    = ($type === 'long');
+            $isQuality = in_array($type, $quality, true);
+            $isAerobic = in_array((string)$w['archetype_code'], self::PURE_AEROBIC_CODES, true);
+
+            $newType = $type; $newDur = $dur; $newCode = (string)$w['archetype_code']; $touched = false;
+
+            if ($isQuality && $daysOut <= 3) {                 // no quality within 3 days
+                $newType = 'easy'; $newCode = 'continuous_easy'; $touched = true;
+            }
+            if ($isLong && !$isAerobic) {                       // long run within 7 days → pure aerobic
+                $newCode = $dur >= 60 ? 'continuous_long' : 'continuous_easy'; $touched = true;
+            }
+            if ($daysOut <= 2) {                                // 1–2 days out: short shakeout
+                $newType = ($newType === 'long') ? 'easy' : $newType;
+                if ($newType !== 'recovery') $newType = 'easy';
+                $newCode = 'continuous_easy';
+                $newDur  = min($newDur > 0 ? $newDur : 30, 30);
+                $touched = true;
+            } elseif ($daysOut <= 4 && $isLong) {               // 3–4 days out: 60% of a normal long run
+                $newDur  = min($dur > 0 ? $dur : $normalLong, (int)round($normalLong * 0.6));
+                $touched = true;
+            }
+
+            if (!$touched) continue;
+
+            $desc = $daysOut <= 2
+                ? 'Pre-race shakeout — very easy and short. Stay loose and save your legs for race day.'
+                : 'Pre-race aerobic run — keep it relaxed and purely aerobic. No fast running or workouts this close to your race.';
+            $title   = $newType === 'long' ? 'Long Run (pre-race)' : 'Easy Run (pre-race)';
+            $loadIf  = $newType === 'recovery' ? 0.3 : 0.5;
+            $upd->execute([
+                $newType, $newCode, $newDur, round($newDur * $loadIf, 2),
+                $title, self::durationLabel(max(1, $newDur)), $desc, $desc, (int)$w['id'],
+            ]);
+        }
+
+        // Post-race recovery days.
+        $recDays = self::recoveryDaysForRace((string)$race['race_distance']);
+        $insert  = $db->prepare(
+            'INSERT INTO planned_workouts
+             (plan_id, athlete_id, scheduled_date, workout_type, description,
+              target_duration, intensity_load, visible_to_athlete, display_title, display_summary, athlete_instructions)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)'
+        );
+        for ($d = 1; $d <= $recDays; $d++) {
+            $date = date('Y-m-d', strtotime($raceDate . " +{$d} days"));
+            if ($planEnd !== '' && $date > $planEnd) break;
+
+            $isRest = $d <= 2; // first couple of days fully off
+            $type   = $isRest ? 'rest' : 'recovery';
+            $dur    = $isRest ? null : 30;
+            $load   = $isRest ? 0 : round(30 * 0.3, 2);
+            $title  = $isRest ? 'Rest' : 'Recovery Run';
+            $desc   = $isRest
+                ? 'Post-race rest day. Let your body recover — gentle movement only.'
+                : 'Easy recovery run — short and very gentle. Keep the effort light while you recover from your race.';
+            $summary = $isRest ? 'Rest + recover' : '30 min · recovery';
+
+            $ex = $db->prepare('SELECT id, coach_locked FROM planned_workouts WHERE plan_id = ? AND scheduled_date = ? LIMIT 1');
+            $ex->execute([$planId, $date]);
+            $row = $ex->fetch(PDO::FETCH_ASSOC);
+
+            if ($row) {
+                if (!empty($row['coach_locked'])) continue;
+                $db->prepare(
+                    'UPDATE planned_workouts
+                     SET workout_type = ?, archetype_code = NULL, archetype_variant = NULL, archetype_params = NULL,
+                         structure = NULL, target_duration = ?, target_pace_min = NULL, target_pace_max = NULL,
+                         intensity_load = ?, display_title = ?, display_summary = ?, athlete_instructions = ?, description = ?,
+                         visible_to_athlete = 1
+                     WHERE id = ?'
+                )->execute([$type, $dur, $load, $title, $summary, $desc, $desc, (int)$row['id']]);
+            } else {
+                $insert->execute([$planId, $athleteId, $date, $type, $desc, $dur, $load, $title, $summary, $desc]);
+            }
+        }
     }
 
     // ── Manual coach add (macro-plan "+ Add workout" archetype picker) ────────

@@ -197,7 +197,31 @@ if ($activePlan && !empty($allWorkouts)) {
     }
 }
 ?>
+<?php
+// Race-management (§26): races keyed by date + conflict precompute for the macro grid.
+$racesByDate   = $racesByDate ?? [];
+$raceDates     = array_keys($racesByDate);
+$qualityTypesRM = ['interval','tempo','hill','fartlek','speed','race_pace'];
+// Nearest upcoming race within 7 days of a given date → 'red' (≤3d), 'yellow' (≤7d), or ''.
+$raceConflictClass = function (string $date) use ($raceDates): string {
+    $best = 999;
+    foreach ($raceDates as $rd) {
+        if ($rd <= $date) continue;
+        $dd = (int)round((strtotime($rd) - strtotime($date)) / 86400);
+        if ($dd <= 7 && $dd < $best) $best = $dd;
+    }
+    if ($best <= 3) return 'red';
+    if ($best <= 7) return 'yellow';
+    return '';
+};
+?>
 <div class="page-content">
+    <?php if (!empty($flashSuccess)): ?>
+    <div class="flash flash-success" style="margin-bottom:16px;"><?= h($flashSuccess) ?></div>
+    <?php endif; ?>
+    <?php if (!empty($flashError)): ?>
+    <div class="flash flash-error" style="margin-bottom:16px;"><?= h($flashError) ?></div>
+    <?php endif; ?>
     <style>
     .coach-workout-details {
         margin: 6px 0 0;
@@ -703,7 +727,10 @@ if ($activePlan && !empty($allWorkouts)) {
         <?php endif; ?>
 
         <?php if (!empty($macroWeeks)): ?>
-        <div class="section-label" style="margin-top:24px;">FULL MACRO PLAN</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:24px;">
+            <div class="section-label" style="margin:0;">FULL MACRO PLAN</div>
+            <button type="button" class="btn btn-secondary btn-sm" data-coach-race-add>+ Add race</button>
+        </div>
         <div class="macro-plan-list">
             <?php foreach ($macroWeeks as $macroWeek): ?>
             <section class="macro-week">
@@ -738,6 +765,18 @@ if ($activePlan && !empty($allWorkouts)) {
                             <?php if ($insidePlan): ?>
                             <div class="macro-day-date"><?= date('D M j', strtotime($date)) ?></div>
                             <div class="macro-day-body">
+                            <?php foreach (($racesByDate[$date] ?? []) as $r):
+                                $rLabel = RaceController::distanceLabel($r['race_distance']); ?>
+                            <button type="button" class="macro-race-pill" data-coach-race
+                                    data-race-name="<?= h($r['race_name']) ?>"
+                                    data-race-date="<?= h($r['race_date']) ?>"
+                                    data-race-distance="<?= h($rLabel) ?>"
+                                    data-race-goal="<?= (int)$r['is_goal_race'] ?>"
+                                    data-race-result="<?= $r['result_time'] !== null ? h(RaceController::secondsToHms((int)$r['result_time'])) : '' ?>"
+                                    data-race-notes="<?= h((string)($r['notes'] ?? '')) ?>">
+                                <?= $r['is_goal_race'] ? 'GOAL: ' . h($rLabel) : h($rLabel) . ' · ' . h($r['race_name']) ?>
+                            </button>
+                            <?php endforeach; ?>
                             <?php if ($isEmptyDay): ?>
                             <div class="macro-rest" style="font-size:12px;color:var(--text-muted);">Rest</div>
                             <?php if ($isRemoved): ?>
@@ -765,6 +804,9 @@ if ($activePlan && !empty($allWorkouts)) {
                                 }
                                 $title = $w['display_title'] ?: ($w['template_name'] ?: pill_label($w['workout_type']));
                                 $description = (string)($w['description'] ?? '');
+                                // Race conflict border: quality session close to an upcoming race.
+                                $conflictRM = in_array($w['workout_type'], $qualityTypesRM, true)
+                                    ? $raceConflictClass($date) : '';
                             ?>
                             <?php
                             $mwData = htmlspecialchars(json_encode([
@@ -781,7 +823,9 @@ if ($activePlan && !empty($allWorkouts)) {
                                 'completed_workout_id' => (int)($w['completed_workout_id'] ?? 0),
                             ]), ENT_QUOTES, 'UTF-8');
                             ?>
-                            <button type="button" class="macro-workout" draggable="true"
+                            <button type="button" class="macro-workout<?= $conflictRM ? ' macro-conflict-' . $conflictRM : '' ?>"
+                                    draggable="true"
+                                    <?= $conflictRM ? 'title="' . ($conflictRM === 'red' ? 'Quality session within 3 days of a race' : 'Quality session within 7 days of a race') . '" ' : '' ?>
                                     data-workout-id="<?= (int)$w['id'] ?>" data-mw="<?= $mwData ?>">
                                 <div class="macro-workout-row">
                                     <span class="pill <?= pill_class($w['workout_type']) ?>">
@@ -1441,6 +1485,169 @@ if ($activePlan && !empty($allWorkouts)) {
             if (e.key !== 'Escape') return;
             if ($id('mwd').classList.contains('is-open')) closeMwd();
             if ($id('awd').classList.contains('is-open')) closeAwd();
+        });
+    })();
+    </script>
+
+    <!-- Race management (§26) -->
+    <style>
+    .macro-race-pill { display:block; width:100%; margin:0 0 6px; padding:5px 9px; border-radius:10px;
+        background:#C0392B; color:#fff; border:none; font:inherit; font-size:11px; font-weight:600;
+        text-align:left; cursor:pointer; }
+    .macro-conflict-yellow { box-shadow:0 0 0 2px #F59E0B inset; border-radius:6px; }
+    .macro-conflict-red    { box-shadow:0 0 0 2px #C0392B inset; border-radius:6px; }
+    .srf-race-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:1000;
+        display:flex; align-items:center; justify-content:center; padding:16px; }
+    .srf-race-overlay[hidden] { display:none; }
+    .srf-race-sheet { background:var(--surface-bg,var(--card-bg,#fff)); color:var(--text-primary,#111);
+        width:100%; max-width:460px; border-radius:16px; padding:18px; max-height:88vh; overflow-y:auto;
+        box-shadow:0 8px 32px rgba(0,0,0,0.25); }
+    .srf-race-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+    .srf-race-title { font-size:16px; font-weight:600; }
+    .srf-race-close { background:none; border:none; font-size:26px; line-height:1; cursor:pointer; color:var(--text-muted); }
+    .srf-race-conflict { background:#FEF3C7; color:#92400E; border-radius:8px; padding:8px 10px; font-size:12px; margin-top:8px; }
+    </style>
+
+    <!-- Coach add-race modal -->
+    <div data-coach-race-modal class="srf-race-overlay" hidden>
+        <div class="srf-race-sheet" role="dialog" aria-modal="true" aria-label="Add a race">
+            <div class="srf-race-head">
+                <div class="srf-race-title">Add a race</div>
+                <button type="button" class="srf-race-close" data-coach-race-close aria-label="Close">&times;</button>
+            </div>
+            <form method="POST" action="/app/coach/athlete/<?= (int)$athlete['id'] ?>/race/add">
+                <?= Auth::csrfField() ?>
+                <div class="form-group">
+                    <label class="form-label" for="cr_name">Race name</label>
+                    <input type="text" id="cr_name" name="race_name" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Distance</label>
+                    <div class="pill-choices">
+                        <?php foreach ([
+                            '5K'=>'5K','10K'=>'10K','15K'=>'15K','half'=>'Half Marathon','marathon'=>'Marathon',
+                            '50k'=>'50K','50_miler'=>'50 Miler','100k'=>'100K','100_miler'=>'100 Miler','other'=>'Other',
+                        ] as $val => $label): ?>
+                        <label class="pill-choice">
+                            <input type="radio" name="race_distance" value="<?= h($val) ?>" data-cr-dist required>
+                            <?= h($label) ?>
+                        </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <div class="form-group" data-cr-custom style="display:none;">
+                    <label class="form-label" for="cr_custom">Distance</label>
+                    <div style="display:flex;gap:8px;">
+                        <input type="number" step="0.1" min="0" id="cr_custom" name="custom_distance" class="form-input" style="flex:1;">
+                        <select name="custom_distance_unit" class="form-input" style="max-width:110px;">
+                            <option value="miles">miles</option>
+                            <option value="km">km</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="cr_date">Date</label>
+                    <input type="date" id="cr_date" name="race_date" class="form-input" required
+                           min="<?= date('Y-m-d', strtotime('+1 day')) ?>" data-cr-date>
+                </div>
+                <div data-cr-conflicts></div>
+                <div class="form-group">
+                    <label class="toggle-wrap" style="cursor:pointer;">
+                        <span>Is this the goal race?</span>
+                        <input type="checkbox" name="is_goal_race" value="1" style="width:18px;height:18px;">
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="cr_notes">Internal notes (coach only)</label>
+                    <textarea id="cr_notes" name="coach_notes" class="form-input" rows="2"
+                              placeholder="Not shown to the athlete."></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%;">Save race</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Coach race detail modal -->
+    <div data-coach-race-detail class="srf-race-overlay" hidden>
+        <div class="srf-race-sheet" role="dialog" aria-modal="true" aria-label="Race detail">
+            <div class="srf-race-head">
+                <div class="srf-race-title" data-crd-title>Race</div>
+                <button type="button" class="srf-race-close" data-coach-race-close aria-label="Close">&times;</button>
+            </div>
+            <p class="body-text" data-crd-meta style="margin-bottom:8px;"></p>
+            <p class="body-text" data-crd-result style="margin:0 0 8px;display:none;"></p>
+            <p class="body-text" data-crd-notes style="margin:0;color:var(--text-muted);font-size:13px;display:none;"></p>
+        </div>
+    </div>
+
+    <script>
+    (function () {
+        var addModal = document.querySelector('[data-coach-race-modal]');
+        var detModal = document.querySelector('[data-coach-race-detail]');
+        var athleteId = <?= (int)$athlete['id'] ?>;
+
+        function open(m){ if(m){ m.hidden=false; document.body.style.overflow='hidden'; } }
+        function close(m){ if(m){ m.hidden=true; document.body.style.overflow=''; } }
+
+        document.querySelectorAll('[data-coach-race-add]').forEach(function(b){
+            b.addEventListener('click', function(){ open(addModal); });
+        });
+        document.querySelectorAll('[data-coach-race-close]').forEach(function(b){
+            b.addEventListener('click', function(){ close(addModal); close(detModal); });
+        });
+        [addModal, detModal].forEach(function(m){
+            if(!m) return; m.addEventListener('click', function(e){ if(e.target===m) close(m); });
+        });
+        document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ close(addModal); close(detModal); } });
+
+        // Custom-distance toggle.
+        var customBox = addModal ? addModal.querySelector('[data-cr-custom]') : null;
+        document.querySelectorAll('[data-cr-dist]').forEach(function(r){
+            r.addEventListener('change', function(){
+                if(customBox) customBox.style.display = (r.checked && r.value==='other') ? '' : 'none';
+            });
+        });
+
+        // Inline conflict warnings on date change (warn only).
+        var dateInput = addModal ? addModal.querySelector('[data-cr-date]') : null;
+        var conflictBox = addModal ? addModal.querySelector('[data-cr-conflicts]') : null;
+        if (dateInput && conflictBox) {
+            dateInput.addEventListener('change', function(){
+                conflictBox.innerHTML = '';
+                var d = dateInput.value;
+                if(!d) return;
+                fetch('/app/coach/athlete/' + athleteId + '/race-conflicts?date=' + encodeURIComponent(d))
+                    .then(function(r){ return r.json(); })
+                    .then(function(res){
+                        (res.conflicts || []).forEach(function(c){
+                            var div = document.createElement('div');
+                            div.className = 'srf-race-conflict';
+                            div.textContent = c;
+                            conflictBox.appendChild(div);
+                        });
+                    }).catch(function(){});
+            });
+        }
+
+        // Detail modal population.
+        document.querySelectorAll('[data-coach-race]').forEach(function(p){
+            p.addEventListener('click', function(){
+                if(!detModal) return;
+                var goal = p.getAttribute('data-race-goal')==='1';
+                detModal.querySelector('[data-crd-title]').textContent =
+                    (goal?'GOAL · ':'') + p.getAttribute('data-race-distance');
+                detModal.querySelector('[data-crd-meta]').textContent =
+                    p.getAttribute('data-race-name') + ' · ' + p.getAttribute('data-race-date');
+                var resEl = detModal.querySelector('[data-crd-result]');
+                var notesEl = detModal.querySelector('[data-crd-notes]');
+                var result = p.getAttribute('data-race-result');
+                var notes = p.getAttribute('data-race-notes');
+                if(result){ resEl.textContent = 'Result: ' + result; resEl.style.display=''; }
+                else { resEl.style.display='none'; }
+                if(notes){ notesEl.textContent = 'Notes: ' + notes; notesEl.style.display=''; }
+                else { notesEl.style.display='none'; }
+                open(detModal);
+            });
         });
     })();
     </script>

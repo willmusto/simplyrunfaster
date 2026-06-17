@@ -87,6 +87,14 @@ class CoachController
         $pbs           = self::getPersonalBests($athleteId, $db);
         $nextRace      = self::getNextRace($athleteId, $db);
 
+        // All races for this athlete, keyed by date, for the macro-plan calendar (§26).
+        $racesByDate = [];
+        $rStmt = $db->prepare('SELECT * FROM races WHERE athlete_id = ? ORDER BY race_date');
+        $rStmt->execute([$athleteId]);
+        foreach ($rStmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $racesByDate[$r['race_date']][] = $r;
+        }
+
         // Message summary for sidebar
         $lastMsgStmt = $db->prepare(
             'SELECT body, sent_at, sender_role FROM messages WHERE athlete_id = ? ORDER BY sent_at DESC LIMIT 1'
@@ -757,6 +765,25 @@ class CoachController
         $coachId = Auth::userId();
 
         $flags            = self::getOpenFlags($coachId, $db, null, 100);
+
+        // Enrich pace_recalibration flags with the race + current/proposed zones so the
+        // alerts view can render the side-by-side recalibration card (§26 / Part 7).
+        foreach ($flags as &$f) {
+            if (($f['flag_type'] ?? '') !== 'pace_recalibration') continue;
+            $d = json_decode((string)($f['details'] ?? ''), true);
+            $raceId = (int)($d['race_id'] ?? 0);
+            if (!$raceId) continue;
+            $rs = $db->prepare(
+                'SELECT r.id, r.race_distance, r.result_time, r.race_date, r.proposed_pace_zones,
+                        ap.pace_zones AS current_pace_zones
+                 FROM races r JOIN athlete_profiles ap ON ap.athlete_id = r.athlete_id
+                 WHERE r.id = ? LIMIT 1'
+            );
+            $rs->execute([$raceId]);
+            if ($row = $rs->fetch(PDO::FETCH_ASSOC)) $f['recal'] = $row;
+        }
+        unset($f);
+
         $athletes         = self::getRosterAthletes($coachId, $db);
         $openFlags        = count($flags);
         $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);

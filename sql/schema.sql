@@ -172,12 +172,14 @@ CREATE TABLE IF NOT EXISTS `races` (
     `added_by`                      INT UNSIGNED NOT NULL,
     `added_by_role`                 ENUM('athlete','coach','admin') NOT NULL,
     `race_name`                     VARCHAR(255) NOT NULL,
-    `race_distance`                 ENUM('5K','10K','15K','half','marathon','ultra','other') NOT NULL,
+    `race_distance`                 ENUM('5K','10K','15K','half','marathon','ultra','other','50k','50_miler','100k','100_miler') NOT NULL,
     `distance_override`             FLOAT DEFAULT NULL COMMENT 'miles, when distance=other',
+    `distance_override_unit`        ENUM('miles','km') DEFAULT NULL COMMENT 'unit the athlete entered for an "other" distance',
     `race_date`                     DATE NOT NULL,
     `is_goal_race`                  TINYINT(1) NOT NULL DEFAULT 0,
     `result_time`                   INT DEFAULT NULL COMMENT 'finish time in seconds',
     `result_synced_from_watch`      TINYINT(1) NOT NULL DEFAULT 0,
+    `result_notes`                  TEXT DEFAULT NULL COMMENT 'athlete free-text notes logged with the result',
     `recalibration_proposed`        TINYINT(1) NOT NULL DEFAULT 0,
     `recalibration_approved`        TINYINT(1) DEFAULT NULL,
     `recalibration_approved_by`     INT UNSIGNED DEFAULT NULL,
@@ -185,6 +187,7 @@ CREATE TABLE IF NOT EXISTS `races` (
     `proposed_pace_zones`           LONGTEXT DEFAULT NULL,
     `notes`                         TEXT DEFAULT NULL,
     `created_at`                    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`                    DATETIME DEFAULT NULL,
     PRIMARY KEY (`id`),
     KEY `idx_races_athlete` (`athlete_id`),
     KEY `idx_races_date` (`race_date`)
@@ -369,7 +372,8 @@ CREATE TABLE IF NOT EXISTS `engine_flags` (
                         'limited_development_opportunity','long_run_day_conflict',
                         'display_generation_incomplete',
                         'profile_updated','pace_zones_missing',
-                        'schedule_day_ramp','ultra_surface_reminder'
+                        'schedule_day_ramp','ultra_surface_reminder',
+                        'race_added','goal_race_changed','pace_recalibration'
                     ) NOT NULL,
     `severity`      ENUM('info','warning','critical') NOT NULL DEFAULT 'info',
     `flag_date`     DATE NOT NULL,

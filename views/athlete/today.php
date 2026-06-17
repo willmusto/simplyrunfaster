@@ -46,6 +46,39 @@ $localHour = (int)Timezone::dateInZone($tz, 'now', 'G');
         <?php endif; ?>
     </div>
 
+    <?php if (!empty($success)): ?>
+    <div class="flash flash-success" style="margin-bottom:16px;"><?= h($success) ?></div>
+    <?php endif; ?>
+    <?php if (!empty($error)): ?>
+    <div class="flash flash-error" style="margin-bottom:16px;"><?= h($error) ?></div>
+    <?php endif; ?>
+
+    <?php // Post-race result prompt (§26 / Part 6): most recent unlogged race in last 14 days. ?>
+    <?php if (!empty($pendingRace)): ?>
+    <div class="card" style="border-left:3px solid #C0392B;margin-bottom:16px;">
+        <div style="font-size:14px;font-weight:600;">How did <?= h($pendingRace['race_name']) ?> go?</div>
+        <p class="body-text" style="margin:2px 0 10px;font-size:13px;">
+            <?= h(RaceController::distanceLabel($pendingRace['race_distance'])) ?> ·
+            <?= date('M j', strtotime($pendingRace['race_date'])) ?> · Log your result.
+        </p>
+        <form method="POST" action="/app/athlete/race/result">
+            <?= Auth::csrfField() ?>
+            <input type="hidden" name="race_id" value="<?= (int)$pendingRace['id'] ?>">
+            <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+                <div class="form-group" style="margin-bottom:0;flex:1;min-width:140px;">
+                    <label class="form-label" for="pr_time">Finish time (HH:MM:SS)</label>
+                    <input type="text" id="pr_time" name="result_time" class="form-input"
+                           placeholder="0:48:30" pattern="\d{1,2}(:\d{1,2}){0,2}" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Log result</button>
+            </div>
+            <div class="form-group" style="margin:10px 0 0;">
+                <input type="text" name="result_notes" class="form-input" placeholder="Notes (optional)">
+            </div>
+        </form>
+    </div>
+    <?php endif; ?>
+
     <?php
     // Pace-data prompt: no zones, no race result, no typical easy pace on file.
     $needsPaceData = $profile

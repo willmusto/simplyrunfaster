@@ -56,6 +56,13 @@ class AthleteController
 
         $unreadMessages = self::getUnreadCount((int)$athlete['id'], $db);
 
+        // Post-race result prompt: most recent unlogged race in the last 14 days (§26 / Part 6).
+        $pendingRace = self::pendingResultRace((int)$athlete['id'], $today, $db);
+
+        $success = $_SESSION['flash_success'] ?? null;
+        $error   = $_SESSION['flash_error']   ?? null;
+        unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
         $pageTitle = 'Today';
         $activeTab = 'today';
         include __DIR__ . '/../../views/layout/html_open.php';
@@ -87,6 +94,24 @@ class AthleteController
         $mustOffDays    = self::athleteMustOffDays((int)$athlete['id'], $db);
         $swapWindowDays = self::SWAP_WINDOW_DAYS;
         $unreadMessages = self::getUnreadCount((int)$athlete['id'], $db);
+
+        // Races on the rendered calendar window (today .. today + ATHLETE_WINDOW_DAYS-1).
+        $windowDays   = (int)ATHLETE_WINDOW_DAYS;
+        $renderEnd    = Timezone::dateInZone($tz, '+' . ($windowDays - 1) . ' days');
+        $racesByDate  = self::getRacesByDate((int)$athlete['id'], $today, $renderEnd, $db);
+
+        // Profile goal race shown as a "GOAL" pill when it falls inside the window and no
+        // races-table row already represents that day.
+        $profile  = Auth::getAthleteProfile((int)$athlete['id']);
+        $goalRace = null;
+        $goalDate = $profile['goal_race_date'] ?? null;
+        if ($goalDate && $goalDate >= $today && $goalDate <= $renderEnd && empty($racesByDate[$goalDate])) {
+            $goalRace = ['date' => $goalDate, 'distance' => (string)($profile['goal_race_distance'] ?? '')];
+        }
+
+        $success = $_SESSION['flash_success'] ?? null;
+        $error   = $_SESSION['flash_error']   ?? null;
+        unset($_SESSION['flash_success'], $_SESSION['flash_error']);
 
         $pageTitle = 'My Plan';
         $activeTab = 'plan';
@@ -1253,5 +1278,35 @@ class AthleteController
         );
         $stmt->execute([$athleteId, $start, $end, $athleteId]);
         return $stmt->fetchAll();
+    }
+
+    /** Races in [$start,$end] keyed by date for the plan calendar (race-management §26). */
+    private static function getRacesByDate(int $athleteId, string $start, string $end, PDO $db): array
+    {
+        $stmt = $db->prepare(
+            'SELECT * FROM races WHERE athlete_id = ? AND race_date BETWEEN ? AND ? ORDER BY race_date'
+        );
+        $stmt->execute([$athleteId, $start, $end]);
+        $byDate = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $byDate[$r['race_date']][] = $r;
+        }
+        return $byDate;
+    }
+
+    /**
+     * Most recent race whose date has passed (within the last 14 days) and whose result
+     * has not been logged — drives the Today-tab "log your result" prompt (§26 / Part 6).
+     */
+    private static function pendingResultRace(int $athleteId, string $today, PDO $db): ?array
+    {
+        $stmt = $db->prepare(
+            'SELECT * FROM races
+             WHERE athlete_id = ? AND result_time IS NULL
+               AND race_date < ? AND race_date >= ?
+             ORDER BY race_date DESC LIMIT 1'
+        );
+        $stmt->execute([$athleteId, $today, date('Y-m-d', strtotime($today . ' -14 days'))]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 }
