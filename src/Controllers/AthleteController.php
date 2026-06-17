@@ -343,8 +343,8 @@ class AthleteController
         exit;
     }
 
-    /** Wearable brands an athlete can ask to be notified about. */
-    private const DEVICE_BRANDS = ['garmin', 'coros', 'polar', 'suunto'];
+    /** Wearable brands an athlete can ask to be notified about ('all' = one opt-in covering every brand). */
+    private const DEVICE_BRANDS = ['garmin', 'coros', 'polar', 'suunto', 'all'];
 
     /** brand => true for each brand the user has opted into notifications for. */
     public static function loadDeviceNotifyPrefs(int $userId, PDO $db): array

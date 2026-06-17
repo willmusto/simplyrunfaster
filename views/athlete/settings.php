@@ -119,42 +119,56 @@
             </div>
         </div>
 
-        <?php foreach (['garmin' => 'Garmin', 'coros' => 'COROS', 'polar' => 'Polar', 'suunto' => 'Suunto'] as $brandKey => $brandName):
-            $on = !empty($deviceNotify[$brandKey]); ?>
+        <?php if (!$intervalsConnected): // brand rows are irrelevant once syncing via Intervals.icu ?>
+        <?php foreach (['Garmin', 'COROS', 'Polar', 'Suunto'] as $brandName): ?>
         <div class="device-row">
             <span class="device-name"><?= h($brandName) ?></span>
             <div class="device-row-right">
                 <span class="badge-soon">Coming soon</span>
-                <label class="toggle" title="Notify me when <?= h($brandName) ?> is available">
-                    <input type="checkbox" data-device-brand="<?= h($brandKey) ?>" <?= $on ? 'checked' : '' ?>>
-                    <span class="toggle-slider"></span>
-                </label>
             </div>
         </div>
         <?php endforeach; ?>
 
+        <?php $notifyAll = !empty($deviceNotify['all']); ?>
         <div style="font-size:12px;color:var(--text-muted);padding:10px 2px 2px;">
-            Connect Intervals.icu above to sync with any of these devices.
+            Want to be notified when direct device integrations are available?
+            <a href="#" data-notify-reveal style="<?= $notifyAll ? 'display:none;' : '' ?>">Notify me →</a>
+            <label data-notify-row style="align-items:center;gap:8px;margin-top:8px;cursor:pointer;display:<?= $notifyAll ? 'flex' : 'none' ?>;">
+                <input type="checkbox" data-notify-all <?= $notifyAll ? 'checked' : '' ?>>
+                <span>Notify me when direct watch integrations launch</span>
+            </label>
         </div>
+        <?php endif; ?>
     </div>
 
     <script>
     (function () {
-        var meta = document.querySelector('meta[name="csrf-token"]');
-        var csrf = meta ? meta.content : '';
-        document.addEventListener('change', function (e) {
-            var input = e.target.closest('[data-device-brand]');
-            if (!input) return;
-            var enabled = input.checked;
-            input.disabled = true;
+        var cb = document.querySelector('[data-notify-all]');
+        if (!cb) return; // only present in the disconnected state
+        var meta   = document.querySelector('meta[name="csrf-token"]');
+        var csrf   = meta ? meta.content : '';
+        var reveal = document.querySelector('[data-notify-reveal]');
+        var row    = document.querySelector('[data-notify-row]');
+
+        if (reveal && row) {
+            reveal.addEventListener('click', function (e) {
+                e.preventDefault();
+                reveal.style.display = 'none';
+                row.style.display = 'flex';
+            });
+        }
+
+        cb.addEventListener('change', function () {
+            var enabled = cb.checked;
+            cb.disabled = true;
             fetch('/app/settings/devices/notify', {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-                body:    JSON.stringify({ brand: input.getAttribute('data-device-brand'), enabled: enabled }),
+                body:    JSON.stringify({ brand: 'all', enabled: enabled }),
             }).then(function (r) { return r.json(); })
-              .then(function (res) { if (!res || !res.success) input.checked = !enabled; })
-              .catch(function () { input.checked = !enabled; })
-              .finally(function () { input.disabled = false; });
+              .then(function (res) { if (!res || !res.success) cb.checked = !enabled; })
+              .catch(function () { cb.checked = !enabled; })
+              .finally(function () { cb.disabled = false; });
         });
     })();
     </script>
