@@ -1040,7 +1040,7 @@ class AthleteController
         }
 
         $_SESSION['flash_success'] = $notified
-            ? 'Note saved — your coach has been notified.'
+            ? 'Note saved. Your coach has been notified.'
             : 'Note saved.';
         header('Location: /app/log/' . $cwId);
         exit;
@@ -1157,7 +1157,7 @@ class AthleteController
         $db        = Database::get();
         $sessionId = $_GET['session_id'] ?? '';
         Billing::syncFromCheckoutSession($sessionId, Auth::userId(), $db);
-        $_SESSION['flash_success'] = "You're all set — your subscription is active.";
+        $_SESSION['flash_success'] = "You're all set. Your subscription is active.";
         header('Location: /app/billing');
         exit;
     }

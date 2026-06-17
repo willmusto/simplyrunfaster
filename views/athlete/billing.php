@@ -37,7 +37,7 @@ $hideNext = in_array($status, ['comped','canceled','none'], true);
         <?php endif; ?>
 
         <?php if ($status === 'comped'): ?>
-        <div style="font-size:13px;color:var(--text-muted);margin-top:8px;">Your access is complimentary — no charges apply.</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-top:8px;">Your access is complimentary. No charges apply.</div>
         <?php endif; ?>
 
         <?php if (!$hideNext && $billing['next_billing_date']): ?>
@@ -55,7 +55,7 @@ $hideNext = in_array($status, ['comped','canceled','none'], true);
 
         <?php if ($status === 'past_due' && $billing['grace_period_ends']): ?>
         <div style="font-size:13px;color:var(--color-warning);margin-top:8px;">
-            Payment failed — please update your payment method by
+            Payment failed. Please update your payment method by
             <strong><?= h(date('M j, Y', strtotime($billing['grace_period_ends']))) ?></strong> to keep your access.
         </div>
         <?php endif; ?>

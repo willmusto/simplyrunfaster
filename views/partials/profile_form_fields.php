@@ -76,8 +76,8 @@ $hasRace    = !empty($p['most_recent_race_time']);
         Roughly what pace do you run your easy days? A range is fine. We use this to estimate your
         pace assignments until a race result is on file.
         <?php if ($hasRace): ?>
-        <br><strong>You already have a race result on file</strong>, so your pace zones come from that —
-        this is kept for reference and used if your race data ages out.
+        <br><strong>You already have a race result on file</strong>, so your pace zones come from that.
+        This is kept for reference and used if your race data ages out.
         <?php endif; ?>
     </p>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -166,7 +166,7 @@ $hasRace    = !empty($p['most_recent_race_time']);
     <div class="form-group">
         <label class="form-label" for="injury_history">Injury history</label>
         <textarea id="injury_history" name="injury_history" class="form-input" rows="3"
-                  placeholder="Anything we should know about — past or recurring injuries."><?= h($p['injury_history'] ?? '') ?></textarea>
+                  placeholder="Anything we should know about (past or recurring injuries)."><?= h($p['injury_history'] ?? '') ?></textarea>
     </div>
     <div class="form-group" style="margin-bottom:0;">
         <label class="form-label">Track access</label>

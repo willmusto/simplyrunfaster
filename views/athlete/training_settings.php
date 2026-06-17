@@ -7,8 +7,8 @@
         <div class="page-heading" style="margin-bottom:0;">Training Settings</div>
     </div>
     <p class="body-text" style="margin-bottom:20px;color:var(--text-muted);">
-        Keep your goal, fitness, and availability current. Changes are saved for your next plan update —
-        they don't rebuild your current plan automatically.
+        Keep your goal, fitness, and availability current. Changes are saved for your next plan update.
+        They don't rebuild your current plan automatically.
     </p>
 
     <?php if ($success): ?>

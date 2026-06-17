@@ -388,7 +388,7 @@ class OnboardingController
                  VALUES (?, "pace_zones_missing", "info", CURDATE(), ?, "open", NOW())'
             )->execute([
                 $athleteId,
-                "{$first} has no race result or typical easy pace on file — pace assignments can't be calculated yet.",
+                "{$first} has no race result or typical easy pace on file. Pace assignments can't be calculated yet.",
             ]);
         }
     }

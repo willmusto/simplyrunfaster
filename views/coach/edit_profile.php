@@ -7,7 +7,7 @@ $pzVisible  = !isset($profile['pace_zones_visible']) || (int)$profile['pace_zone
 <div class="page-content">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
         <a href="<?= h($cancelUrl) ?>" style="color:var(--text-muted);text-decoration:none;font-size:20px;">←</a>
-        <div class="page-heading" style="margin-bottom:0;">Edit Profile — <?= h($athlete['name']) ?></div>
+        <div class="page-heading" style="margin-bottom:0;">Edit Profile: <?= h($athlete['name']) ?></div>
     </div>
     <p class="body-text" style="margin-bottom:20px;color:var(--text-muted);">
         Editing saves the athlete's profile for the next plan generation. It does not rebuild the active plan.
@@ -43,11 +43,11 @@ $pzVisible  = !isset($profile['pace_zones_visible']) || (int)$profile['pace_zone
                         if (!$pzHasZones) {
                             echo 'No zones yet';
                         } elseif ($pzSource === 'race_result') {
-                            echo 'Verified — race result';
+                            echo 'Verified: race result';
                         } elseif ($pzSource === 'easy_pace_estimate') {
-                            echo 'Estimated — easy pace';
+                            echo 'Estimated: easy pace';
                         } elseif ($pzSource === 'manual') {
-                            echo 'Manual — coach set';
+                            echo 'Manual: coach set';
                         } else {
                             echo 'Set';
                         }
@@ -73,7 +73,7 @@ $pzVisible  = !isset($profile['pace_zones_visible']) || (int)$profile['pace_zone
             </div>
 
             <div class="form-group" id="pzHiddenReasonWrap" style="margin-bottom:16px;<?= $pzVisible ? 'display:none;' : '' ?>">
-                <label class="form-label" for="pace_zones_hidden_reason">Reason for hiding zones (internal — never shown to athlete)</label>
+                <label class="form-label" for="pace_zones_hidden_reason">Reason for hiding zones (internal, never shown to athlete)</label>
                 <textarea id="pace_zones_hidden_reason" name="pace_zones_hidden_reason" class="form-input" rows="2"
                           placeholder="e.g. stale zones pending recalibration; athlete benefits from effort-based training"><?= h($profile['pace_zones_hidden_reason'] ?? '') ?></textarea>
             </div>

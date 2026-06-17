@@ -266,7 +266,7 @@ var TYPE_CLASS = {
 
 function fmtDur(m) {
     m = parseInt(m, 10);
-    if (!m) return '—';
+    if (!m) return '–';
     if (m < 60) return m + ' min';
     var h = Math.floor(m/60), r = m%60;
     return r ? h + 'h ' + r + 'min' : h + 'h';
@@ -413,7 +413,7 @@ function saveEdit() {
     .catch(function() {
         btn.disabled    = false;
         btn.textContent = 'Save';
-        $id('calWD-err').textContent   = 'Network error — please try again.';
+        $id('calWD-err').textContent   = 'Network error. Please try again.';
         $id('calWD-err').style.display = '';
     });
 }

@@ -108,7 +108,7 @@ class AdminController
                     }
                 } catch (\Throwable $e) {
                     error_log('AdminController::comp Stripe cancel failed for user ' . $userId . ': ' . $e->getMessage());
-                    $_SESSION['flash_error'] = 'Marked comped, but the Stripe subscription could not be canceled — check Stripe.';
+                    $_SESSION['flash_error'] = 'Marked comped, but the Stripe subscription could not be canceled. Check Stripe.';
                 }
             }
         }

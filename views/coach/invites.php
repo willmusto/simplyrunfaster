@@ -25,7 +25,7 @@
 
     <?php if (!$stripeReady): ?>
     <div class="flash" style="background:var(--recessed-bg);color:var(--text-muted);">
-        Stripe is not configured in this environment — links still generate, but discounts won't create
+        Stripe is not configured in this environment. Links still generate, but discounts won't create
         Stripe coupons and athletes won't be sent to checkout.
     </div>
     <?php endif; ?>

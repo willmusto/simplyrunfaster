@@ -167,7 +167,7 @@ HTML;
         $prefsUrl = self::url($audience === 'athlete' ? '/settings/notifications' : '/coach/settings/notifications');
         $body     = trim(html_entity_decode(strip_tags(str_replace(['</p>', '</blockquote>'], "\n\n", $bodyHtml)), ENT_QUOTES));
         $body     = preg_replace("/\n{3,}/", "\n\n", $body);
-        return "SimplyRunFaster\n\n{$heading}\n\n{$body}\n\n{$ctaText}: {$ctaUrl}\n\n—\nYou're receiving this because you're a SimplyRunFaster {$audience}.\nManage your notification preferences: {$prefsUrl}\n";
+        return "SimplyRunFaster\n\n{$heading}\n\n{$body}\n\n{$ctaText}: {$ctaUrl}\n\n--\nYou're receiving this because you're a SimplyRunFaster {$audience}.\nManage your notification preferences: {$prefsUrl}\n";
     }
 
     /** Absolute URL from a path relative to APP_URL (which already ends in /app). */

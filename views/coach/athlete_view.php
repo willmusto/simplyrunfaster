@@ -4,7 +4,7 @@
 $athleteTz   = $athlete['timezone'] ?? Timezone::DEFAULT_TZ;
 $today       = Timezone::dateInZone($athleteTz, 'now');
 $tzDiffers   = $athleteTz !== Auth::timezone();
-$tzNote      = $tzDiffers ? ('Times shown in the athlete\'s timezone — ' . Timezone::label($athleteTz)) : '';
+$tzNote      = $tzDiffers ? ('Times shown in the athlete\'s timezone: ' . Timezone::label($athleteTz)) : '';
 
 $macroWeeks = [];
 if ($activePlan && !empty($allWorkouts)) {
@@ -1056,7 +1056,7 @@ if ($activePlan && !empty($allWorkouts)) {
         function $id(id) { return document.getElementById(id); }
         function fmtDur(m) {
             m = parseInt(m, 10);
-            if (!m) return '—';
+            if (!m) return '–';
             if (m < 60) return m + ' min';
             var h = Math.floor(m / 60), r = m % 60;
             return r ? h + 'h ' + r + 'min' : h + 'h';
@@ -1118,7 +1118,7 @@ if ($activePlan && !empty($allWorkouts)) {
                   if (btn) { var cell = btn.closest('.macro-day'); btn.remove(); if (cell) renderEmpty(cell, true); }
                   closeMwd();
               })
-              .catch(function () { alert('Network error — please try again.'); });
+              .catch(function () { alert('Network error. Please try again.'); });
         }
 
         // ── Calendar DOM helpers ──
@@ -1250,7 +1250,7 @@ if ($activePlan && !empty($allWorkouts)) {
                   }
                   alert((res && res.message) || 'Could not reschedule. Try again.');
               })
-              .catch(function () { alert('Network error — please try again.'); });
+              .catch(function () { alert('Network error. Please try again.'); });
         }
 
         function doSwap(id, newDate, otherId, btn, fromCell, toCell) {
@@ -1263,7 +1263,7 @@ if ($activePlan && !empty($allWorkouts)) {
                   if (otherBtn) { bodyOf(fromCell).insertBefore(otherBtn, addBtnOf(fromCell)); setMwDate(otherBtn, oldDate); }
                   bodyOf(toCell).insertBefore(btn, addBtnOf(toCell)); setMwDate(btn, newDate);
               })
-              .catch(function () { alert('Network error — please try again.'); });
+              .catch(function () { alert('Network error. Please try again.'); });
         }
 
         // ── Add-workout modal ──
@@ -1339,7 +1339,7 @@ if ($activePlan && !empty($allWorkouts)) {
                 setBlock('awd-preview-summary', p.display_summary);
                 $id('awd-preview-instr').textContent = p.athlete_instructions || '';
                 $id('awd-preview-wrap').style.display = '';
-            }).catch(function () { showErr('Network error — please try again.'); });
+            }).catch(function () { showErr('Network error. Please try again.'); });
         }
         function addArch() {
             if (!selectedArch) return;
@@ -1348,7 +1348,7 @@ if ($activePlan && !empty($allWorkouts)) {
                 type: 'archetype', scheduled_date: addDate,
                 archetype_code: selectedArch.code, archetype_variant: chosenVariant(), duration: chosenDuration()
             }).then(function (res) { btn.disabled = false; onAdded(res); })
-              .catch(function () { btn.disabled = false; showErr('Network error — please try again.'); });
+              .catch(function () { btn.disabled = false; showErr('Network error. Please try again.'); });
         }
         function addFreeform() {
             var title = $id('awd-ff-title').value.trim();
@@ -1360,7 +1360,7 @@ if ($activePlan && !empty($allWorkouts)) {
                 workout_type: $id('awd-ff-type').value, duration: dur,
                 instructions: $id('awd-ff-instr').value.trim(), coach_notes: $id('awd-ff-notes').value.trim()
             }).then(function (res) { btn.disabled = false; onAdded(res); })
-              .catch(function () { btn.disabled = false; showErr('Network error — please try again.'); });
+              .catch(function () { btn.disabled = false; showErr('Network error. Please try again.'); });
         }
         function onAdded(res) {
             if (!res || !res.success) { showErr((res && res.message) || 'Could not add the workout.'); return; }

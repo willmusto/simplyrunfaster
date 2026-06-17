@@ -147,7 +147,7 @@ class CoachController
         $formAction = '/app/coach/athlete/' . $athleteId . '/edit';
         $cancelUrl  = '/app/coach/athlete/' . $athleteId;
 
-        $pageTitle = h($athlete['name']) . ' — Edit Profile';
+        $pageTitle = 'Edit Profile: ' . h($athlete['name']);
         $activeNav = 'athletes';
         include __DIR__ . '/../../views/layout/html_open.php';
         include __DIR__ . '/../../views/layout/nav_coach.php';
@@ -1159,7 +1159,7 @@ class CoachController
         $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
         $planPhase        = self::currentPlanPhase(self::getActivePlanDetail($athleteId, $db));
 
-        $pageTitle = h($athlete['name']) . ' — Messages';
+        $pageTitle = 'Messages: ' . h($athlete['name']);
         $activeNav = 'athletes';
         include __DIR__ . '/../../views/layout/html_open.php';
         include __DIR__ . '/../../views/layout/nav_coach.php';

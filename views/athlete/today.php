@@ -229,15 +229,15 @@ $localHour = (int)Timezone::dateInZone($tz, 'now', 'G');
     <div class="metric-grid">
         <div class="metric-tile">
             <div class="metric-label">Days Run</div>
-            <div class="metric-value"><?= $hasRuns ? $daysRun : '—' ?></div>
+            <div class="metric-value"><?= $hasRuns ? $daysRun : '–' ?></div>
         </div>
         <div class="metric-tile">
             <div class="metric-label">Time Running</div>
-            <div class="metric-value"><?= $hasRuns ? sprintf('%d:%02d', intdiv($totalMin, 60), $totalMin % 60) : '—' ?></div>
+            <div class="metric-value"><?= $hasRuns ? sprintf('%d:%02d', intdiv($totalMin, 60), $totalMin % 60) : '–' ?></div>
         </div>
         <div class="metric-tile">
             <div class="metric-label">Volume</div>
-            <div class="metric-value"><?= $hasRuns ? number_format(round($volume, 1), 1) . ' ' . $volSuffix : '—' ?></div>
+            <div class="metric-value"><?= $hasRuns ? number_format(round($volume, 1), 1) . ' ' . $volSuffix : '–' ?></div>
         </div>
     </div>
 

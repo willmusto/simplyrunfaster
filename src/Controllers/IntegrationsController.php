@@ -136,7 +136,7 @@ class IntegrationsController
             ]);
         } catch (\Throwable $e) {
             error_log('IntegrationsController::syncAthlete: ' . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Sync failed — please try again']);
+            echo json_encode(['success' => false, 'message' => 'Sync failed. Please try again']);
         }
         exit;
     }

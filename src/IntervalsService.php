@@ -385,8 +385,8 @@ class IntervalsService
         $recSec = self::roundSecs($recMin > 0 ? $recMin : max(90, $durSec));
 
         $effortCue = $type === 'hill_sprints'
-            ? 'uphill sprint — near-maximal but controlled'
-            : 'uphill — strong, controlled effort';
+            ? 'uphill sprint: near-maximal but controlled'
+            : 'uphill: strong, controlled effort';
         $between = strtolower((string)($seg['recovery']['between_reps'] ?? ''));
         $recCue  = str_contains($between, 'walk') ? 'walk back down, full recovery' : 'jog back down';
 

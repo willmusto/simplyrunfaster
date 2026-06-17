@@ -50,7 +50,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
     <h1>Connect Your Watch to SimplyRunFaster</h1>
     <p class="guide-intro">
         SimplyRunFaster sends your training plan workouts directly to your GPS watch and imports your
-        completed runs automatically — through your free Intervals.icu account.
+        completed runs automatically, through your free Intervals.icu account.
     </p>
 
     <div class="guide-step">
@@ -67,7 +67,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <div class="step-body">
             <h2>Connect your watch to Intervals.icu</h2>
             <p>In Intervals.icu: Settings → Connect → select your watch brand. Supported: Garmin, COROS, Polar, Suunto, Wahoo, Amazfit, Apple Watch, or Huawei.</p>
-            <p class="step-note">This connects your watch to Intervals.icu — not to SimplyRunFaster directly.</p>
+            <p class="step-note">This connects your watch to Intervals.icu, not to SimplyRunFaster directly.</p>
         </div>
     </div>
 
@@ -101,7 +101,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <p class="faq-a">Completed run activities and your planned workout calendar. Nothing else.</p>
 
         <p class="faq-q">Can I disconnect?</p>
-        <p class="faq-a">Yes — go to Settings → Connected Devices.</p>
+        <p class="faq-a">Yes. Go to Settings → Connected Devices.</p>
     </div>
 </main>
 <?php include __DIR__ . '/../../views/layout/html_close.php'; ?>

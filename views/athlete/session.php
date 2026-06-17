@@ -199,7 +199,7 @@ foreach ($notes as $n) {
         form.addEventListener('submit', function (e) {
             if (input.value.trim().length === 0) { e.preventDefault(); return; }
             if (input.value.length > SOFT &&
-                !confirm('Your note is quite long — are you sure?')) {
+                !confirm('Your note is quite long. Are you sure?')) {
                 e.preventDefault();
             }
         });

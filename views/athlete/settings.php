@@ -93,7 +93,7 @@
                 <?php endif; ?>
                 <div style="font-size:12px;color:var(--text-muted);margin-top:3px;font-weight:400;">
                     <?php if ($intervalsConnected): ?>
-                        <?= $intervalsLastSynced ? 'Last synced: ' . h($intervalsLastSynced) : 'Connected — waiting for first sync.' ?>
+                        <?= $intervalsLastSynced ? 'Last synced: ' . h($intervalsLastSynced) : 'Connected. Waiting for first sync.' ?>
                         <a href="/app/integrations/intervals/guide">How does this work? →</a>
                     <?php else: ?>
                         Sync workouts to your Garmin, COROS, Polar, Suunto, Wahoo, Amazfit, Apple Watch, or Huawei device.
@@ -207,7 +207,7 @@
                       btn.disabled = false;
                       btn.textContent = LABEL;
                       if (errEl) {
-                          errEl.textContent = (res && res.message) ? res.message : 'Sync failed — please try again';
+                          errEl.textContent = (res && res.message) ? res.message : 'Sync failed. Please try again';
                           errEl.style.display = 'block';
                       }
                   }
@@ -216,7 +216,7 @@
                   btn.disabled = false;
                   btn.textContent = LABEL;
                   if (errEl) {
-                      errEl.textContent = 'Sync failed — please try again';
+                      errEl.textContent = 'Sync failed. Please try again';
                       errEl.style.display = 'block';
                   }
               });
