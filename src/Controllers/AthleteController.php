@@ -951,12 +951,29 @@ class AthleteController
         $db        = Database::get();
         $athleteId = (int)$athlete['id'];
         $old       = Auth::getAthleteProfile($athleteId) ?? [];
-        $new       = ProfileForm::sanitize($_POST, false);
+
+        // Hyrox is a UI facade over the mile engine (mile spec Part 2): the pill posts
+        // goal_race_distance='hyrox', stored as goal='mile' with is_hyrox=1. Plain
+        // "Mile / 1500m" and every other distance store is_hyrox=0. Translate before
+        // sanitising so ProfileForm sees a valid enum value.
+        $isHyrox = ($_POST['goal_race_distance'] ?? '') === 'hyrox' ? 1 : 0;
+        if ($isHyrox) { $_POST['goal_race_distance'] = 'mile'; }
+
+        $new = ProfileForm::sanitize($_POST, false);
 
         ProfileForm::save($athleteId, $old, $new, [
             'actor_role'   => 'athlete',
             'athlete_name' => $athlete['name'],
         ], $db);
+
+        // is_hyrox tracks the current selection; hyrox_ever latches to 1 the first time
+        // Hyrox is chosen and never resets, so the pill stays visible after switching
+        // away. ProfileForm doesn't own these columns, so write them directly.
+        $db->prepare(
+            'UPDATE athlete_profiles
+                SET is_hyrox = ?, hyrox_ever = GREATEST(hyrox_ever, ?)
+              WHERE athlete_id = ?'
+        )->execute([$isHyrox, $isHyrox, $athleteId]);
 
         $_SESSION['flash_success'] = 'Training profile saved.';
         header('Location: /app/settings/training');

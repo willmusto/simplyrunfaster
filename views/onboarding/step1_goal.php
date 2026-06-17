@@ -66,42 +66,44 @@ include __DIR__ . '/../../views/layout/html_open.php';
             <div class="form-group">
                 <label class="form-label">Race distance</label>
                 <div class="pill-choices">
-                    <?php foreach (['5K','10K','15K','Half Marathon','Marathon'] as $dist): ?>
-                    <label class="pill-choice <?= ($d['goal_race_distance'] ?? '') === $dist ? 'selected' : '' ?>">
-                        <input type="radio" name="goal_race_distance" value="<?= h($dist) ?>"
-                               data-ultra="0"
-                               <?= ($d['goal_race_distance'] ?? '') === $dist ? 'checked' : '' ?>>
-                        <?= h($dist) ?>
-                    </label>
-                    <?php endforeach; ?>
-                    <?php foreach (['50k' => '50K','50_miler' => '50 Miler','100k' => '100K','100_miler' => '100 Miler'] as $val => $label): ?>
-                    <label class="pill-choice <?= ($d['goal_race_distance'] ?? '') === $val ? 'selected' : '' ?>">
-                        <input type="radio" name="goal_race_distance" value="<?= h($val) ?>"
-                               data-ultra="1"
-                               <?= ($d['goal_race_distance'] ?? '') === $val ? 'checked' : '' ?>>
-                        <?= h($label) ?>
-                    </label>
-                    <?php endforeach; ?>
                     <?php
                     // Mile / 1500m and Hyrox both run the mile engine. The Hyrox option
                     // submits goal_race_distance='hyrox'; the controller stores goal='mile'
                     // with is_hyrox=1. Restore selection: Hyrox shows selected when goal=mile
                     // and is_hyrox=1; Mile shows selected when goal=mile and is_hyrox=0.
+                    // Pills are ordered shortest-first with Hyrox at the top (matches
+                    // Training Settings).
                     $goalSel    = $d['goal_race_distance'] ?? '';
                     $hyroxSel   = $d['is_hyrox'] ?? 0;
                     $mileChosen = ($goalSel === 'mile' && !$hyroxSel) || $goalSel === 'mile_display';
                     $hyroxChosen = ($goalSel === 'mile' && $hyroxSel) || $goalSel === 'hyrox';
                     ?>
-                    <label class="pill-choice <?= $mileChosen ? 'selected' : '' ?>">
-                        <input type="radio" name="goal_race_distance" value="mile" data-ultra="0"
-                               <?= $mileChosen ? 'checked' : '' ?>>
-                        Mile / 1500m
-                    </label>
                     <label class="pill-choice <?= $hyroxChosen ? 'selected' : '' ?>">
                         <input type="radio" name="goal_race_distance" value="hyrox" data-ultra="0"
                                <?= $hyroxChosen ? 'checked' : '' ?>>
                         Hyrox
                     </label>
+                    <label class="pill-choice <?= $mileChosen ? 'selected' : '' ?>">
+                        <input type="radio" name="goal_race_distance" value="mile" data-ultra="0"
+                               <?= $mileChosen ? 'checked' : '' ?>>
+                        Mile / 1500m
+                    </label>
+                    <?php foreach (['5K','10K','15K','Half Marathon','Marathon'] as $dist): ?>
+                    <label class="pill-choice <?= $goalSel === $dist ? 'selected' : '' ?>">
+                        <input type="radio" name="goal_race_distance" value="<?= h($dist) ?>"
+                               data-ultra="0"
+                               <?= $goalSel === $dist ? 'checked' : '' ?>>
+                        <?= h($dist) ?>
+                    </label>
+                    <?php endforeach; ?>
+                    <?php foreach (['50k' => '50K','50_miler' => '50 Mile','100k' => '100K','100_miler' => '100 Mile'] as $val => $label): ?>
+                    <label class="pill-choice <?= $goalSel === $val ? 'selected' : '' ?>">
+                        <input type="radio" name="goal_race_distance" value="<?= h($val) ?>"
+                               data-ultra="1"
+                               <?= $goalSel === $val ? 'checked' : '' ?>>
+                        <?= h($label) ?>
+                    </label>
+                    <?php endforeach; ?>
                 </div>
             </div>
 

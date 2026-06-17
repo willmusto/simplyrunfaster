@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS `athlete_profiles` (
     `goal_finish_time`          VARCHAR(20) DEFAULT NULL COMMENT 'optional time goal',
     `ultra_surface`             ENUM('road','trail') DEFAULT NULL COMMENT 'trail vs road, ultra goal distances only',
     `is_hyrox`                  TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Hyrox UI facade; engine runs mile logic underneath',
+    `hyrox_ever`                TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Latches to 1 once Hyrox is ever selected; keeps the Hyrox pill visible',
     -- Current fitness (all time-on-feet based per engine spec)
     `current_weekly_minutes`    INT DEFAULT NULL COMMENT 'current weekly time on feet in minutes',
     `longest_recent_run_mins`   INT DEFAULT NULL COMMENT 'longest recent run in minutes',

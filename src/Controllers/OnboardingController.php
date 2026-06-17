@@ -375,6 +375,7 @@ class OnboardingController
             'goal_race_distance'         => $d['goal_race_distance'] ?: null,
             'ultra_surface'              => in_array($d['ultra_surface'] ?? null, ['trail','road'], true) ? $d['ultra_surface'] : null,
             'is_hyrox'                   => !empty($d['is_hyrox']) ? 1 : 0,
+            'hyrox_ever'                 => !empty($d['is_hyrox']) ? 1 : 0,
             'goal_finish_time'           => $d['goal_finish_time'] ?: null,
             'current_weekly_minutes'     => (int)($d['current_weekly_minutes'] ?? 0) ?: null,
             'longest_recent_run_mins'    => (int)($d['longest_recent_run_mins'] ?? 0) ?: null,

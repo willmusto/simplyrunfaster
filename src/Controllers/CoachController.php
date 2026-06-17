@@ -179,12 +179,27 @@ class CoachController
         }
 
         $old = Auth::getAthleteProfile($athleteId) ?? [];
+
+        // Hyrox is a UI facade over the mile engine (mile spec Part 2): the pill posts
+        // goal_race_distance='hyrox', stored as goal='mile' with is_hyrox=1. Translate
+        // before sanitising so ProfileForm sees a valid enum value.
+        $isHyrox = ($_POST['goal_race_distance'] ?? '') === 'hyrox' ? 1 : 0;
+        if ($isHyrox) { $_POST['goal_race_distance'] = 'mile'; }
+
         $new = ProfileForm::sanitize($_POST, true);
 
         ProfileForm::save($athleteId, $old, $new, [
             'actor_role'   => 'coach',
             'athlete_name' => $athlete['name'],
         ], $db);
+
+        // is_hyrox tracks the current selection; hyrox_ever latches to 1 the first time
+        // Hyrox is chosen and never resets, keeping the pill visible after switching away.
+        $db->prepare(
+            'UPDATE athlete_profiles
+                SET is_hyrox = ?, hyrox_ever = GREATEST(hyrox_ever, ?)
+              WHERE athlete_id = ?'
+        )->execute([$isHyrox, $isHyrox, $athleteId]);
 
         // Coach override of the athlete's timezone (users column on the athlete's account).
         if (array_key_exists('timezone', $_POST)) {

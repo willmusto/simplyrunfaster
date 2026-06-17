@@ -18,12 +18,44 @@ $hasRace    = !empty($p['most_recent_race_time']);
 <div class="card" style="margin-bottom:16px;">
     <div class="form-group">
         <label class="form-label">Goal race distance</label>
+        <?php
+        // Goal-distance pills, shortest-first. Hyrox is a UI facade over the mile
+        // engine: the pill posts 'hyrox' and the controller stores goal='mile' with
+        // is_hyrox=1, so a 'mile' goal means plain "Mile / 1500m" when is_hyrox=0 and
+        // "Hyrox" when is_hyrox=1. The Hyrox pill shows only once the athlete has ever
+        // chosen it (is_hyrox now, or hyrox_ever latched) and then sits at the top.
+        $goalVal   = $p['goal_race_distance'] ?? '';
+        $isHyrox   = !empty($p['is_hyrox']);
+        $showHyrox = $isHyrox || !empty($p['hyrox_ever']);
+        $mileSel   = $goalVal === 'mile' && !$isHyrox;
+        $hyroxSel  = $goalVal === 'mile' && $isHyrox;
+        $distOptions = [
+            'mile'          => 'Mile / 1500m',
+            '5K'            => '5K',
+            '10K'           => '10K',
+            '15K'           => '15K',
+            'Half Marathon' => 'Half Marathon',
+            'Marathon'      => 'Marathon',
+            '50k'           => '50K',
+            '50_miler'      => '50 Mile',
+            '100k'          => '100K',
+            '100_miler'     => '100 Mile',
+        ];
+        ?>
         <div class="pill-choices">
-            <?php foreach (ProfileForm::RACE_DISTANCES as $dist): ?>
-            <label class="pill-choice <?= ($p['goal_race_distance'] ?? '') === $dist ? 'selected' : '' ?>">
-                <input type="radio" name="goal_race_distance" value="<?= h($dist) ?>"
-                       <?= ($p['goal_race_distance'] ?? '') === $dist ? 'checked' : '' ?>>
-                <?= h(race_distance_label($dist)) ?>
+            <?php if ($showHyrox): ?>
+            <label class="pill-choice <?= $hyroxSel ? 'selected' : '' ?>">
+                <input type="radio" name="goal_race_distance" value="hyrox"
+                       <?= $hyroxSel ? 'checked' : '' ?>>
+                Hyrox
+            </label>
+            <?php endif; ?>
+            <?php foreach ($distOptions as $val => $label):
+                $sel = $val === 'mile' ? $mileSel : ($goalVal === $val); ?>
+            <label class="pill-choice <?= $sel ? 'selected' : '' ?>">
+                <input type="radio" name="goal_race_distance" value="<?= h($val) ?>"
+                       <?= $sel ? 'checked' : '' ?>>
+                <?= h($label) ?>
             </label>
             <?php endforeach; ?>
         </div>
