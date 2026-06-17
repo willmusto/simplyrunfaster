@@ -66,7 +66,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <div class="step-num">2</div>
         <div class="step-body">
             <h2>Connect your watch to Intervals.icu</h2>
-            <p>In Intervals.icu: Settings → Connect → select your watch brand. Supported: Garmin, COROS, Polar, Suunto, Wahoo.</p>
+            <p>In Intervals.icu: Settings → Connect → select your watch brand. Supported: Garmin, COROS, Polar, Suunto, Wahoo, Amazfit, Apple Watch, or Huawei.</p>
             <p class="step-note">This connects your watch to Intervals.icu — not to SimplyRunFaster directly.</p>
         </div>
     </div>
@@ -95,7 +95,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <p class="faq-a">No, free is fine.</p>
 
         <p class="faq-q">Which watches work?</p>
-        <p class="faq-a">Garmin, COROS, Polar, Suunto, and Wahoo.</p>
+        <p class="faq-a">Garmin, COROS, Polar, Suunto, Wahoo, Amazfit, Apple Watch, and Huawei.</p>
 
         <p class="faq-q">What data do you access?</p>
         <p class="faq-a">Completed run activities and your planned workout calendar. Nothing else.</p>

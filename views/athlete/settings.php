@@ -94,8 +94,9 @@
                 <div style="font-size:12px;color:var(--text-muted);margin-top:3px;font-weight:400;">
                     <?php if ($intervalsConnected): ?>
                         <?= $intervalsLastSynced ? 'Last synced: ' . h($intervalsLastSynced) : 'Connected — waiting for first sync.' ?>
+                        <a href="/app/integrations/intervals/guide">How does this work? →</a>
                     <?php else: ?>
-                        Sync workouts to your Garmin, COROS, Polar, Suunto, or Wahoo device.
+                        Sync workouts to your Garmin, COROS, Polar, Suunto, Wahoo, Amazfit, Apple Watch, or Huawei device.
                         <a href="/app/integrations/intervals/guide">How does this work? →</a>
                     <?php endif; ?>
                 </div>
