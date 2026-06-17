@@ -222,6 +222,14 @@ class OnboardingController
             } catch (Throwable $e) {
                 error_log('PlanGenerator::generate failed for athlete ' . $athlete['id'] . ': ' . $e->getMessage());
             }
+
+            // Schedule the coach's welcome message (delivered after a short delay by
+            // scripts/cron_scheduled_messages.php). Guarded so it never blocks signup.
+            try {
+                self::scheduleWelcomeMessage((int)$athlete['id']);
+            } catch (Throwable $e) {
+                error_log('scheduleWelcomeMessage failed for athlete ' . $athlete['id'] . ': ' . $e->getMessage());
+            }
         }
 
         // Billing: comped athletes (and any non-Stripe environment) go straight
@@ -279,6 +287,46 @@ class OnboardingController
         $db->prepare(
             'UPDATE users SET consent_age = 1, consent_privacy = 1, consent_given_at = NOW() WHERE id = ?'
         )->execute([Auth::userId()]);
+    }
+
+    /**
+     * Queue the coach's welcome message for an athlete who just finished onboarding.
+     * Sends from the (now-backfilled) assigned coach after a ~12-minute delay via
+     * scripts/cron_scheduled_messages.php. No-op when no coach is assigned, and
+     * idempotent (one welcome per athlete).
+     */
+    private static function scheduleWelcomeMessage(int $athleteId): void
+    {
+        $db = Database::get();
+
+        $stmt = $db->prepare(
+            'SELECT a.coach_id, u.name
+             FROM athletes a JOIN users u ON u.id = a.user_id
+             WHERE a.id = ? LIMIT 1'
+        );
+        $stmt->execute([$athleteId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row || empty($row['coach_id'])) {
+            return; // organic signup with no coach yet — nothing to send from
+        }
+
+        // Already scheduled (e.g. a re-submitted final step)? Don't duplicate.
+        $exists = $db->prepare('SELECT 1 FROM scheduled_messages WHERE athlete_id = ? LIMIT 1');
+        $exists->execute([$athleteId]);
+        if ($exists->fetchColumn()) {
+            return;
+        }
+
+        $first = explode(' ', trim((string)($row['name'] ?? '')))[0] ?: 'there';
+        $body  = "Hey {$first}, welcome to SimplyRunFaster! Really glad you are here. "
+               . "Your plan is being put together and I will have it ready for your review shortly. "
+               . "In the meantime, feel free to message me here any time - this is how we will "
+               . "communicate throughout your training. Looking forward to working with you.";
+
+        $db->prepare(
+            'INSERT INTO scheduled_messages (athlete_id, sender_id, body, send_after)
+             VALUES (?, ?, ?, NOW() + INTERVAL 12 MINUTE)'
+        )->execute([$athleteId, (int)$row['coach_id'], $body]);
     }
 
     private static function persistToDatabase(): void
