@@ -739,6 +739,9 @@ class CoachController
             )->execute([$coachId, $notes, $queue['id']]);
 
             $db->prepare('UPDATE training_plans SET status="archived" WHERE id=?')->execute([$planId]);
+
+            // Drop the rejected plan's Intervals.icu events (no-op if not connected).
+            IntervalsService::deleteEventsForPlan($planId, $db);
         }
 
         header('Location: /app/coach/approvals');

@@ -2907,6 +2907,15 @@ class PlanGenerator
 
     private static function archivePreviousPlans(int $athleteId, PDO $db): void
     {
+        // Capture the plans being archived so their Intervals.icu calendar events can
+        // be deleted (otherwise old workouts linger on the athlete's watch).
+        $sel = $db->prepare(
+            'SELECT id FROM training_plans
+             WHERE athlete_id = ? AND status IN ("active", "pending_approval")'
+        );
+        $sel->execute([$athleteId]);
+        $planIds = $sel->fetchAll(PDO::FETCH_COLUMN) ?: [];
+
         $db->prepare(
             'UPDATE training_plans SET status = "archived"
              WHERE athlete_id = ? AND status IN ("active", "pending_approval")'
@@ -2916,6 +2925,32 @@ class PlanGenerator
             'UPDATE plan_approval_queue SET status = "rejected"
              WHERE athlete_id = ? AND status = "pending"'
         )->execute([$athleteId]);
+
+        foreach ($planIds as $pid) {
+            self::deleteArchivedPlanEvents((int)$pid, $db);
+        }
+    }
+
+    /**
+     * Best-effort removal of an archived plan's Intervals.icu calendar events. Lazily
+     * loads IntervalsService so this works from every regeneration path (web + cron),
+     * and is a silent no-op when the athlete isn't connected.
+     */
+    private static function deleteArchivedPlanEvents(int $planId, PDO $db): void
+    {
+        if (!class_exists('IntervalsService')) {
+            $crypto  = __DIR__ . '/../Crypto.php';
+            $service = __DIR__ . '/../IntervalsService.php';
+            if (is_file($crypto))  require_once $crypto;
+            if (is_file($service)) require_once $service;
+        }
+        if (class_exists('IntervalsService')) {
+            try {
+                IntervalsService::deleteEventsForPlan($planId, $db);
+            } catch (\Throwable $e) {
+                error_log('PlanGenerator::deleteArchivedPlanEvents: ' . $e->getMessage());
+            }
+        }
     }
 
     private static function createPlanRecord(

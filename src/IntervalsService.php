@@ -188,9 +188,11 @@ class IntervalsService
      * Convert a planned_workouts row into Intervals.icu native workout text.
      *
      * Drives off the resolved `structure` JSON (the authority — segments + resolved
-     * params). Effort/zone names map to Intervals.icu pace zones (Z1 easy … Z6 speed);
-     * race_pace uses the athlete's goal pace when pace zones are supplied in $context.
-     * Falls back to the plain description when structure is missing/unparseable.
+     * params). Effort is rendered as plain language (easy / moderate effort / tempo
+     * effort / interval effort / speed effort), with a pace range appended to quality
+     * steps when the athlete's pace zones are visible (§18.9). Easy/warmup/cooldown and
+     * hills stay effort-only. Falls back to the plain description when structure is
+     * missing/unparseable.
      *
      * @param array $workout planned_workouts row (needs structure, archetype_params,
      *                       athlete_instructions/description, workout_type).
@@ -244,42 +246,42 @@ class IntervalsService
         switch ($type) {
             case 'warmup':
                 $m = (int)($seg['duration_minutes'] ?? $params['warmup_minutes'] ?? 0);
-                return $m > 0 ? "Warmup\n- {$m}m Z1 Pace" : '';
+                return $m > 0 ? "Warmup\n- {$m}m easy" : '';
 
             case 'cooldown':
                 $m = (int)($seg['duration_minutes'] ?? $params['cooldown_minutes'] ?? 0);
-                return $m > 0 ? "Cooldown\n- {$m}m Z1 Pace" : '';
+                return $m > 0 ? "Cooldown\n- {$m}m easy" : '';
 
             case 'strides':
                 $n = (int)($seg['repetitions'] ?? $params['stride_count'] ?? 4);
                 $s = (int)($seg['duration_seconds'] ?? $params['stride_duration_seconds'] ?? 15);
                 if ($n < 1 || $s < 1) return '';
-                return "Strides {$n}x\n- " . self::fmtSeconds($s) . " Z6 Pace\n- 45s Z1 Pace";
+                return "Strides {$n}x\n- " . self::fmtSeconds($s) . " speed effort\n- 45s easy";
 
             case 'continuous':
                 $m = (int)($seg['duration_minutes'] ?? $params['duration_minutes'] ?? 0);
                 if ($m < 1) return '';
-                return "- {$m}m " . self::zoneFor($seg['effort'] ?? $seg['pace_zone'] ?? 'easy', $context, 'Z2 Pace');
+                return "- {$m}m " . self::zoneFor($seg['effort'] ?? $seg['pace_zone'] ?? 'easy', $context, 'moderate effort');
 
             case 'progression':
                 // Single continuous block that lifts; split the time (don't double it).
                 $m = (int)($seg['duration_minutes'] ?? $params['duration_minutes'] ?? 0);
                 if ($m < 1) return '';
-                $finish = self::zoneFor($seg['finish_zone'] ?? '', $context, 'Z4 Pace');
+                $finish = self::zoneFor($seg['finish_zone'] ?? '', $context, 'tempo effort');
                 $a = max(1, (int)round($m * 0.6));
-                return "- {$a}m Z1 Pace\n- " . max(1, $m - $a) . "m {$finish}";
+                return "- {$a}m easy\n- " . max(1, $m - $a) . "m {$finish}";
 
             case 'continuous_progression':
                 $m = (int)($seg['continuous_work_minutes'] ?? $params['continuous_work_minutes'] ?? $params['duration_minutes'] ?? 0);
                 if ($m < 1) return '';
                 $a = max(1, (int)round($m * 0.6));
-                return "- {$a}m Z2 Pace\n- " . max(1, $m - $a) . "m Z4 Pace" . self::citationSuffix($seg, $params, $context);
+                return "- {$a}m moderate effort\n- " . max(1, $m - $a) . "m tempo effort" . self::citationSuffix($seg, $params, $context);
 
             case 'repeats':
-                return self::renderDistanceRepeats($seg, $params, $context, 'Z5 Pace', 'vo2_standard');
+                return self::renderDistanceRepeats($seg, $params, $context, 'interval effort', 'vo2_standard');
 
             case 'speed_repeats':
-                return self::renderDistanceRepeats($seg, $params, $context, 'Z6 Pace', 'speed_standard');
+                return self::renderDistanceRepeats($seg, $params, $context, 'speed effort', 'speed_standard');
 
             case 'tempo_intervals':
                 return self::renderTempoIntervals($seg, $params, $context);
@@ -322,7 +324,7 @@ class IntervalsService
     {
         $n = (int)($seg['rep_count'] ?? $params['rep_count'] ?? 0);
         if ($n < 1) return '';
-        $zone     = self::zoneFor($seg['effort'] ?? '', $context, 'Z4 Pace');
+        $zone     = self::zoneFor($seg['effort'] ?? '', $context, 'tempo effort');
         $recModel = (string)($seg['recovery_model'] ?? $params['recovery_model'] ?? 'threshold_standard');
 
         $workSec = 0;
@@ -345,9 +347,8 @@ class IntervalsService
 
     /**
      * Hill reps / sprints. Hills are effort-based, not pace-based (flat pace zones do
-     * not transfer to a climb — engine spec §18.5), so this approximates with a hard
-     * zone label + jog/walk-back recovery. Reviewer note: refine if a hill-specific
-     * target is preferred over Z5/Z6.
+     * not transfer to a climb — engine spec §18.5), so each step carries an effort cue
+     * and a jog/walk-back recovery cue only — no pace zone/range.
      */
     private static function renderHillReps(string $type, array $seg, array $params): string
     {
@@ -357,22 +358,16 @@ class IntervalsService
         $recMin = (int)($seg['recovery']['minimum_recovery_seconds'] ?? 0);
         $recSec = self::roundSecs($recMin > 0 ? $recMin : max(90, $durSec));
 
-        // Hills are effort-, not pace-based, so name each step with the effort cue and
-        // the jog/walk-back recovery so the cue rides along on the watch.
-        if ($type === 'hill_sprints') {
-            $zone      = 'Z6 Pace';
-            $effortCue = 'uphill sprint — near-maximal but controlled';
-        } else {
-            $zone      = 'Z5 Pace';
-            $effortCue = 'uphill — strong, controlled effort';
-        }
+        $effortCue = $type === 'hill_sprints'
+            ? 'uphill sprint — near-maximal but controlled'
+            : 'uphill — strong, controlled effort';
         $between = strtolower((string)($seg['recovery']['between_reps'] ?? ''));
         $recCue  = str_contains($between, 'walk') ? 'walk back down, full recovery' : 'jog back down';
 
         $lines = ["Main Set {$n}x"];
-        $lines[] = '- ' . self::fmtSeconds($durSec) . ' ' . $zone . ' ' . $effortCue;
+        $lines[] = '- ' . self::fmtSeconds($durSec) . ' ' . $effortCue;
         if ($recSec > 0) {
-            $lines[] = '- ' . self::fmtSeconds($recSec) . ' Z1 Pace ' . $recCue;
+            $lines[] = '- ' . self::fmtSeconds($recSec) . ' ' . $recCue;
         }
         return implode("\n", $lines);
     }
@@ -386,14 +381,14 @@ class IntervalsService
         if (!is_array($works) || empty($works)) {
             $works = [60, 90, 120];
         }
-        $zone  = self::zoneFor('interval', $context, 'Z5 Pace');
+        $zone  = self::zoneFor('interval', $context, 'interval effort');
         $cite  = self::citationSuffix($seg, $params, $context);
         $lines = ["Main Set {$rounds}x"];
         foreach ($works as $w) {
             $w = (int)$w;
             if ($w < 1) continue;
             $lines[] = '- ' . self::fmtSeconds($w) . ' ' . $zone . $cite;
-            $lines[] = '- ' . self::fmtSeconds($w) . ' Z1 Pace'; // ~1:1 float recovery
+            $lines[] = '- ' . self::fmtSeconds($w) . ' easy'; // ~1:1 float recovery
         }
         return count($lines) > 1 ? implode("\n", $lines) : '';
     }
@@ -403,7 +398,7 @@ class IntervalsService
     {
         $n = (int)($seg['repetitions'] ?? $seg['rep_count'] ?? $params['rep_count'] ?? 0);
         if ($n >= 1 && (int)($seg['rep_distance_meters'] ?? 0) >= 1) {
-            return self::renderDistanceRepeats($seg, $params, $context, 'Z5 Pace', 'vo2_standard');
+            return self::renderDistanceRepeats($seg, $params, $context, 'interval effort', 'vo2_standard');
         }
 
         $workSec = (int)($seg['work_duration_seconds'] ?? $params['work_duration_seconds'] ?? 0);
@@ -415,7 +410,7 @@ class IntervalsService
         if ($recSec < 1) {
             $recSec = self::modelRecoverySeconds((string)($seg['recovery_model'] ?? $params['recovery_model'] ?? ''), $workSec);
         }
-        $zone = self::zoneFor($seg['effort'] ?? $seg['target_effort'] ?? '', $context, 'Z5 Pace');
+        $zone = self::zoneFor($seg['effort'] ?? $seg['target_effort'] ?? '', $context, 'interval effort');
         $work = '- ' . self::fmtSeconds($workSec) . ' ' . $zone . self::citationSuffix($seg, $params, $context);
         return self::repeatBlock($n, $work, self::roundSecs($recSec));
     }
@@ -426,7 +421,7 @@ class IntervalsService
         if ($n < 1 || $workLine === '') return '';
         $lines = ["Main Set {$n}x", $workLine];
         if ($recSec !== null && $recSec > 0) {
-            $lines[] = '- ' . self::fmtSeconds($recSec) . ' Z1 Pace';
+            $lines[] = '- ' . self::fmtSeconds($recSec) . ' easy';
         }
         return implode("\n", $lines);
     }
@@ -472,35 +467,37 @@ class IntervalsService
     // ── Effort / zone / formatting helpers ───────────────────────────────────
 
     /**
-     * Map a segment effort/zone to an Intervals.icu pace target string. Unresolved
-     * tokens (e.g. "{{mapped_effort}}") and empty values fall back to $fallback so the
-     * caller's type-appropriate default (Z4 tempo, Z5 interval, Z6 speed) is used.
+     * Map a segment effort/zone to plain effort language for the Intervals.icu text
+     * (no Z1–Z6 labels). Unresolved tokens (e.g. "{{mapped_effort}}") and empty values
+     * fall back to $fallback so the caller's type-appropriate default (e.g. "tempo
+     * effort", "interval effort", "speed effort") is used. Pace ranges, where they
+     * apply, are appended separately by citationSuffix() — not here.
      */
-    private static function zoneFor($effort, array $context, string $fallback = 'Z2 Pace'): string
+    private static function zoneFor($effort, array $context, string $fallback = 'moderate effort'): string
     {
         $e = strtolower(trim((string)$effort));
         if ($e === '' || str_contains($e, '{{')) {
             return $fallback;
         }
 
-        // race_pace: prefer the athlete's goal pace from supplied pace zones.
+        // race_pace: name it "race pace", with the athlete's goal pace inline when known.
         if ($e === 'race_pace' || $e === 'goal_pace') {
             $zones = $context['pace_zones'] ?? null;
             $key   = $context['goal_distance'] ?? null;
             if (is_array($zones) && $key !== null && isset($zones[$key]) && is_numeric($zones[$key])) {
                 $secs = (int)$zones[$key];
-                return sprintf('%d:%02d/mi Pace', intdiv($secs, 60), $secs % 60);
+                return sprintf('race pace (%d:%02d/mi)', intdiv($secs, 60), $secs % 60);
             }
-            return 'Z3 Pace';
+            return 'race pace';
         }
 
         return match (true) {
-            in_array($e, ['easy', 'recovery', 'warmup', 'cooldown', 'z1', 'jog', 'rest', 'walk'], true) => 'Z1 Pace',
-            in_array($e, ['moderate', 'steady', 'aerobic', 'z2'], true)                                 => 'Z2 Pace',
-            in_array($e, ['marathon', 'marathon_pace', 'z3'], true)                                      => 'Z3 Pace',
-            in_array($e, ['tempo', 'threshold', 'half_marathon', 'steady_state', 'z4'], true)            => 'Z4 Pace',
-            in_array($e, ['interval', 'vo2', 'vo2max', '10k', '5k', '3k', 'z5'], true)                   => 'Z5 Pace',
-            in_array($e, ['speed', 'sprint', 'mile', '800', '400', 'rep', 'neuromuscular', 'z6'], true)  => 'Z6 Pace',
+            in_array($e, ['easy', 'recovery', 'warmup', 'cooldown', 'z1', 'jog', 'rest', 'walk'], true) => 'easy',
+            in_array($e, ['moderate', 'steady', 'aerobic', 'z2'], true)                                 => 'moderate effort',
+            in_array($e, ['marathon', 'marathon_pace', 'z3'], true)                                      => 'marathon effort',
+            in_array($e, ['tempo', 'threshold', 'half_marathon', 'steady_state', 'z4'], true)            => 'tempo effort',
+            in_array($e, ['interval', 'vo2', 'vo2max', '10k', '5k', '3k', 'z5'], true)                   => 'interval effort',
+            in_array($e, ['speed', 'sprint', 'mile', '800', '400', 'rep', 'neuromuscular', 'z6'], true)  => 'speed effort',
             default                                                                                       => $fallback,
         };
     }
@@ -757,6 +754,96 @@ class IntervalsService
             error_log('IntervalsService::deleteWorkout failed: ' . $e->getMessage());
             return false;
         }
+    }
+
+    /**
+     * Delete every Intervals.icu calendar event for a plan's workouts (called when a
+     * plan is archived during regeneration/rejection, so stale events don't linger on
+     * the athlete's watch). One bulk-delete by external_id. No-op (silent) when the
+     * athlete isn't connected. Returns the number of events removed.
+     */
+    public static function deleteEventsForPlan(int $planId, PDO $db): int
+    {
+        try {
+            $stmt = $db->prepare('SELECT athlete_id FROM training_plans WHERE id = ? LIMIT 1');
+            $stmt->execute([$planId]);
+            $athleteId = (int)($stmt->fetchColumn() ?: 0);
+            if ($athleteId < 1) return 0;
+
+            $conn = self::connectionForAthlete($athleteId, $db);
+            if (!$conn) return 0; // not connected — skip silently
+
+            $w = $db->prepare('SELECT id FROM planned_workouts WHERE plan_id = ? AND intervals_event_id IS NOT NULL');
+            $w->execute([$planId]);
+            $ids = $w->fetchAll(PDO::FETCH_COLUMN) ?: [];
+            if (!$ids) return 0;
+
+            $headers = self::getHeaders((int)$conn['user_id'], $db);
+            if ($headers === null) return 0;
+            $headers[] = 'Content-Type: application/json';
+
+            $body = [];
+            foreach ($ids as $id) {
+                $body[] = ['external_id' => self::EXTERNAL_PREFIX . (int)$id];
+            }
+            [$status] = self::http('PUT', self::API_BASE . '/athlete/0/events/bulk-delete', $headers, json_encode($body));
+
+            // Clear local pointers regardless — these workouts are being archived.
+            $db->prepare(
+                'UPDATE planned_workouts SET intervals_event_id = NULL, pushed_to_watch = 0
+                 WHERE plan_id = ? AND intervals_event_id IS NOT NULL'
+            )->execute([$planId]);
+
+            return ($status >= 200 && $status < 300) ? count($ids) : 0;
+        } catch (\Throwable $e) {
+            error_log('IntervalsService::deleteEventsForPlan failed: ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Re-push every visible, non-cancelled workout in the athlete's active plan
+     * (upsert=true updates existing events in place — no duplicates). Used to refresh
+     * already-pushed events after a code change, without waiting for the cron. No-op
+     * (silent) when the athlete isn't connected or has no active plan.
+     *
+     * @param int $userId the athlete's users.id
+     * @return array{connected:bool,total:int,pushed:int,failed:int}
+     */
+    public static function repushAllVisible(int $userId, PDO $db): array
+    {
+        $result = ['connected' => false, 'total' => 0, 'pushed' => 0, 'failed' => 0];
+
+        $athleteId = self::athleteIdForUser($userId, $db);
+        if ($athleteId === null || !self::athleteConnected($athleteId, $db)) {
+            return $result; // skip silently
+        }
+        $result['connected'] = true;
+
+        $plan = $db->prepare("SELECT id FROM training_plans WHERE athlete_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1");
+        $plan->execute([$athleteId]);
+        $planId = (int)($plan->fetchColumn() ?: 0);
+        if ($planId < 1) return $result;
+
+        $stmt = $db->prepare(
+            'SELECT id FROM planned_workouts
+             WHERE plan_id = ? AND athlete_id = ? AND visible_to_athlete = 1
+               AND (cancelled = 0 OR cancelled IS NULL)
+             ORDER BY scheduled_date ASC, id ASC'
+        );
+        $stmt->execute([$planId, $athleteId]);
+        $ids = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+
+        $result['total'] = count($ids);
+        foreach ($ids as $id) {
+            // pushWorkout() upserts and logs each result to intervals_push_log.
+            if (self::pushWorkout($athleteId, (int)$id, $db)) {
+                $result['pushed']++;
+            } else {
+                $result['failed']++;
+            }
+        }
+        return $result;
     }
 
     /** Pace-zone citation context for generateWorkoutText, mirroring PlanGenerator. */

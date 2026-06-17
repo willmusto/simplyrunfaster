@@ -67,6 +67,45 @@ class IntegrationsController
         exit;
     }
 
+    /**
+     * POST /app/integrations/intervals/repush — coach/admin: re-push every visible
+     * workout in an athlete's active plan to Intervals.icu (refresh after a code
+     * change, without waiting for the cron). Body: athlete_id.
+     */
+    public static function repush(): void
+    {
+        Auth::requireRole(['coach', 'admin']);
+        Auth::verifyCsrf();
+        header('Content-Type: application/json');
+
+        $athleteId = (int)($_POST['athlete_id'] ?? 0);
+        if ($athleteId < 1) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'athlete_id required']);
+            exit;
+        }
+
+        $db   = Database::get();
+        $stmt = $db->prepare('SELECT user_id, coach_id FROM athletes WHERE id = ? LIMIT 1');
+        $stmt->execute([$athleteId]);
+        $athlete = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$athlete) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => 'athlete not found']);
+            exit;
+        }
+        // Coaches may only re-push their own athletes; admins may re-push anyone.
+        if (Auth::role() !== 'admin' && (int)$athlete['coach_id'] !== (int)Auth::userId()) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'forbidden']);
+            exit;
+        }
+
+        $res = IntervalsService::repushAllVisible((int)$athlete['user_id'], $db);
+        echo json_encode(['success' => true] + $res);
+        exit;
+    }
+
     /** GET /app/integrations/intervals/guide — public setup walkthrough (no auth). */
     public static function guide(): void
     {
