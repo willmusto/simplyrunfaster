@@ -181,7 +181,7 @@
               .then(function (res) {
                   if (res && res.success) {
                       var n = res.pushed || 0;
-                      btn.textContent = '✓ Synced (' + n + ' workout' + (n === 1 ? '' : 's') + ')';
+                      btn.textContent = n === 0 ? '✓ Up to date' : '✓ Synced (' + n + ' workout' + (n === 1 ? '' : 's') + ')';
                       btn.style.color = '#1D9E75';
                       // Re-enable after 60s with the original label.
                       setTimeout(function () {
