@@ -287,6 +287,13 @@ class AthleteController
         // Connected-devices "notify me when available" opt-ins (brand => true).
         $deviceNotify = self::loadDeviceNotifyPrefs(Auth::userId(), $db);
 
+        // Intervals.icu connection state (Phase-1 watch integration).
+        $intervalsConn       = IntervalsService::connectionForUser((int)Auth::userId(), $db);
+        $intervalsConnected  = $intervalsConn !== null;
+        $intervalsLastSynced = ($intervalsConn && !empty($intervalsConn['last_synced_at']))
+            ? Timezone::format($intervalsConn['last_synced_at'], 'M j, Y · g:i A', (int)Auth::userId())
+            : null;
+
         $pageTitle = 'Settings';
         $activeTab = 'settings';
         include __DIR__ . '/../../views/layout/html_open.php';
