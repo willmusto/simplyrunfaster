@@ -77,6 +77,23 @@ function format_duration(int $minutes): string
     return $m ? "{$h}h {$m}min" : "{$h}h";
 }
 
+/**
+ * Athlete-facing label for a stored goal_race_distance. Standard distances are
+ * already stored as display strings ("5K", "Marathon") and pass through; ultra
+ * distances are stored as canonical keys and map to friendly labels (ultra spec Part 14).
+ */
+function race_distance_label(?string $value): string
+{
+    if ($value === null || $value === '') return '';
+    $map = [
+        '50k'       => '50K Ultra',
+        '50_miler'  => '50-Mile Ultra',
+        '100k'      => '100K Ultra',
+        '100_miler' => '100-Mile Ultra',
+    ];
+    return $map[strtolower(trim($value))] ?? $value;
+}
+
 function format_pace(float $pace): string
 {
     $min = intval($pace);

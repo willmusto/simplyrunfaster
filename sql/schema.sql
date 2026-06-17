@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS `athlete_profiles` (
     `goal_race_date`            DATE DEFAULT NULL,
     `goal_race_distance`        VARCHAR(20) DEFAULT NULL COMMENT '5K, 10K, HM, marathon, ultra',
     `goal_finish_time`          VARCHAR(20) DEFAULT NULL COMMENT 'optional time goal',
+    `ultra_surface`             ENUM('road','trail') DEFAULT NULL COMMENT 'trail vs road, ultra goal distances only',
     -- Current fitness (all time-on-feet based per engine spec)
     `current_weekly_minutes`    INT DEFAULT NULL COMMENT 'current weekly time on feet in minutes',
     `longest_recent_run_mins`   INT DEFAULT NULL COMMENT 'longest recent run in minutes',
@@ -368,7 +369,7 @@ CREATE TABLE IF NOT EXISTS `engine_flags` (
                         'limited_development_opportunity','long_run_day_conflict',
                         'display_generation_incomplete',
                         'profile_updated','pace_zones_missing',
-                        'schedule_day_ramp'
+                        'schedule_day_ramp','ultra_surface_reminder'
                     ) NOT NULL,
     `severity`      ENUM('info','warning','critical') NOT NULL DEFAULT 'info',
     `flag_date`     DATE NOT NULL,

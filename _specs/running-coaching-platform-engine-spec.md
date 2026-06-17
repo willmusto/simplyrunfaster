@@ -134,7 +134,12 @@ Percentages are applied to total cycle length and rounded to whole weeks. Remain
 | 10K | 10 weeks |
 | Half Marathon | 12 weeks |
 | Marathon | 14 weeks |
-| Ultra | TBD (v2) |
+| 50K | 16–20 weeks |
+| 50 Miler | 20–24 weeks |
+| 100K | 22–26 weeks |
+| 100 Miler | 24–32 weeks |
+
+Ultra cycle lengths are race-date-driven, clamped into the per-distance range above (lower bound suits workable athletes, upper bound well-trained). See **§ Ultra-Distance Training** for the full ultra parameter set.
 
 ### Phase Length Examples
 
@@ -171,6 +176,15 @@ Classification is based on **combination of weekly mileage and length of running
 | 10K | 9+ months, 30+ mpw | 6+ months, 20+ mpw | Below workable |
 | Half Marathon | 12+ months, 35+ mpw | 9+ months, 25+ mpw | Below workable |
 | Marathon | 18+ months, 45+ mpw | 12+ months, 35+ mpw | Below workable |
+
+The engine evaluates classification on time-on-feet (runs/week + weekly minutes + long-run minutes, all met simultaneously), not mileage. Ultra thresholds (engine units):
+
+| Distance | Well Trained (runs / wk-min / long-min) | Workable |
+|---|---|---|
+| 50K | 5 / 360 / 105 | 4 / 240 / 75 |
+| 50 Miler | 5 / 420 / 120 | 4 / 300 / 90 |
+| 100K | 6 / 480 / 150 | 5 / 360 / 105 |
+| 100 Miler | 6 / 600 / 180 | 5 / 420 / 120 |
 
 ### Engine Response by Classification
 
@@ -370,6 +384,104 @@ Engine inserts recovery days after any race automatically:
 | 10K | 3–5 days |
 | Half Marathon | 5–7 days |
 | Marathon | 10–14 days |
+
+---
+
+## 9b. Ultra-Distance Training
+
+Four ultra distances are supported: **50K, 50 Miler, 100K, 100 Miler**. All are
+race-cycle plans, prescribed entirely by **time on feet** (minutes), never distance.
+Each is selected at onboarding alongside a required **trail vs road** surface
+(`athlete_profiles.ultra_surface`).
+
+### Distance mapping
+The archetype library and pace-range maps key on `5K/10K/half/marathon`. Internally
+each ultra resolves to a real distance key (`50k`, `50_miler`, `100k`, `100_miler`)
+for engine sizing (classification, cycle length, volume ceiling, long-run caps,
+cutback cadence, back-to-back scheduling, quality cadence), and a **selector distance**
+of `marathon` for the archetype/pace layer. Marathon and shorter distances are
+unchanged.
+
+### Phase proportions
+50K / 50 Miler / 100K use the same per-classification proportions as marathon. The
+**100 miler** expands the aerobic base and shortens the taper:
+
+| Phase | 100 Miler |
+|---|---|
+| Base | 35% (+5% remainder = 40%) |
+| Build | 30% |
+| Peak | 20% |
+| Taper | 10% — **capped at 2 weeks** (freed weeks extend peak) |
+
+### Cutback frequency
+- 50K — every 4 weeks (standard).
+- 50 Miler / 100K — alternating 3/4-week blocks (cutbacks at weeks 4, 7, 11, 14, 18, 21…).
+- 100 Miler — strict every 3 weeks.
+
+### Peak weekly volume ceilings (well-trained; workable = 75%)
+| Distance | Ceiling |
+|---|---|
+| 50K | 600 min (10h) |
+| 50 Miler | 720 min (12h) |
+| 100K | 840 min (14h) |
+| 100 Miler | 960 min (16h) |
+
+The ceiling is a not-to-exceed cap on the athlete's own `peak_volume_ceiling_mins`;
+volume still ramps with the standard week-over-week logic up to it.
+
+### Long-run caps (minutes on feet, by phase)
+| Distance | Base | Build | Peak |
+|---|---|---|---|
+| 50K | 150 | 180 | 210 |
+| 50 Miler | 180 | 240 | 300 |
+| 100K | 210 | 270 | 360 |
+| 100 Miler | 240 | 330 | 420 |
+
+The long run is `min(phase cap, prior-long × 1.15)` so it ramps via the 15%/week
+individual-run ceiling and is displayed as "Xh Ymin", never miles.
+
+### Back-to-back long runs
+A Saturday long run + Sunday **medium-long run** on tired legs is the primary ultra
+stimulus. The medium-long is a continuous easy session (continuous_long ≥60 min,
+else continuous_easy), labelled **"Medium-Long Run"**, NOT a quality session, sized as
+a fraction of the long run:
+
+| Distance | When | Sunday fraction |
+|---|---|---|
+| 50K | last 2 peak weeks | 55% |
+| 50 Miler | last 2 build weeks + every non-cutback peak week | 55% |
+| 100K | mid-build onward + every non-cutback peak week | 57.5% |
+| 100 Miler | mid-base (≥ base wk 6) through peak, every non-cutback week | 62.5% |
+
+The pair is separated from quality sessions by ≥1 rest day (the existing ≥2-day
+circular spacing rule); when a week can't fit both, the back-to-back pair takes
+priority and the conflicting quality slot is demoted to easy.
+
+### Quality cadence
+- 50K — ~1.5/week (alternating 1/2, development-style).
+- 50 Miler — 1/week throughout.
+- 100K — 1/week base/build; 0–1 in peak (volume + back-to-backs take priority).
+- 100 Miler — 0–1/week in base/build, **0 in peak**. When quality is scheduled it
+  favours aerobic threshold work (tempo_intervals, structured_fartlek_ladder) over
+  track-style speed (the speed/rep archetypes are excluded from selection).
+
+### Pace citations
+50K / 50 Miler cite pace zones on quality sessions exactly like marathon (when zones
+are visible + populated). **100K / 100 Miler are effort-only always**, regardless of
+`pace_zones_visible` — no pace citations on any session.
+
+### Trail vs road
+When `ultra_surface = 'trail'`:
+- Archetype scoring is multiplied: sustained_hill_repeats ×2, hill_sprints ×2,
+  structured_fartlek_ladder ×1.5, equal_distance_repeats ×0.5.
+- Long-run (and medium-long) instructions append: *"Focus on time on feet rather than
+  pace. Walk the uphills when needed — power hiking is a legitimate race strategy…"*.
+- Power-hiking practice guidance is added for 50 Miler / 100K / 100 Miler in every
+  phase, and for 50K in the peak phase only.
+- A one-time info flag **`ultra_surface_reminder`** is raised at plan generation
+  (not deduped) suggesting a peak-phase night run to simulate race conditions.
+
+Road ultras use standard archetype weighting and no trail cues.
 
 ---
 

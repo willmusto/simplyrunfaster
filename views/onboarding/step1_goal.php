@@ -69,11 +69,35 @@ include __DIR__ . '/../../views/layout/html_open.php';
                     <?php foreach (['5K','10K','15K','Half Marathon','Marathon'] as $dist): ?>
                     <label class="pill-choice <?= ($d['goal_race_distance'] ?? '') === $dist ? 'selected' : '' ?>">
                         <input type="radio" name="goal_race_distance" value="<?= h($dist) ?>"
+                               data-ultra="0"
                                <?= ($d['goal_race_distance'] ?? '') === $dist ? 'checked' : '' ?>>
                         <?= h($dist) ?>
                     </label>
                     <?php endforeach; ?>
+                    <?php foreach (['50k' => '50K','50_miler' => '50 Miler','100k' => '100K','100_miler' => '100 Miler'] as $val => $label): ?>
+                    <label class="pill-choice <?= ($d['goal_race_distance'] ?? '') === $val ? 'selected' : '' ?>">
+                        <input type="radio" name="goal_race_distance" value="<?= h($val) ?>"
+                               data-ultra="1"
+                               <?= ($d['goal_race_distance'] ?? '') === $val ? 'checked' : '' ?>>
+                        <?= h($label) ?>
+                    </label>
+                    <?php endforeach; ?>
                 </div>
+            </div>
+
+            <!-- Ultra surface (shown by JS only when an ultra distance is selected; required for ultras) -->
+            <div class="form-group" id="ultraSurfaceField" style="display:none;">
+                <label class="form-label">Is this a trail or road ultra?</label>
+                <div class="pill-choices">
+                    <?php foreach (['trail' => 'Trail','road' => 'Road'] as $val => $label): ?>
+                    <label class="pill-choice <?= ($d['ultra_surface'] ?? '') === $val ? 'selected' : '' ?>">
+                        <input type="radio" name="ultra_surface" value="<?= h($val) ?>"
+                               <?= ($d['ultra_surface'] ?? '') === $val ? 'checked' : '' ?>>
+                        <?= h($label) ?>
+                    </label>
+                    <?php endforeach; ?>
+                </div>
+                <div class="form-hint">Trail ultras emphasise hills and time on feet; road ultras keep more structured pacing.</div>
             </div>
 
             <div class="form-group">
@@ -158,14 +182,32 @@ include __DIR__ . '/../../views/layout/html_open.php';
     var radios = document.querySelectorAll('input[name="plan_type"]');
     var raceFields   = document.getElementById('raceFields');
     var returnFields = document.getElementById('returnFields');
+    var ultraField   = document.getElementById('ultraSurfaceField');
+    var distRadios   = document.querySelectorAll('input[name="goal_race_distance"]');
+    var surfRadios   = document.querySelectorAll('input[name="ultra_surface"]');
+
+    function selectedDistanceIsUltra() {
+        var d = document.querySelector('input[name="goal_race_distance"]:checked');
+        return !!(d && d.getAttribute('data-ultra') === '1');
+    }
+
+    function updateUltra() {
+        var planVal = document.querySelector('input[name="plan_type"]:checked');
+        var show = planVal && planVal.value === 'race_cycle' && selectedDistanceIsUltra();
+        ultraField.style.display = show ? '' : 'none';
+        // Required only while visible — the server enforces this too.
+        surfRadios.forEach(function (r) { r.required = !!show; });
+    }
 
     function update() {
         var val = document.querySelector('input[name="plan_type"]:checked');
         raceFields.style.display   = (val && val.value === 'race_cycle')         ? '' : 'none';
         returnFields.style.display = (val && val.value === 'return_to_running')  ? '' : 'none';
+        updateUltra();
     }
 
     radios.forEach(function(r) { r.addEventListener('change', update); });
+    distRadios.forEach(function(r) { r.addEventListener('change', updateUltra); });
     update();
 })();
 </script>

@@ -875,13 +875,18 @@ class IntervalsService
     /** Pace-zone citation context for generateWorkoutText, mirroring PlanGenerator. */
     private static function paceContext(array $workout): array
     {
+        $rawGoal = strtolower(trim((string)($workout['goal_race_distance'] ?? '')));
         $zones = null;
         if (!empty($workout['pace_zones_visible']) && !empty($workout['pace_zones'])) {
             $decoded = json_decode((string)$workout['pace_zones'], true);
             if (is_array($decoded)) $zones = $decoded;
         }
-        $goal = self::normalizeGoalKey((string)($workout['goal_race_distance'] ?? ''));
-        return ['pace_zones' => $zones, 'goal_distance' => $goal];
+        // 100K / 100 miler are effort-only on every surface (ultra spec Part 11) — no
+        // pace zones cited on the watch either. 50K / 50 miler cite like a marathon.
+        if (str_contains($rawGoal, '100')) {
+            $zones = null;
+        }
+        return ['pace_zones' => $zones, 'goal_distance' => self::normalizeGoalKey($rawGoal)];
     }
 
     /** Map a goal_race_distance to a PaceZones output key. */
@@ -889,6 +894,9 @@ class IntervalsService
     {
         $d = strtolower(trim($d));
         return match (true) {
+            // Ultras resolve to the marathon pace key (50K/50 miler cite like marathon;
+            // 100K/100 miler have their zones suppressed upstream in paceContext).
+            str_contains($d, '50') || str_contains($d, '100') || str_contains($d, 'miler') || str_contains($d, 'ultra') => 'marathon',
             str_contains($d, 'marathon') && !str_contains($d, 'half') => 'marathon',
             str_contains($d, 'half')                                  => 'half_marathon',
             str_contains($d, '10')                                    => '10K',

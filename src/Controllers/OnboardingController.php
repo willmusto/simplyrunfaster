@@ -86,10 +86,28 @@ class OnboardingController
             exit;
         }
 
+        $distance = $_POST['goal_race_distance'] ?? null;
+
+        // Ultra distances require a trail/road answer before continuing (ultra spec Part 2).
+        $ultraDistances = ['50k', '50_miler', '100k', '100_miler'];
+        $ultraSurface   = in_array($_POST['ultra_surface'] ?? '', ['trail', 'road'], true)
+            ? $_POST['ultra_surface'] : null;
+        if ($planType === 'race_cycle' && in_array($distance, $ultraDistances, true) && $ultraSurface === null) {
+            // Preserve the distance selection so the surface question reappears with it chosen.
+            $_SESSION['onboarding_data']['plan_type']          = $planType;
+            $_SESSION['onboarding_data']['goal_race_distance'] = $distance;
+            $_SESSION['flash_error'] = 'Please tell us whether this is a trail or road ultra.';
+            header('Location: /app/onboarding/1');
+            exit;
+        }
+
         $_SESSION['onboarding_data']['plan_type']      = $planType;
         $_SESSION['onboarding_data']['goal_race_date'] = $_POST['goal_race_date'] ?? null;
-        $_SESSION['onboarding_data']['goal_race_distance'] = $_POST['goal_race_distance'] ?? null;
+        $_SESSION['onboarding_data']['goal_race_distance'] = $distance;
         $_SESSION['onboarding_data']['goal_finish_time']   = $_POST['goal_finish_time'] ?? null;
+        // Only store a surface for ultra distances; clear it otherwise.
+        $_SESSION['onboarding_data']['ultra_surface'] =
+            in_array($distance, $ultraDistances, true) ? $ultraSurface : null;
 
         // Return-to-running: capture time off and medical clearance on step 1
         if ($planType === 'return_to_running') {
@@ -346,6 +364,7 @@ class OnboardingController
             'plan_type'                  => $planType,
             'goal_race_date'             => $d['goal_race_date'] ?: null,
             'goal_race_distance'         => $d['goal_race_distance'] ?: null,
+            'ultra_surface'              => in_array($d['ultra_surface'] ?? null, ['trail','road'], true) ? $d['ultra_surface'] : null,
             'goal_finish_time'           => $d['goal_finish_time'] ?: null,
             'current_weekly_minutes'     => (int)($d['current_weekly_minutes'] ?? 0) ?: null,
             'longest_recent_run_mins'    => (int)($d['longest_recent_run_mins'] ?? 0) ?: null,

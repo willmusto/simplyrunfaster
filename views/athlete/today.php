@@ -245,7 +245,7 @@ $localHour = (int)Timezone::dateInZone($tz, 'now', 'G');
     <div class="section-label" style="margin-top:24px;">RACE COUNTDOWN</div>
     <div class="card" style="display:flex;align-items:center;justify-content:space-between;">
         <div>
-            <div class="card-title"><?= h($profile['goal_race_distance'] ?? '') ?></div>
+            <div class="card-title"><?= h(race_distance_label($profile['goal_race_distance'] ?? '')) ?></div>
             <div class="card-subtitle"><?= date('M j, Y', strtotime($profile['goal_race_date'])) ?></div>
         </div>
         <div class="metric-tile" style="min-width:72px;text-align:center;">

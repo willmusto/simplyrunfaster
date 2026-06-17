@@ -84,6 +84,8 @@ class ArchetypeSelector
      *                               min_duration_week_fraction, excludes (string[])
      * @param array  $excludeCodes   Archetype codes to hard-exclude (anti-repeat hard block)
      * @param array  $penalizedCodes Archetype codes to soft-penalize (anti-repeat soft penalty, -5 pts)
+     * @param array  $weightAdjust   code => float multiplier applied to the summed score before the
+     *                               weighted pick (e.g. trail ultras boost hill/fartlek, lower track reps)
      */
     public function selectForSlot(
         string $slotType,
@@ -93,13 +95,14 @@ class ArchetypeSelector
         string $planType,
         array  $constraints    = [],
         array  $excludeCodes   = [],
-        array  $penalizedCodes = []
+        array  $penalizedCodes = [],
+        array  $weightAdjust   = []
     ): ?array {
         $eligible = $this->getEligible($slotType, $phase, $goalDistance, $classification, $planType, $constraints, $excludeCodes);
 
         if (empty($eligible)) return null;
 
-        $picked = $this->pickWeighted($eligible, $phase, $goalDistance, $classification, $planType, $penalizedCodes);
+        $picked = $this->pickWeighted($eligible, $phase, $goalDistance, $classification, $planType, $penalizedCodes, $weightAdjust);
         if ($picked === null) return null;
 
         return $this->resolveParameters($picked, $classification);
@@ -143,6 +146,9 @@ class ArchetypeSelector
      * dimensions. Zero-weight and penalized-to-zero archetypes are excluded.
      *
      * @param array  $penalizedCodes Codes that receive a -5 point deduction before pick.
+     * @param array  $weightAdjust   code => float multiplier applied to the summed score (after the
+     *                               soft penalty). >1 favours the archetype, <1 suppresses it. Used by
+     *                               trail ultras to weight hill/fartlek work up and track reps down.
      */
     public function pickWeighted(
         array  $eligible,
@@ -150,7 +156,8 @@ class ArchetypeSelector
         string $goalDistance   = '',
         string $classification = '',
         string $planType       = '',
-        array  $penalizedCodes = []
+        array  $penalizedCodes = [],
+        array  $weightAdjust   = []
     ): ?array {
         $scored = [];
         $total  = 0;
@@ -166,6 +173,11 @@ class ArchetypeSelector
             // Soft penalty: same archetype used recently
             if (in_array($archetype['code'], $penalizedCodes, true)) {
                 $score = max(0, $score - 5);
+            }
+
+            // Context weight adjustment (e.g. trail-ultra terrain weighting).
+            if ($score > 0 && isset($weightAdjust[$archetype['code']])) {
+                $score = (int)round($score * (float)$weightAdjust[$archetype['code']]);
             }
 
             if ($score > 0) {

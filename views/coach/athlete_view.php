@@ -19,9 +19,16 @@ if ($activePlan && !empty($allWorkouts)) {
             in_array($d, ['marathon','m','42k','full','full marathon'], true) => 'marathon',
             in_array($d, ['half','hm','half marathon','21k'], true) => 'half',
             in_array($d, ['10k','10km','10 km'], true) => '10K',
+            in_array($d, ['50k','50km','50 km','50k ultra'], true) => '50k',
+            in_array($d, ['50_miler','50 miler','50-mile ultra','50 mile','50mi'], true) => '50_miler',
+            in_array($d, ['100k','100km','100 km','100k ultra'], true) => '100k',
+            in_array($d, ['100_miler','100 miler','100-mile ultra','100 mile','100mi'], true) => '100_miler',
             default => '5K',
         };
     };
+
+    // True when a (normalized) distance is one of the four ultra distances.
+    $isUltraDistance = fn (string $d): bool => in_array($d, ['50k','50_miler','100k','100_miler'], true);
 
     $classifyProfile = function (array $p, string $distance): string {
         $thresholds = [
@@ -41,6 +48,22 @@ if ($activePlan && !empty($allWorkouts)) {
                 'well_trained' => ['runs_per_week' => 5, 'weekly_minutes' => 360, 'long_run_minutes' => 105],
                 'workable'     => ['runs_per_week' => 4, 'weekly_minutes' => 240, 'long_run_minutes' => 75],
             ],
+            '50k' => [
+                'well_trained' => ['runs_per_week' => 5, 'weekly_minutes' => 360, 'long_run_minutes' => 105],
+                'workable'     => ['runs_per_week' => 4, 'weekly_minutes' => 240, 'long_run_minutes' => 75],
+            ],
+            '50_miler' => [
+                'well_trained' => ['runs_per_week' => 5, 'weekly_minutes' => 420, 'long_run_minutes' => 120],
+                'workable'     => ['runs_per_week' => 4, 'weekly_minutes' => 300, 'long_run_minutes' => 90],
+            ],
+            '100k' => [
+                'well_trained' => ['runs_per_week' => 6, 'weekly_minutes' => 480, 'long_run_minutes' => 150],
+                'workable'     => ['runs_per_week' => 5, 'weekly_minutes' => 360, 'long_run_minutes' => 105],
+            ],
+            '100_miler' => [
+                'well_trained' => ['runs_per_week' => 6, 'weekly_minutes' => 600, 'long_run_minutes' => 180],
+                'workable'     => ['runs_per_week' => 5, 'weekly_minutes' => 420, 'long_run_minutes' => 120],
+            ],
         ];
         $runsPerWeek = (int)($p['training_days_per_week'] ?? 0);
         $weekly      = (int)($p['current_weekly_minutes'] ?? 0);
@@ -56,7 +79,7 @@ if ($activePlan && !empty($allWorkouts)) {
         return 'insufficient';
     };
 
-    $phaseForWeek = function (string $planType, int $week, int $totalWeeks) use ($profile, $normalizeDistance, $classifyProfile): string {
+    $phaseForWeek = function (string $planType, int $week, int $totalWeeks) use ($profile, $normalizeDistance, $classifyProfile, $isUltraDistance): string {
         if ($planType === 'development_plan') return 'Base';
         if ($planType === 'maintenance_plan') return 'Build';
         if ($planType === 'return_to_running') return 'Return';
@@ -72,7 +95,10 @@ if ($activePlan && !empty($allWorkouts)) {
         ];
         $distance = $normalizeDistance($profile['goal_race_distance'] ?? '5K');
         $class    = $classifyProfile($profile ?? [], $distance);
-        $props    = $propsByClass[$class] ?? $propsByClass['workable'];
+        // 100-miler expands the base and shortens the taper (ultra spec Part 5).
+        $props = $distance === '100_miler'
+            ? ['base' => 0.35, 'build' => 0.30, 'peak' => 0.20, 'taper' => 0.10]
+            : ($propsByClass[$class] ?? $propsByClass['workable']);
         $props['base'] += max(0.0, 1.0 - array_sum($props));
 
         $cursor = 1;
@@ -87,10 +113,21 @@ if ($activePlan && !empty($allWorkouts)) {
         return 'Base';
     };
 
-    $isCutbackWeek = function (string $planType, int $week, string $phase): bool {
+    $isCutbackWeek = function (string $planType, int $week, string $phase) use ($profile, $normalizeDistance, $isUltraDistance): bool {
         if ($week <= 1) return false;
         if ($planType === 'development_plan') return $week % 4 === 0;
-        if ($planType === 'race_cycle') return $week % 4 === 0 && strtolower($phase) !== 'taper';
+        if ($planType === 'race_cycle') {
+            if (strtolower($phase) === 'taper') return false;
+            $distance = $normalizeDistance($profile['goal_race_distance'] ?? '5K');
+            // Mirror PlanGenerator::isCutbackWeek for ultra cadences.
+            if ($distance === '100_miler') return $week % 3 === 0;
+            if (in_array($distance, ['50_miler','100k'], true)) {
+                $cut = 4; $gapThree = true;
+                while ($cut < $week) { $cut += $gapThree ? 3 : 4; $gapThree = !$gapThree; }
+                return $cut === $week;
+            }
+            return $week % 4 === 0;
+        }
         return false;
     };
 

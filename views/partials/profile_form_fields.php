@@ -23,10 +23,24 @@ $hasRace    = !empty($p['most_recent_race_time']);
             <label class="pill-choice <?= ($p['goal_race_distance'] ?? '') === $dist ? 'selected' : '' ?>">
                 <input type="radio" name="goal_race_distance" value="<?= h($dist) ?>"
                        <?= ($p['goal_race_distance'] ?? '') === $dist ? 'checked' : '' ?>>
-                <?= h($dist) ?>
+                <?= h(race_distance_label($dist)) ?>
             </label>
             <?php endforeach; ?>
         </div>
+    </div>
+    <?php $isUltraGoal = in_array($p['goal_race_distance'] ?? '', ['50k','50_miler','100k','100_miler'], true); ?>
+    <div class="form-group" <?= $isUltraGoal ? '' : 'style="display:none;"' ?> data-ultra-surface>
+        <label class="form-label">Ultra surface</label>
+        <div class="pill-choices">
+            <?php foreach (['trail' => 'Trail','road' => 'Road'] as $sval => $slabel): ?>
+            <label class="pill-choice <?= ($p['ultra_surface'] ?? '') === $sval ? 'selected' : '' ?>">
+                <input type="radio" name="ultra_surface" value="<?= h($sval) ?>"
+                       <?= ($p['ultra_surface'] ?? '') === $sval ? 'checked' : '' ?>>
+                <?= h($slabel) ?>
+            </label>
+            <?php endforeach; ?>
+        </div>
+        <div class="form-hint">Only applies to ultra distances. Drives trail-vs-road workout selection.</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group" style="margin-bottom:0;">
@@ -252,5 +266,16 @@ $hasRace    = !empty($p['most_recent_race_time']);
     }
     schedRad.forEach(function (r) { r.addEventListener('change', updateFixed); });
     updateFixed();
+
+    // Show the ultra-surface picker only when an ultra goal distance is selected.
+    var ultraDistances = ['50k','50_miler','100k','100_miler'];
+    var surfaceField   = document.querySelector('[data-ultra-surface]');
+    var distRadios     = document.querySelectorAll('input[name="goal_race_distance"]');
+    function updateSurface() {
+        var d = document.querySelector('input[name="goal_race_distance"]:checked');
+        if (surfaceField) surfaceField.style.display = (d && ultraDistances.indexOf(d.value) !== -1) ? '' : 'none';
+    }
+    distRadios.forEach(function (r) { r.addEventListener('change', updateSurface); });
+    updateSurface();
 })();
 </script>
