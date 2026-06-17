@@ -758,7 +758,7 @@ All cross-training prescribed at easy effort. Duration scales with plan stage.
 The following fields must be collected at onboarding to enable plan generation. Fields marked * are required before plan generation begins. All others can be collected during the onboarding call.
 
 ### Goal *
-- Target race distance *
+- Target race distance * — Mile / 1500m, 5K, 10K, 15K, Half Marathon, Marathon, 50K, 50 Miler, 100K, 100 Miler, or Hyrox. Hyrox is stored as `mile` + `is_hyrox=1` (display facade only, mile engine underneath — see §9c); ultras additionally collect a trail/road surface (see §9b).
 - Target race date *
 - Time goal (optional — if none, plan defaults to completion focus)
 

@@ -107,7 +107,15 @@ A scalable running coaching platform that algorithmically generates and manages 
 | invite_code | VARCHAR | nullable — the invite code used at signup |
 | ad_campaign_id | VARCHAR | nullable — UTM campaign tag for ad-driven signups |
 | ad_source | VARCHAR | nullable — UTM source (e.g. instagram, facebook) |
+| consent_age | BOOL | default false — 18+/parental consent confirmed at onboarding (migration_013) |
+| consent_privacy | BOOL | default false — Privacy Policy agreed at onboarding (migration_013) |
+| consent_given_at | DATETIME | nullable — when both consents were recorded (migration_013) |
+| consent_tos | BOOL | default false — Terms of Service agreed at onboarding (migration_020); see §25 |
+| consent_tos_at | DATETIME | nullable — when ToS consent was recorded (migration_020) |
+| deleted_at | DATETIME | nullable — set when the account is anonymized by the 90-day retention cron (migration_013); see §25 |
 | created_at | DATETIME | |
+
+*Stripe/subscription columns (`stripe_customer_id`, `subscription_status`, `subscription_end_date`, `billing_interval`, `grace_period_ends`) also live on `users` — see §29. migration_013 grandfathers all users existing at migration time as consented (they predate the policy).*
 
 ### `athlete_profiles`
 Populated by onboarding form(s). The engine reads this at plan generation time.
@@ -116,8 +124,10 @@ Populated by onboarding form(s). The engine reads this at plan generation time.
 |---|---|---|
 | athlete_id | INT FK | |
 | goal_race_date | DATE | primary target race |
-| goal_race_distance | VARCHAR | 5K, 10K, HM, marathon, ultra, etc. |
+| goal_race_distance | VARCHAR | 5K, 10K, 15K, Half Marathon, Marathon, mile, and the ultra keys 50k / 50_miler / 100k / 100_miler. A Hyrox goal is stored as `mile` with `is_hyrox=1`. See engine spec §9b (ultra) and §9c (mile/Hyrox). |
 | goal_finish_time | VARCHAR | optional time goal |
+| ultra_surface | ENUM | road, trail (nullable) — populated only for ultra goal distances (migration_018); drives trail-vs-road archetype weighting + long-run cues |
+| is_hyrox | BOOL | default false — Hyrox UI facade flag (migration_021); engine runs mile logic underneath, display shows "Hyrox" |
 | current_weekly_mileage | FLOAT | self-reported at onboarding |
 | training_days_per_week | INT | availability |
 | long_run_day | TINYINT | preferred day of week (0=Sun); used when scheduling_preference='fixed' |
@@ -304,6 +314,9 @@ Coach or admin-generated invite links for athlete onboarding.
 | max_uses | INT | default 1, configurable for batch invites |
 | use_count | INT | default 0 |
 | notes | VARCHAR | coach-facing label e.g. "for Sarah from track club" |
+| deactivated_at | DATETIME | nullable — set when a coach manually disables the link (migration 016) |
+
+*Deactivation (shipped — June 2026):* each active link in the Invite Athletes panel has a **Deactivate** button (used/expired/inactive links show a muted status label only). `POST /app/coach/invites/deactivate` → `CoachController::deactivateInvite()` (owner-scoped, CSRF, idempotent: sets `deactivated_at` where still NULL; not gated on `use_count`, so a partially-used multi-use link can still be killed). `AuthController::getValidInvite()` filters `deactivated_at IS NULL`, so a deactivated link can no longer onboard anyone and the invite landing page shows "This invite link is no longer active."
 
 ### `personal_bests`
 Tracks current PB per distance. Auto-updated when a new race result beats the existing PB. Manual entries accepted at onboarding and thereafter.
@@ -332,12 +345,14 @@ Tune-up and goal races added by coach or athlete.
 | added_by | INT FK | user_id of coach or athlete who added it |
 | added_by_role | ENUM | athlete, coach, admin |
 | race_name | VARCHAR | free text |
-| race_distance | ENUM | 5K, 10K, 15K, half, marathon, ultra, other |
+| race_distance | ENUM | 5K, 10K, 15K, half, marathon, ultra, other + the ultra keys 50k / 50_miler / 100k / 100_miler (migration_019) |
 | distance_override | FLOAT | nullable — miles, used when distance = other |
+| distance_override_unit | ENUM | miles, km (nullable) — the unit the athlete entered for an "other" distance (migration_019) |
 | race_date | DATE | |
-| is_goal_race | BOOL | default false |
+| is_goal_race | BOOL | default false. Marking a goal race syncs `athlete_profiles.goal_race_date`/`goal_race_distance`. |
 | result_time | INT | nullable — finish time in seconds, set after race |
 | result_synced_from_watch | BOOL | default false |
+| result_notes | TEXT | nullable — athlete's free-text notes logged with the result (migration_019; distinct from coach `notes`) |
 | recalibration_proposed | BOOL | default false |
 | recalibration_approved | BOOL | nullable |
 | recalibration_approved_by | INT FK | nullable |
@@ -345,6 +360,11 @@ Tune-up and goal races added by coach or athlete.
 | proposed_pace_zones | JSON | nullable — engine-computed zones from result |
 | notes | TEXT | nullable — coach notes on this race |
 | created_at | DATETIME | |
+| updated_at | DATETIME | nullable — touched on result logging / recalibration (migration_019) |
+
+The race-management feature (athlete + coach entry, terracotta calendar pills, conflict
+warnings, pre/post-race engine adjustments, post-race result + pace recalibration) is
+implemented as described in **§26**.
 
 ### `watch_connections`
 OAuth tokens and sync state per platform per athlete.
@@ -359,6 +379,27 @@ OAuth tokens and sync state per platform per athlete.
 | last_synced_at | DATETIME | |
 | sync_status | ENUM | active, error, disconnected |
 | error_message | TEXT | nullable |
+
+### `device_notify_preferences` *(implemented — migration 011)*
+Per-athlete opt-in to be notified when a wearable brand's integration ships (see Section 6). A row's presence with `notify = 1` means the athlete wants a heads-up; disabling the Settings toggle deletes the row. MariaDB-safe (utf8 / InnoDB).
+
+| Column | Type | Notes |
+|---|---|---|
+| user_id | INT FK → users(id) | |
+| brand | VARCHAR(32) | garmin, coros, polar, suunto |
+| notify | TINYINT(1) | default 0; 1 when opted in |
+| updated_at | DATETIME | |
+| PRIMARY KEY | (user_id, brand) | |
+
+### `account_deletions` *(implemented — migration_013)*
+Audit log written by the 90-day data-retention cron (`scripts/cron_delete_expired_accounts.php`, see §25). One row per anonymized account. MariaDB-safe (utf8 / InnoDB).
+
+| Column | Type | Notes |
+|---|---|---|
+| id | INT PK | |
+| user_id | INT | the anonymized user (the `users` row is kept, not hard-deleted) |
+| deleted_at | DATETIME | when anonymization ran |
+| reason | VARCHAR(64) | `90_day_post_cancellation` or `90_day_incomplete_onboarding` |
 
 ---
 
@@ -455,6 +496,14 @@ Strava's API would provide a universal pull layer — any watch platform that sy
 
 **Architecture decision:** Build direct watch integrations as the primary data layer. Strava is a parallel application in progress, not a milestone dependency.
 
+### Connected Devices — "Notify me when available" *(implemented — June 2026)*
+
+The athlete Settings page surfaces a **Connected Devices** section. Its primary row is **Intervals.icu** (connect / disconnect / "Sync workouts now" — see §6). The four direct-integration brands (Garmin, COROS, Polar, Suunto) appear below it as a build-order roadmap, each with a "Coming soon" badge (no per-brand toggle).
+
+- **When connected to Intervals.icu**, the brand rows are hidden entirely — the athlete already syncs every supported watch through Intervals.icu, so per-brand rows would only confuse.
+- **When not connected**, the brand rows show, followed by a single opt-in: a *"Notify me →"* link that reveals one checkbox — *"Notify me when direct watch integrations launch."*
+- The opt-in persists as a **single `device_notify_preferences` row** with `brand = 'all'` (one preference covering every brand), saved via AJAX `POST /app/settings/devices/notify` `{ brand: 'all', enabled }` → `AthleteController::saveDeviceNotifyPreference()` (athlete auth + CSRF; the brand allowlist includes `all`). Pre-populated on load from `loadDeviceNotifyPrefs()`. Interest capture only — when a direct integration ships, the stored opt-ins seed the availability announcement. *(Earlier per-brand toggles were replaced by this single opt-in; legacy per-brand rows are harmless and no longer surfaced.)*
+
 ### Phase 1: Intervals.icu (Watch Integration Layer) *(implemented & deployed)*
 
 Rather than integrate each watch brand's API directly first, **Intervals.icu is the Phase 1 watch integration layer.** Athletes connect their watch to a free Intervals.icu account, then connect Intervals.icu to SimplyRunFaster via OAuth — one integration covering **Garmin, COROS, Polar, Suunto, Wahoo, Amazfit, Apple Watch, and Huawei**. We push structured workouts to the athlete's Intervals.icu calendar (which syncs to the watch) and pull completed runs back. Direct per-brand integrations are **Phase 2+** (below), pursued only if a brand needs richer fidelity than Intervals.icu provides.
@@ -514,6 +563,10 @@ ELEMNT ecosystem. Running support is limited — evaluate demand before committi
 - Completed workouts display alongside planned workouts in the log view (what was planned vs. what was done).
 - Athletes cannot edit planned workouts. They can log RPE, notes, or manually log a workout. Manual logging is a fully supported first-class flow, not a fallback.
 
+**Today dashboard — "Your Stats" (2026-06-16):** The athlete Today view (`views/athlete/today.php`, rendered by `AthleteController::today()`) "Your Stats" section shows **last-30-days running stats** rather than the engine load model (the former Fitness/CTL, Fatigue/ATL, Form/TSB cards were removed, along with the dashboard-only `training_load` query). Three cards over completed running workouts in the last 30 days (`completed_workouts`, `workout_type` filtered to running types, `activity_date` within window): **Days Run** (`COUNT(DISTINCT activity_date)`), **Time Running** (`SUM(actual_duration)` shown `H:MM`), and **Volume** (`SUM(actual_distance)`, shown `mi`, or `km` when `athlete_profiles.units = 'km'`, 1 decimal). All three show "—" when there are no running workouts in the window. CTL/ATL/TSB remain computed and stored (`training_load`) and are still used by the coach view and progress page — only the athlete dashboard surface changed.
+
+**Today dashboard — "This Week" accordion (2026-06-17):** Each "This Week" row is a tappable, **CSS-only** accordion (hidden checkbox + `<label>`, no JS). Collapsed shows the existing day/badge/duration plus a chevron; expanded reveals a recessed card with `display_title`, `display_summary` (muted), `athlete_instructions`, and a "Log this workout →" link on today's row only, with a 200ms `max-height` ease and a rotating chevron. Self-contained in `today.php` (inline `<style>`); the data is already present because `getVisibleWorkouts()` selects `pw.*`.
+
 ---
 
 ## 8. Coach Dashboard
@@ -532,6 +585,14 @@ Coach accounts are tagged `role = coach` in `users`. A coach can be assigned to 
 
 **Implementation status (2026-06-14):** The coach individual-athlete view renders the full macro plan for the current active or pending-approval plan underneath the existing workout card list. It groups rows into Mon–Sun UI weeks, shows blank outside-plan cells for partial first/last weeks, labels phase and cutback status, displays workout type/duration/coach lock/compliance dots, and expands day cells read-only to show title, duration, summary, and athlete instructions. Full macro-plan inline editing remains deferred beyond the existing simple edit endpoint; that endpoint sets `coach_locked = true` when a coach saves an override. The Screen 3 right-context sidebar (pace zones, PBs, load, flags, billing, quick actions) remains future work.
 
+**Mobile responsiveness (2026-06-16):** The coach individual-athlete view (`views/coach/athlete_view.php`) is now fully responsive at ≤768px — the desktop sidebar+main grid collapses to a single full-width column with no horizontal overflow. The macro-plan calendar switches from the wide horizontally-scrolling 7-column grid to stacked full-width day rows (date left, workout badge/duration right; rest days muted); profile rows stack label-above-value; the message preview wraps; alert cards stack their header above the message; and action/dismiss buttons and workout tap targets meet a 44px minimum. Desktop layout (≥1024px) is unchanged. All changes are scoped to the view's own `<style>` block plus minimal HTML restructuring — no other pages or shared CSS affected.
+
+**Plan management — drag-reschedule, add, remove (2026-06-16):** The macro plan on the coach athlete view is now editable. The coach's arrangement is authoritative — none of these re-run or re-optimize the engine.
+
+- **Drag-to-reschedule.** Workout bubbles are draggable; dropping on another in-plan day persists via `POST /app/coach/athlete/:id/workout/reschedule` → `CoachController::rescheduleWorkout()` (coach-owns-athlete auth + CSRF). The handler validates the destination is a real date inside the plan window, then: warns (non-blocking) if it's a **must-off** day (`{error:'must_off'}`, client re-POSTs with `force:true` on confirm); reports a **conflict** if the day is occupied (`{error:'conflict', existing_workout}`, client offers a **swap**, sent as `swap_with` and applied as an atomic two-row date exchange in a transaction); otherwise `UPDATE scheduled_date`. The calendar DOM updates in place; any server error reverts the drag. (HTML5 drag is desktop; the stacked mobile list is tap-only.)
+- **Add workout.** Empty/rest day cells (coach view only) show a "+ Add workout" button opening a modal with two paths via `POST /app/coach/athlete/:id/workout/add` → `addWorkout()` (supports a `preview` flag). **Archetype picker:** filter by category (Easy/Long/Quality/Recovery) → pick archetype → variant + duration → live preview → add. Instances are resolved and rendered through the engine via the new `PlanGenerator::composeManualWorkout()` (and `PlanGenerator::manualArchetypeLibrary()` powers the picker), so all snapshot/display columns match generated workouts. **Free-form:** title, workout type (badge color), duration, athlete instructions, coach-only notes (stored in `planned_workouts.notes`), `archetype_code = NULL`. Both paths insert with `coach_locked = 1` and `visible_to_athlete = 1`.
+- **Remove workout.** A muted "Remove workout" action in the detail popout soft-deletes via `POST /app/coach/athlete/:id/workout/remove` → `removeWorkout()`: sets `cancelled = 1`, `cancelled_at`, `cancelled_by` (never a hard delete, preserving the training log). The day renders as rest with a faint coach-only "Removed" marker. **migration_012** adds `cancelled`/`cancelled_at`/`cancelled_by` to `planned_workouts`; **all** consumers now filter `cancelled = 0 OR cancelled IS NULL` — `getPlanWorkouts`, the athlete Today/Plan visible-workout and completed-match queries, `TrainingLoad`'s planned-workout join, `cron_notifications`, and `cron_update_visibility`.
+
 Coach dashboard also includes:
 - In-app messaging thread per athlete (see Section 14)
 - Push notification controls (see Section 15)
@@ -544,12 +605,12 @@ Triggered on first login. Completion sets `onboarding_completed_at` and queues p
 
 **Form sections (can be split across multiple screens):**
 
-1. **Goal** — target race, distance, date, time goal (optional)
+1. **Goal** — target race, distance, date, time goal (optional). Distance options: 5K, 10K, 15K, Half Marathon, Marathon, Mile / 1500m, Hyrox, and the ultras 50K / 50 Miler / 100K / 100 Miler. Selecting an ultra shows a required trail/road question (`ultra_surface`); selecting Hyrox stores `goal=mile` + `is_hyrox=1` and shows a functional-fitness supplement note on the next screen. See engine spec §9b/§9c.
 2. **Current fitness** — current weekly mileage, longest recent long run, most recent race result (optional)
 3. **Availability** — days per week, preferred long run day, any days unavailable
 4. **History** — years running, injury history, highest-ever weekly mileage
 5. **Watch setup** — platform selection, OAuth connect (optional — clearly skippable, no friction if declined)
-6. **Preferences** — units (miles/km), notifications, dark/light mode
+6. **Preferences** — units (miles/km), notifications, dark/light mode, **plus three required consent checkboxes**: (a) "I am 18 years of age or older, or I have obtained parental or guardian consent…", (b) "I have read and agree to the [Privacy Policy](/app/privacy).", and (c) "I have read and agree to the [Terms of Service](/app/terms), including the assumption of risk and liability waiver in Section 5." (migration_020, 2026-06-17). All three must be checked; `OnboardingController::saveStep6()` validates them server-side (the client `required` attribute is convenience only) and refuses to finalize onboarding if any is missing. On success it records `consent_age = 1`, `consent_privacy = 1`, `consent_given_at = NOW()`, `consent_tos = 1`, `consent_tos_at = NOW()` on the `users` row. See §25.
 
 Data writes to `athlete_profiles`. Coach is notified. Plan generation is queued but requires coach approval before athlete sees anything.
 
@@ -568,8 +629,8 @@ Data writes to `athlete_profiles`. Coach is notified. Plan generation is queued 
 - Garmin Health API
 - Polar Accesslink API
 - Payment processor (Stripe recommended)
-- Transactional email (Postmark or SendGrid)
-- SMS (Twilio — for SMS notification channel and phone number verification)
+- Transactional email — **Resend** (implemented; `src/Mailer.php`). Replaces the earlier Postmark/SendGrid placeholder.
+- SMS (Twilio — for SMS notification channel and phone number verification) — *deferred; schema accommodates it (`channel_sms`) but it is not wired*
 
 **No persistent background process required.** All engine logic is cron-triggered batch processing.
 
@@ -600,6 +661,8 @@ SimplyRunFaster is built as a PWA. This means it is simultaneously:
 - Both experiences are fully functional
 
 ### Push Notification Events
+*✅ Web Push is implemented (June 2026) — see Section 28 for the dispatcher, channels, preferences, and the full event wiring. The table below is the event catalog; delivery now flows through `Notifications::send()`.*
+
 | Event | Recipient | Message |
 |---|---|---|
 | Workout pushed to watch | Athlete | "Your [workout name] is on your watch" |
@@ -616,13 +679,20 @@ SimplyRunFaster is built as a PWA. This means it is simultaneously:
 
 **Service worker HTTP headers:** `sw.js` is served with `Cache-Control: no-cache, no-store, must-revalidate` via a `<FilesMatch "sw\.js$">` block in `.htaccess`, overriding the `max-age=31536000, immutable` that `.htaccess` applies to all other `.js` files. The app entry HTML pages (PHP-served routes) include `no-store, no-cache, must-revalidate` via PHP headers. This ensures browsers always fetch the latest SW script and HTML shell on each navigation, regardless of browser HTTP cache state.
 
-**Service worker lifecycle:** `sw.js` calls `self.skipWaiting()` in the install event so a newly installed SW activates immediately without waiting for existing tabs to close. The activate event deletes all caches whose name differs from `CACHE_NAME`, then calls `self.clients.claim()` to take immediate control of all open clients — stale-cache deletion completes before `clients.claim()` resolves. A `{type: 'SKIP_WAITING'}` message listener allows DevTools force-activation of a waiting SW during testing without requiring a reinstall.
+**Service worker lifecycle:** `sw.js` calls `self.skipWaiting()` in the install event so a newly installed SW activates on the next launch. The activate event deletes all caches whose name differs from `CACHE_NAME`. It deliberately does **not** call `self.clients.claim()`: claiming would swap the controller of an already-open, authenticated page the instant a deploy lands and — paired with the cache flush — was producing stale, logged-out navigations on the open client. Without claim, open pages keep their current controller until the next natural navigation/relaunch, so an active session is never interrupted; `skipWaiting()` still hands control to the new SW on the next launch. A `{type: 'SKIP_WAITING'}` message listener allows DevTools force-activation during testing. *(Removing `clients.claim()` was part of the 2026-06-16 PWA session-loss fix — see "Session persistence across SW updates" below.)*
 
-**PRECACHE list:** The SW pre-caches `/app`, `/app/plan`, `/app/offline`, and `/manifest.json`. `app.css` and `app.js` are **not** pre-cached. SW cache matching does not ignore query strings by default, so pre-caching the un-versioned path would never match requests for the versioned URL. These assets are instead cached lazily by the `cacheFirst` handler on the first request — when the versioned URL produces a cache miss, the file is fetched from the network and stored under the versioned key. A new deploy changes the `?v=` value, producing a fresh cache miss and a fresh fetch automatically.
+**PRECACHE list:** The SW pre-caches only auth-independent resources: `/app/offline` and `/manifest.json`. Personalized pages (`/app`, `/app/plan`) are **not** pre-cached — fetching them at install time stores whatever the install request's session/role produced (a redirect, a 403, or a logged-out page), which then gets re-served as a stale "logged out" artifact after a deploy. They are cached lazily on a real visit by `networkFirst` instead. `app.css` and `app.js` are also **not** pre-cached: SW cache matching does not ignore query strings, so the un-versioned path would never match the versioned URL. They are cached lazily by the `cacheFirst` handler on first request — when the versioned URL produces a cache miss, the file is fetched and stored under the versioned key. A new deploy changes the `?v=` value, producing a fresh cache miss and fetch automatically.
 
 **Install-time HTTP cache bypass:** PRECACHE items are fetched with `{cache: 'reload'}` mode during install, bypassing the browser's HTTP cache. Without this, a browser that has `app.css` cached with `max-age=31536000, immutable` would return the stale cached bytes to the SW during install — meaning a CACHE_NAME bump would create a new SW cache containing old CSS, producing no visible change for the user.
 
-**CACHE_NAME convention:** `srf-YYYYMMDD`. Bumped on every deploy by running `sed -i "s/srf-[0-9]*/srf-$(date +%Y%m%d)/" sw.js` in the project root. The activate event uses string equality (`key !== CACHE_NAME`) to identify stale caches — any change to the string, regardless of direction, invalidates the old cache.
+**Session persistence across SW updates (2026-06-16 fix):** PWA users (notably coaches/admins) were being bounced to the login screen on every deploy. The session cookie itself was fine (30-day `lifetime`, `secure`, `httponly`, `SameSite=Lax`); the cause was the SW caching `/app/login` — which is both the PWA `start_url` and the role-dispatch route. A logged-out first visit cached the login page under `/app/login`; after a `CACHE_NAME` bump flushed caches, the iOS standalone PWA's cold-relaunch to `start_url` could be served the stale logged-out page even though the cookie was still valid. Fixes: (1) auth/dispatch pages (`/app/login`, `/app/register`, `/app/logout`, `/app/forgot-password`, `/app/reset-password`, `/app/invite/*`) are now **network-only** — never read from or written to the cache, so they always reflect live session state; (2) `networkFirst` only caches **non-redirected** `200` responses, so a followed `302` auth/role redirect is never stored under the requested URL; (3) `clients.claim()` was removed (above). Server-side, `Auth::applyCookieParams()` also pins `session.gc_maxlifetime` to `SESSION_LIFETIME` (30 days) so idle server-side session files aren't garbage-collected before the cookie expires.
+
+**CACHE_NAME convention:** `srf-YYYYMMDD`. Bumped on every deploy by running `sed -i "s/srf-[0-9][0-9]*/srf-$(date +%Y%m%d)/" sw.js` in the project root. The activate event uses string equality (`key !== CACHE_NAME`) to identify stale caches — any change to the string, regardless of direction, invalidates the old cache. The pattern requires **at least one digit** (`[0-9][0-9]*`) so it matches only the date-based name and never the unrelated `srf-notification` push tag in `sw.js` (a bare `srf-[0-9]*` would corrupt that tag to `srf-YYYYMMDDnotification`). **Same-day re-deploys:** the bare date name means a second deploy on the same day is a no-op for asset busting (network-first views/PHP still serve fresh; cache-first CSS/JS are `?v=<filemtime>`-versioned, so they bust regardless); for repeated same-day cache flushes append a counter suffix (`srf-2026061702`, `…03`, …).
+
+**HTTPS, session cookie & CSRF (2026-06-17 fix):**
+- **Force HTTPS** in `.htaccess`. NearlyFreeSpeech terminates TLS at an upstream proxy, so the backend Apache always sees `%{HTTPS}=off` even for HTTPS requests — the real scheme arrives in `X-Forwarded-Proto`. The redirect fires only when **both** `X-Forwarded-Proto != https` **and** `%{HTTPS} off`, so it never loops on NFSN (proxied) or on a directly-TLS server. (A bare `RewriteCond %{HTTPS} off` rule would redirect-loop forever on NFSN.)
+- **Session cookie** (`Auth::applyCookieParams()`, set before `session_start()`): `path=/` (site-wide), `secure`, `httponly`, `SameSite=Lax`, 30-day `lifetime`. `secure` relies on the HTTPS redirect above — mobile Safari refuses to store a `Secure` cookie delivered over plain HTTP, which previously dropped the session on mobile and produced spurious CSRF-token mismatches; enforcing HTTPS fixes that.
+- **CSRF mismatch** no longer shows a white screen. `Auth::verifyCsrf()` returns a JSON 403 to fetch/JSON callers (so AJAX handlers surface it inline) and renders a styled "Session expired" page (`views/errors/csrf.php`, "Back to login") to ordinary browser form posts.
 
 ---
 
@@ -652,6 +722,14 @@ Add to `planned_workouts` table:
 - `athlete_moved_at DATETIME` — nullable
 - `must_off_override BOOL` — default false
 
+### Implementation status *(shipped — June 2026)*
+Athlete day-swap is live. `POST /app/athlete/workout/swap` → `AthleteController::swapWorkout()` (athlete auth + CSRF; JSON body `{workout_id, target_date, force}`). The picker is a 10-day modal in `views/athlete/plan.php` — today through today+9, each day labelled with its current content, must-off days flagged with a lock, and the workout's own day disabled.
+- **Window:** `SWAP_WINDOW_DAYS = 10`. Both the picker and the server validate that `target_date` *and* the source workout's current date fall within today..+9, in the athlete's timezone.
+- **Move vs. swap:** if the target day already holds a visible, non-cancelled workout in the active plan, the two `scheduled_date`s are exchanged atomically in a transaction; otherwise the source workout's date is moved. Both legs stamp the audit columns above (`original_scheduled_date` preserved as the earliest prior date; `athlete_moved`, `athlete_moved_at`; `must_off_override` per leg).
+- **Guards:** coach-locked workouts cannot be moved by the athlete; a must-off target is a soft warning the athlete confirms (re-POST with `force:true`); out-of-window / not-owned / not-visible / cancelled are rejected.
+- **Side effects:** affected workouts are re-pushed to Intervals.icu (`IntervalsService::pushWorkout()`, best-effort, wrapped so a push failure can never fail the swap — the DB change is already committed), and the coach is notified via `athlete_day_swap` (controllable, default off). The athlete plan card shows a "moved from <date>" indicator.
+- **Deferred from the rules above (not yet built):** the 2-day-to-long-run and consecutive-quality soft warnings, and coach reversal from the plan view.
+
 ---
 
 ## 13. In-App Messaging
@@ -671,14 +749,16 @@ Coaches and athletes communicate within the platform. All messages are tied to t
 | id | INT PK | |
 | athlete_id | INT FK | always scoped to an athlete |
 | sender_id | INT FK | user_id of sender |
-| sender_role | ENUM | athlete, coach |
+| sender_role | ENUM | athlete, coach, assistant_coach |
 | body | TEXT | message content |
 | sent_at | DATETIME | |
 | read_at | DATETIME | nullable — when recipient read it |
 | push_sent | BOOL | whether push notification was sent |
 | message_type | ENUM | message, session_note, session_note_reply |
-| completed_workout_id | INT FK | nullable — links to session thread origin |
+| completed_workout_id | INT FK | nullable — links to session thread origin (set once the workout is completed) |
+| planned_workout_id | INT FK | nullable — session-card link to a planned workout, available pre-completion (migration_022) |
 | thread_id | INT FK | nullable — self-referencing for session threads |
+| reply_count | INT | default 0 — session card: comments after the first (re-float counter, migration 015) |
 
 ### `session_notes`
 Session-level notes and threaded conversations. Separate from the main message thread but surfaces into it as linked cards.
@@ -686,14 +766,48 @@ Session-level notes and threaded conversations. Separate from the main message t
 | Column | Type | Notes |
 |---|---|---|
 | id | INT PK | |
-| completed_workout_id | INT FK | the session this note belongs to |
+| completed_workout_id | INT FK | nullable (migration_022) — set once the workout is completed; NULL for pre-completion notes |
+| planned_workout_id | INT FK | nullable (migration_022) — the planned workout the thread is tied to; available pre-completion |
 | athlete_id | INT FK | |
 | author_id | INT FK | user_id — athlete or coach |
-| author_role | ENUM | athlete, coach |
+| author_role | ENUM | athlete, coach, assistant_coach |
 | body | TEXT | note content |
 | created_at | DATETIME | |
 | soft_limit_chars | INT | 500 — configurable, not hard-enforced |
 | hard_limit_chars | INT | 1000 — requires confirmation tap to exceed soft limit |
+
+### Session notes & session-card threading *(shipped — June 2026)*
+
+**Athlete session detail.** `GET /app/log/:id` → `AthleteController::session()` renders one completed workout: planned-vs-actual comparison plus the note UI and the full session thread (the athlete's note first, coach replies after, read from `session_notes`). The training log links each row here. Note entry has a character counter that appears at 400 chars, turns amber past the 500 soft limit, caps at the 1000 hard limit, and confirms ("Your note is quite long. Are you sure?") past the soft limit. Athletes can edit their own note (`POST /app/log/note/edit` → `sessionNoteEdit()`); creation/replies go through the existing `POST /app/log/note` → `sessionNoteSave()`. A reply compose box appears once the coach has replied.
+
+**One session card per workout (dedupe + re-float).** Every comment on a workout — athlete note or coach reply — no longer inserts its own thread row. Instead `SessionThread::recordComment()` keeps a single `messages` row per `completed_workout_id` (`message_type = 'session_note'`): the first comment inserts it; each later comment re-floats it to the bottom (`sent_at = NOW()`), bumps `reply_count`, refreshes the preview to the latest comment, and re-attributes it to the latest commenter so unread resolves for the recipient. (`session_note_reply` message rows are no longer created — legacy rows may still exist; full per-comment text always lives in `session_notes`.) The card renders the linked workout's `display_title`, a 120-char latest-comment preview, an "N replies" tally, and (athletes) a "View session →" link to `/app/log/{id}`. The 10-second message poll passes `&since=<newest sent_at>` so a re-floated card (whose id is unchanged) is detected and moved to the bottom client-side without duplicating. Migration 015 adds `messages.reply_count`.
+
+**Coach side.** Coaches comment via `POST /app/coach/athlete/:id/session-note` → `CoachController::coachSessionNoteSave()` (writes a `session_notes` row, then `SessionThread::recordComment()` re-floats the card and fires `coach_session_comment`). Entry points: the "+ Comment on this session" form on session cards in the coach message thread, and a "Comment on session" button in the macro-plan workout detail popout (`#mwd`) shown only when that planned workout has a logged completion (`getPlanWorkouts()` resolves `completed_workout_id`).
+
+### Workout-linked threads — pre/post completion *(shipped — June 2026, migration 022)*
+
+Threads are keyed on `planned_workout_id` so an athlete can open a thread for ANY workout, upcoming or completed, not just from the Log tab after completion. Pre-workout questions and post-completion notes are the same thing: `session_notes` rows tied to a planned workout. `completed_workout_id` is filled in once the workout is logged; the single re-floated `messages` session card carries both ids (`SessionThread::recordCommentPlanned()` / `recordComment()` upsert by `planned_workout_id` first, then `completed_workout_id`).
+
+- **Focused thread view:** `GET /app/messages/workout/{planned_workout_id}` → `AthleteController::workoutThread()` (coach parity: `GET /app/coach/workout/{planned_workout_id}/thread` → `CoachController::workoutThread()`), shared view `views/messages/workout_thread.php` — workout header (badge, title, date, summary) + chronological thread + compose. Send: `POST .../send` → `sendWorkoutMessage()` (athlete) / `CoachController::sendWorkoutMessage()` (coach); inserts a `session_notes` row, re-floats the card, notifies the other party (`athlete_session_note` / `coach_session_comment`).
+- **Entry points:** the Today "This Week" accordion cards and the Plan upcoming cards render a button via `render_workout_thread_button()` — "Ask your coach about this workout" (no thread), "1 message · waiting for reply" (`reply_count = 0`), or "View thread (N replies)" (`reply_count > 0`); state comes from `AthleteController::workoutThreadState()`.
+- **Main-thread card link:** the session card now links to `/app/messages/workout/{planned_workout_id}` (athlete) / `/app/coach/workout/{planned_workout_id}/thread` (coach), falling back to `/app/log/{completed_workout_id}` for legacy cards with no planned id. Thread/poll queries `COALESCE` planned-workout title/date so pre-completion cards render before any completion exists.
+
+### Scheduled coach messages — `scheduled_messages` *(shipped — June 2026, migration 017)*
+
+Backs delayed coach messages. On onboarding completion, `OnboardingController::scheduleWelcomeMessage()` queues a welcome note from the athlete's (now-backfilled) assigned coach with `send_after = NOW() + INTERVAL 12 MINUTE`, first-name-only greeting; no-op when no coach is assigned, idempotent per athlete. `scripts/cron_scheduled_messages.php` (a **separate** lightweight cron — kept apart from the day-cadence `cron_notifications.php`, which must not run hourly) posts due rows into the thread as coach messages, fires `message_from_coach`, and marks them sent (claims `sent=1` before posting to avoid double-send). **Requires an NFSN scheduled task** (every 15 min, or hourly fallback) — effective delay is 12 min to ~one run interval.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | INT PK | |
+| athlete_id | INT | |
+| sender_id | INT | coach user_id |
+| body | TEXT | |
+| send_after | DATETIME | |
+| sent | TINYINT(1) | default 0 |
+| sent_at | DATETIME | nullable |
+| created_at | TIMESTAMP | |
+
+MyISAM/utf8, consistent with the live schema.
 
 ### Coach UI
 - Message thread accessible from athlete profile sidebar
@@ -880,6 +994,22 @@ The following must be reviewed by a qualified lawyer before SimplyRunFaster acce
 
 The medical clearance checkbox in the return-to-running flow is a UX friction point, not a legal substitute for proper TOS. Both are required.
 
+### Privacy Policy, Consent & Data Retention *(implemented — 2026-06-16)*
+
+The Privacy Policy is live and the consent + retention machinery is built. (The HIPAA review and a final qualified-lawyer pass over the drafted documents remain open pre-launch items.)
+
+- **Policy page:** `GET /app/privacy` — public, no auth required (allowlisted in the athlete billing gate so a lapsed athlete can still read it). Rendered by `views/static/privacy.php` using the app layout (no authenticated nav). Effective 2026-06-16, covering US (CCPA), EU/UK (GDPR / UK GDPR), Canada (PIPEDA), and Mexico (LFPDPPP); Section 6 lists processors (NearlyFreeSpeech, Stripe, Resend, Intervals.icu). A "Privacy Policy" link appears in the global app footer (`views/layout/html_close.php`) on every page and on the marketing placeholder.
+- **Onboarding consent:** two required checkboxes (age/parental consent + Privacy Policy agreement) on the final onboarding step, validated server-side; recorded on `users` as `consent_age` / `consent_privacy` / `consent_given_at` (migration_013). See §9. Existing users at migration time are grandfathered as consented.
+- **90-day retention & deletion:** `scripts/cron_delete_expired_accounts.php` (daily NFSN cron, hour 4 UTC; supports `--dry-run`) enforces the policy's retention window. It selects **athlete-role** accounts only and only those with `subscription_status` in (`canceled`, `none`) — never `active`/`trialing`/`comped`/`past_due`, and never coach/admin — in two categories: `90_day_post_cancellation` (canceled, `subscription_end_date` > 90 days past) and `90_day_incomplete_onboarding` (`none`, signed up > 90 days ago, onboarding never completed). For each, it deletes the athlete/user-scoped child rows (messages, session_notes, completed_workouts, planned_workouts, athlete_profiles, engine_flags, training_plans, notification_preferences, device_notify_preferences, push_subscriptions, athletes), then **anonymizes** (does not hard-delete) the `users` row — `email = deleted_<id>@deleted.invalid`, `name = 'Deleted User'`, `password_hash = ''`, `phone_number = NULL`, `stripe_customer_id = NULL`, `deleted_at = NOW()` — so billing records that reference the user id survive (Privacy Policy §9: billing records retained 7 years). Each anonymization is logged to `account_deletions` (see §4). *(Note: `users` has no `push_subscription` column — push data is removed via the `push_subscriptions` table delete.)*
+- **Config reminder:** `config/config.php` carries a non-wired comment that the `privacy@simplyrunfaster.com` mailbox must be set up and forwarded before beta launch.
+
+### Terms of Service *(implemented — 2026-06-17, migration_020)*
+
+The Terms of Service is live (drafted for SimplyRunFaster; a final qualified-lawyer pass is still recommended pre-launch).
+
+- **Policy page:** `GET /app/terms` — public, no auth. Rendered by `views/static/terms.php` (same teal-heading / 720px styling as the privacy page, no authenticated nav). Effective 2026-06-17, 18 sections including acceptance, eligibility, not-medical-advice, the **assumption-of-risk & liability waiver (Section 5)**, return-to-running terms, subscription/billing (auto-renewal, cancellation, refunds, price changes, failed payments, Stripe), third-party integrations, IP, termination, disclaimers, limitation of liability, and Tennessee governing law / AAA arbitration / class-action waiver with EU/UK/Mexico carve-outs. A "Terms of Service" link sits in the global app footer beside the Privacy Policy link.
+- **Onboarding consent:** a third required checkbox ("I have read and agree to the Terms of Service, including the assumption of risk and liability waiver in Section 5.") on the final onboarding step, validated server-side; recorded on `users` as `consent_tos` / `consent_tos_at` (migration_020). Existing users at migration time are grandfathered as consented. See §9.
+
 ---
 
 ## 30. Plan Templates
@@ -972,6 +1102,38 @@ All races are treated as full effort by the engine. No target effort distinction
 
 **Dismissal rationale:** A result that doesn't reflect actual fitness (bad day, illness, heat, deliberately conservative effort) should not automatically reset zones. Coach judgment call is the correct gate.
 
+### Implementation (v1 — as built)
+
+- **Schema:** the pre-existing `races` table (migration_019 extends it) — `race_distance`
+  ENUM gains the four ultra keys (`50k`/`50_miler`/`100k`/`100_miler`); `distance_override`
+  stores an "other" distance in miles with `distance_override_unit` recording the entered
+  unit; `result_notes` holds the athlete's result note (the coach's note stays in `notes`).
+  `engine_flags.flag_type` gains `race_added` (info), `goal_race_changed` (warning), and
+  `pace_recalibration` (info).
+- **Entry:** athletes add races from the Plan tab ("Add a race"); coaches from the athlete
+  detail view ("Add race") with inline conflict warnings (quality sessions within 7 days
+  before, fetched from `/coach/athlete/:id/race-conflicts`) and a coach-only internal note.
+  All race CRUD lives in `RaceController`; routes are `/athlete/race/add`,
+  `/athlete/race/result`, `/coach/athlete/:id/race/add`, and
+  `/coach/races/:id/recalibrate/{approve,dismiss}`.
+- **Display:** races render as terracotta pills on the athlete Plan (rolling window) and the
+  coach macro plan. Coach quality cells within 7 days before a race get a yellow border,
+  within 3 days a red border. A goal race (profile `goal_race_date`) shows a `GOAL:` pill.
+  Marking a race `is_goal_race` syncs `athlete_profiles.goal_race_date` /
+  `goal_race_distance` so the goal-race display and future generation agree.
+- **Engine:** `PlanGenerator::applyRaceAdjustments()` runs at plan generation and on every
+  race add. It is idempotent (caps / type-swaps / deletes, never compounding): race-day
+  training workouts removed; long runs within 7 days forced to `continuous_long` /
+  `continuous_easy` (3–4 days out capped to 60% of a normal long run, 1–2 days out a ≤30 min
+  shakeout); quality removed within 3 days; and post-race recovery/rest days inserted by
+  distance (5K 3 · 10K 5 · half 7 · marathon 14 · 50K/50mi 14–16 · 100K/100mi 21).
+- **Recalibration:** logging a result stores `result_time` (seconds) + `result_notes`, sets
+  `recalibration_proposed`, computes `proposed_pace_zones` via `PaceZones::fromRace`, and
+  raises a `pace_recalibration` flag carrying the `race_id`. The Alerts view renders a
+  current-vs-proposed card with Approve / Modify (edit zones inline) / Dismiss; Approve
+  writes `athlete_profiles.pace_zones` (`source = race_result`) and closes the flag.
+  Distances PaceZones can't project (ultra/other) raise the flag without an auto-proposal.
+
 ### Pace Zone Provenance (`pace_zones_source`)
 Every populated `pace_zones` profile records how it was derived:
 - `race_result` — derived from a logged race / time trial. Framed as **verified**.
@@ -1059,6 +1221,19 @@ Admin-only views:
 
 ## 28. Notification System
 
+> **✅ Implemented (June 2026).** The full notification system below has shipped to production. Component map:
+> - **`src/Notifications.php`** — central dispatcher. All sends route through `Notifications::send($userId, $type, $data)`: resolves per-user preferences, enforces always-on types, evaluates quiet hours in the user's own timezone (via `src/Timezone.php`), and dispatches to enabled channels with email fallback.
+> - **`src/EmailTemplates.php`** — HTML + plain-text email bodies (teal wordmark/CTA, manage-preferences footer): `plan_approved`, `plan_pending_approval`, `message_*`, `critical/warning/info_flag`, `weekly_summary`, `weekly_athlete_digest`, plus a generic fallback. Sent via **Resend** (`src/Mailer.php`).
+> - **Web Push** — `minishlink/web-push` (pinned `^9.0` for the PHP 8.1 web runtime) with VAPID keys in `config/config.local.php`. Subscriptions persist in the **`push_subscriptions`** table (one row per device, multi-device); `Notifications::sendPush()` fans out to all of a user's devices and prunes dead endpoints on 404/410. `POST /app/push/subscribe` saves a device; `assets/js/app.js` auto-subscribes when permission is granted and shows a one-time enable prompt otherwise; the service worker (`sw.js`) renders the push and handles `notificationclick`.
+> - **`scripts/cron_notifications.php`** — daily (NFSN scheduler, hour 13 UTC): `tomorrow_plan`, `weekly_summary`, `pre_race_reminder`, `rpe_prompt`, `weekly_athlete_digest`. Day-level gating with per-user timezone + quiet-hours handling. *Note: a once-daily run honors `preferred_time` only to the cron's cadence — exact per-user delivery times would require scheduling the script hourly (the queries already read `preferred_time`/`preferred_day`).*
+> - **Preferences UI** — dedicated pages for athletes (`/app/settings/notifications`) and coaches (`/app/coach/settings/notifications`), shared partial `views/partials/notifications_form.php`. Always-on rows are locked; controllable rows expand to inline push/email channel pickers; SMS is shown disabled ("Coming soon"). Each change saves immediately via AJAX (`POST .../notifications`). Default rows are seeded role-aware by `scripts/run_migration_009.php` / `Notifications::ensureUserDefaults()`.
+>
+> **Deviations from the spec as written:**
+> - **SMS** is deferred. `channel_sms` exists in the schema (always `0`) and is never dispatched.
+> - **`coach_session_comment`** is wired (June 2026): the coach mirror of the athlete session note. `POST /app/coach/athlete/:id/session-note` → `CoachController::coachSessionNoteSave()` writes a `session_notes` row (author_role coach/assistant_coach), re-floats the workout's single session card via `SessionThread::recordComment()` (see §13 — it no longer creates a separate `session_note_reply` message; legacy rows may persist), and fires `coach_session_comment` to the athlete. Entry points: the "+ Comment on this session" form on session cards in the coach message thread, **and** a "Comment on session" button in the macro-plan workout detail popout, shown whenever that planned workout has a logged completion. This largely closes the earlier UI-Section-15 "comment on any completed workout" gap — a coach can now comment on a completed planned workout even with no athlete note; an *unplanned* completion with no card is still not a surfaced entry point. (The message poll JSON now carries `completed_workout_id` and `reply_count`.)
+> - **`athlete_day_swap`** is wired (June 2026): `AthleteController::swapWorkout()` fires it to the coach after an athlete moves or swaps a workout within the 10-day window (controllable, default off). See §12.
+> - Coaches' **flag digest vs. immediate** timing control (below) is not yet built; warning/info flags dispatch immediately when enabled.
+
 ### Always-On Notifications (not user-controllable)
 
 **Athletes — always receive:**
@@ -1117,16 +1292,16 @@ Per notification type, both athletes and coaches can set any combination of:
 - Quiet hours — same concept (default 10pm–7am)
 - Flag digest vs. immediate — coaches can choose to receive warning/info flags immediately or batched into a daily digest (default: immediate for warnings, daily digest for info)
 
-### Database Table: `notification_preferences`
+### Database Table: `notification_preferences` *(implemented — migration 009)*
 
 | Column | Type | Notes |
 |---|---|---|
 | user_id | INT FK | |
-| notification_type | VARCHAR | matches notification type keys above |
+| notification_type | VARCHAR(60) | matches notification type keys above |
 | enabled | BOOL | |
 | channel_push | BOOL | default true |
 | channel_email | BOOL | default false |
-| channel_sms | BOOL | default false — only settable for high-signal notification types |
+| channel_sms | BOOL | default false — reserved; SMS deferred, currently always 0 |
 | quiet_hours_start | TIME | default 22:00 |
 | quiet_hours_end | TIME | default 07:00 |
 | preferred_time | TIME | for scheduled notifications (tomorrow's plan, weekly summary) |
@@ -1134,8 +1309,30 @@ Per notification type, both athletes and coaches can set any combination of:
 | updated_at | DATETIME | |
 | PRIMARY KEY | (user_id, notification_type) | |
 
+Default rows are seeded role-aware on migration run (`scripts/run_migration_009.php` → `Notifications::ensureUserDefaults()`); a missing row falls back to the canonical defaults in `Notifications::DEFAULTS`.
+
+### Database Table: `push_subscriptions` *(implemented)*
+Web Push subscriptions are stored one row per device (not as a single blob on `users`), so a user can be subscribed on multiple devices simultaneously and dead endpoints can be pruned individually.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | INT PK | |
+| user_id | INT FK | |
+| endpoint | TEXT | push service endpoint (unique device) |
+| p256dh | TEXT | client public key |
+| auth | TEXT | auth secret |
+| user_agent | VARCHAR(255) | device label |
+| created_at / last_used_at | TIMESTAMP / DATETIME | `last_used_at` bumped on each successful send |
+
 ### Watch Push vs. App Push
 For athletes with a connected watch, the "Tomorrow's plan" notification includes a line confirming the workout was pushed to the watch ("Pushed to your Garmin"). This replaces a separate "workout pushed to watch" notification — one notification, more information, less noise.
+
+### Web Push Delivery Quality *(implemented — June 2026)*
+To keep notifications out of Chrome's "possible spam" heuristic, every Web Push is sent structured and intentional (`sw.js` push handler + `Notifications::sendPush`):
+- **Icon + badge** on every notification (`/assets/icons/icon-192.png`).
+- **Tag = notification type** — `Notifications` emits `type` in the push payload so Chrome groups/dedupes related notifications, with **`renotify: true`** so a newer one of the same type replaces and re-alerts rather than silently dropping.
+- **`vibrate: [200, 100, 200]`** on all notifications; **`requireInteraction: true`** for always-on types (`plan_approved`, `critical_flag`, `message_from_coach`, `message_from_athlete`) so high-value alerts stay on screen until tapped.
+- **Substantive body text** — every type has a specific (non-generic) title and a meaningful body that names the athlete/coach where relevant; message snippets render up to 80 chars.
 
 ---
 
@@ -1182,6 +1379,11 @@ Coaches see billing status for each athlete at a glance on the roster view:
 - Alert when an athlete's payment lapses — flagged alongside training flags
 
 ### Coupon and Comp Management
+
+> **Partially implemented (June 2026) — admin billing overview.** The admin billing page (`/app/admin/billing`, `AdminController::billing()`, admin-only) lists every athlete's subscription state with status-filter chips. Each row links to the athlete's Stripe customer dashboard (`https://dashboard.stripe.com/customers/{stripe_customer_id}`, when one exists) and offers a one-click **Comp** action: `POST /app/admin/billing/comp` → `AdminController::comp()` (admin role check + CSRF) sets `users.subscription_status = 'comped'`, clears `grace_period_ends` and `subscription_end_date`, and cancels any live Stripe subscription immediately via the SDK (degrades gracefully when Stripe is unconfigured). Already-comped athletes show a muted "Comped" label instead of the button. *Note: canonical subscription state lives on the `users` row (Milestone 8), not the legacy `athletes.billing_status` referenced below.*
+>
+> Still to build: percentage discounts, trial extension, and free-text billing notes; and surfacing comp controls inline on the **coach** roster (today they live only on the admin page).
+
 Coaches and admins can manage billing from the dashboard without needing to access Stripe directly:
 - Apply a 100% comp (indefinite or with an end date)
 - Apply a percentage discount for a defined period
@@ -1216,12 +1418,15 @@ A simple referral system can be layered on after launch:
 - PWA manifest + service worker (basic offline cache for plan view)
 - Dark/light mode toggle wired to user preference (server-side)
 
-### Milestone 2 — In-App Messaging + Push Notifications
+### Milestone 2 — In-App Messaging + Push Notifications ✅ COMPLETE (June 2026)
 - Messages table and thread UI (athlete + coach)
 - Push notification service worker integration
-- Web Push API — all notification events from Section 11
-- Email fallback (Postmark/SendGrid) for non-PWA users
+- Web Push API — notification events from Section 28 (`Notifications::send` wired into plan approval/pending, messages both ways, engine flags, session notes both ways (athlete `athlete_session_note` + coach `coach_session_comment`), manual logs; scheduled events via `cron_notifications.php`)
+- Email fallback via **Resend** (`src/Mailer.php` + `src/EmailTemplates.php`) for non-PWA users / when no push device is registered
 - Unread badge counts on coach roster and athlete nav
+- Notification preferences UI (athlete + coach) with always-on locks, per-channel control, quiet hours, and immediate AJAX save
+
+See Section 28 for the full implementation map and the deviations (SMS deferred; `coach_session_comment` wired via the coach session-note endpoint; `athlete_day_swap` wired to the day-swap endpoint — see §12).
 
 ### Milestone 3 — Engine v1
 - Workout library (seed with initial templates)
