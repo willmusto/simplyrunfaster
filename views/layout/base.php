@@ -104,8 +104,8 @@ function render_profile_diff(?string $detailsJson): string
     $rows = '';
     foreach ($data['changes'] as $c) {
         $label = h($c['label'] ?? ($c['field'] ?? 'Field'));
-        $old   = h($c['old_display'] ?? '—');
-        $new   = h($c['new_display'] ?? '—');
+        $old   = h($c['old_display'] ?? '–');
+        $new   = h($c['new_display'] ?? '–');
         $tag   = !empty($c['coach_only'])
             ? ' <span class="pill" style="font-size:9px;background:var(--recessed-bg);color:var(--text-muted);">coach</span>'
             : '';

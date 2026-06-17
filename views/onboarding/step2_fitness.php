@@ -108,9 +108,9 @@ include __DIR__ . '/../../views/layout/html_open.php';
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                     <input type="text" name="typical_easy_pace_min" class="form-input"
-                           placeholder="Faster — e.g. 9:00" value="<?= h($fmtPace($easyMin)) ?>">
+                           placeholder="Faster, e.g. 9:00" value="<?= h($fmtPace($easyMin)) ?>">
                     <input type="text" name="typical_easy_pace_max" class="form-input"
-                           placeholder="Slower — e.g. 10:00" value="<?= h($fmtPace($easyMax)) ?>">
+                           placeholder="Slower, e.g. 10:00" value="<?= h($fmtPace($easyMax)) ?>">
                 </div>
             </div>
         </div>

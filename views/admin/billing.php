@@ -74,16 +74,16 @@ $statusColor = [
                             <?= h(Billing::statusLabel($st)) ?>
                         </span>
                     </td>
-                    <td style="padding:10px 12px;"><?= h($r['billing_interval'] ? ucfirst($r['billing_interval']) : '—') ?></td>
-                    <td style="padding:10px 12px;"><?= $ends ? h(date('M j, Y', strtotime($ends))) : '—' ?></td>
+                    <td style="padding:10px 12px;"><?= h($r['billing_interval'] ? ucfirst($r['billing_interval']) : '–') ?></td>
+                    <td style="padding:10px 12px;"><?= $ends ? h(date('M j, Y', strtotime($ends))) : '–' ?></td>
                     <td style="padding:10px 12px;">
-                        <?= $disc > 0 ? $disc . '%' . ($r['discount_duration'] ? ' / ' . h($r['discount_duration']) : '') : '—' ?>
+                        <?= $disc > 0 ? $disc . '%' . ($r['discount_duration'] ? ' / ' . h($r['discount_duration']) : '') : '–' ?>
                     </td>
                     <td style="padding:10px 12px;">
                         <?php if (!empty($r['stripe_customer_id'])): ?>
                         <a href="https://dashboard.stripe.com/customers/<?= h($r['stripe_customer_id']) ?>"
                            target="_blank" rel="noopener" style="color:var(--accent-mid);">View in Stripe →</a>
-                        <?php else: ?>—<?php endif; ?>
+                        <?php else: ?>–<?php endif; ?>
                     </td>
                     <td style="padding:10px 12px;text-align:right;">
                         <?php if ($st === 'comped'): ?>
