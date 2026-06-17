@@ -374,6 +374,10 @@ class CoachController
             $upd->execute([$oldDate, (int)$otherRow['id']]);
             $db->commit();
 
+            // Re-push both swapped workouts (upsert by stable srf_{id} moves the event date).
+            IntervalsService::pushWorkout($athleteId, $workoutId, $db);
+            IntervalsService::pushWorkout($athleteId, (int)$otherRow['id'], $db);
+
             echo json_encode(['success' => true, 'swapped' => true]); exit;
         }
 
@@ -407,6 +411,10 @@ class CoachController
         }
 
         $db->prepare('UPDATE planned_workouts SET scheduled_date = ? WHERE id = ?')->execute([$newDate, $workoutId]);
+
+        // Re-push the moved workout (upsert by stable srf_{id} moves the event date).
+        IntervalsService::pushWorkout($athleteId, $workoutId, $db);
+
         echo json_encode(['success' => true]); exit;
     }
 
@@ -492,6 +500,9 @@ class CoachController
             ]);
             $id = (int)$db->lastInsertId();
 
+            // Push the new workout to Intervals.icu (no-op if the athlete isn't connected).
+            IntervalsService::pushWorkout($athleteId, $id, $db);
+
             echo json_encode(['success' => true, 'workout' => self::workoutDomPayload(
                 $id, $composed['workout_type'], $composed['display_title'], (int)$composed['target_duration'],
                 $composed['display_summary'], $composed['athlete_instructions'], $date
@@ -537,6 +548,9 @@ class CoachController
         ]);
         $id = (int)$db->lastInsertId();
 
+        // Push the new workout to Intervals.icu (no-op if the athlete isn't connected).
+        IntervalsService::pushWorkout($athleteId, $id, $db);
+
         echo json_encode(['success' => true, 'workout' => self::workoutDomPayload(
             $id, $wt, $title, $duration, null, $instructions ?: null, $date
         )]); exit;
@@ -572,6 +586,9 @@ class CoachController
 
         $db->prepare('UPDATE planned_workouts SET cancelled = 1, cancelled_at = NOW(), cancelled_by = ? WHERE id = ?')
            ->execute([$coachId, $workoutId]);
+
+        // Remove the event from Intervals.icu (no-op if the athlete isn't connected).
+        IntervalsService::deleteWorkout($athleteId, $workoutId, $db);
 
         echo json_encode(['success' => true, 'date' => (string)$row['scheduled_date']]); exit;
     }
@@ -683,6 +700,9 @@ class CoachController
                  WHERE plan_id = ? AND scheduled_date BETWEEN CURDATE() AND ?
                    AND visible_to_athlete = 0'
             )->execute([$planId, $horizon]);
+
+            // Push the newly-visible window to Intervals.icu (no-op if not connected).
+            IntervalsService::pushNewlyVisible((int)$queue['athlete_id'], $planId, $db);
 
             // Notify the athlete their plan is ready (always-on: push + email).
             $ctx = Notifications::athleteContext((int)$queue['athlete_id']);

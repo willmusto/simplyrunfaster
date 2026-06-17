@@ -25,12 +25,15 @@ require_once __DIR__ . '/src/Timezone.php';
 require_once __DIR__ . '/src/Auth.php';
 require_once __DIR__ . '/src/Billing.php';
 require_once __DIR__ . '/src/StripeWebhook.php';
+require_once __DIR__ . '/src/Crypto.php';
+require_once __DIR__ . '/src/IntervalsService.php';
 require_once __DIR__ . '/src/ProfileForm.php';
 require_once __DIR__ . '/src/Controllers/AuthController.php';
 require_once __DIR__ . '/src/Controllers/OnboardingController.php';
 require_once __DIR__ . '/src/Controllers/AthleteController.php';
 require_once __DIR__ . '/src/Controllers/CoachController.php';
 require_once __DIR__ . '/src/Controllers/AdminController.php';
+require_once __DIR__ . '/src/Controllers/IntegrationsController.php';
 require_once __DIR__ . '/src/Engine/TrainingLoad.php';
 require_once __DIR__ . '/src/Engine/RecoveryModel.php';
 require_once __DIR__ . '/src/Engine/EffortMapper.php';
@@ -46,6 +49,19 @@ $uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 if ($uri === '/webhook/stripe') {
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         StripeWebhook::handle();
+    } else {
+        http_response_code(405);
+        echo 'method not allowed';
+    }
+    exit;
+}
+
+// ── Intervals.icu webhook ────────────────────────────────────
+// Public, session-less, BEFORE auth: Intervals.icu calls this directly and the
+// request is verified by the shared webhook secret inside the handler.
+if ($uri === '/webhook/intervals') {
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+        require __DIR__ . '/public/webhook_intervals.php';
     } else {
         http_response_code(405);
         echo 'method not allowed';
@@ -107,6 +123,12 @@ $router->post('/settings/devices/notify', [AthleteController::class, 'saveDevice
 $router->post('/settings/password',[AthleteController::class, 'changePasswordSubmit']);
 $router->get('/settings/training', [AthleteController::class, 'trainingSettings']);
 $router->post('/settings/training',[AthleteController::class, 'trainingSettingsSave']);
+
+// ── Intervals.icu integration (OAuth connect / callback / disconnect) ────────
+$router->get('/integrations/intervals/connect',     [IntegrationsController::class, 'connect']);
+$router->get('/integrations/intervals/callback',    [IntegrationsController::class, 'callback']);
+$router->post('/integrations/intervals/disconnect', [IntegrationsController::class, 'disconnect']);
+$router->get('/integrations/intervals/guide',       [IntegrationsController::class, 'guide']);
 
 // ── Athlete billing (Milestone 8) ────────────────────────────
 $router->get('/billing',          [AthleteController::class, 'billing']);

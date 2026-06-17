@@ -77,6 +77,23 @@ defined('BILLING_GRACE_DAYS')     || define('BILLING_GRACE_DAYS',     7);
 // athlete has a live subscription.
 defined('BILLING_GATE_STRICT')    || define('BILLING_GATE_STRICT',    false);
 
+// Intervals.icu integration (Milestone — watch sync). Real values live ONLY in
+// config/config.local.php on the server (git-ignored); these placeholders document
+// the constants for deploys and MUST stay empty here — never commit real secrets.
+//   - CLIENT_ID / CLIENT_SECRET: OAuth app credentials from intervals.icu settings.
+//   - WEBHOOK_SECRET: shared secret sent as X-Intervals-Webhook-Secret on webhooks.
+//   - REDIRECT_URI: must exactly match the OAuth app's registered redirect.
+defined('INTERVALS_CLIENT_ID')      || define('INTERVALS_CLIENT_ID',      getenv('SRF_INTERVALS_CLIENT_ID')     ?: '');
+defined('INTERVALS_CLIENT_SECRET')  || define('INTERVALS_CLIENT_SECRET',  getenv('SRF_INTERVALS_CLIENT_SECRET') ?: '');
+defined('INTERVALS_WEBHOOK_SECRET') || define('INTERVALS_WEBHOOK_SECRET', getenv('SRF_INTERVALS_WEBHOOK')       ?: '');
+defined('INTERVALS_REDIRECT_URI')   || define('INTERVALS_REDIRECT_URI',   getenv('SRF_INTERVALS_REDIRECT_URI')  ?: 'https://simplyrunfaster.com/app/integrations/intervals/callback');
+
+// Encryption key for at-rest secrets (OAuth tokens). Real value lives ONLY in
+// config/config.local.php — a 64-hex-char (32-byte) key. Empty here on purpose:
+// Crypto::isConfigured() is false until the server key is set, so the connect
+// flow refuses to store a token it could not safely encrypt.
+defined('APP_ENCRYPTION_KEY') || define('APP_ENCRYPTION_KEY', getenv('SRF_APP_ENCRYPTION_KEY') ?: '');
+
 // Training engine
 defined('ATHLETE_WINDOW_DAYS') || define('ATHLETE_WINDOW_DAYS', 10);  // rolling days visible to athlete
 defined('PUSH_AHEAD_DAYS')     || define('PUSH_AHEAD_DAYS',     1);   // push workout to watch T-1 day before

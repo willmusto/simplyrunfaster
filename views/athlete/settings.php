@@ -76,9 +76,42 @@
         <span style="color:var(--text-muted);font-size:20px;">›</span>
     </a>
 
-    <?php $deviceNotify = $deviceNotify ?? []; ?>
+    <?php
+    $deviceNotify        = $deviceNotify ?? [];
+    $intervalsConnected  = $intervalsConnected ?? false;
+    $intervalsLastSynced = $intervalsLastSynced ?? null;
+    ?>
     <div class="section-label" style="margin-top:24px;">CONNECTED DEVICES</div>
     <div class="card" style="margin-bottom:16px;" data-device-form>
+
+        <div class="device-row">
+            <span class="device-name">
+                Intervals.icu
+                <?php if ($intervalsConnected): ?>
+                <span style="display:inline-block;margin-left:6px;font-size:11px;font-weight:600;color:#1D9E75;
+                             background:rgba(29,158,117,0.12);border-radius:10px;padding:2px 8px;vertical-align:middle;">Connected</span>
+                <?php endif; ?>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:3px;font-weight:400;">
+                    <?php if ($intervalsConnected): ?>
+                        <?= $intervalsLastSynced ? 'Last synced: ' . h($intervalsLastSynced) : 'Connected — waiting for first sync.' ?>
+                    <?php else: ?>
+                        Sync workouts to your Garmin, COROS, Polar, Suunto, or Wahoo device.
+                        <a href="/app/integrations/intervals/guide">How does this work? →</a>
+                    <?php endif; ?>
+                </div>
+            </span>
+            <div class="device-row-right">
+                <?php if ($intervalsConnected): ?>
+                <form method="POST" action="/app/integrations/intervals/disconnect" style="margin:0;">
+                    <?= Auth::csrfField() ?>
+                    <button type="submit" class="btn btn-secondary btn-sm">Disconnect</button>
+                </form>
+                <?php else: ?>
+                <a href="/app/integrations/intervals/connect" class="btn btn-primary btn-sm">Connect</a>
+                <?php endif; ?>
+            </div>
+        </div>
+
         <?php foreach (['garmin' => 'Garmin', 'coros' => 'COROS', 'polar' => 'Polar', 'suunto' => 'Suunto'] as $brandKey => $brandName):
             $on = !empty($deviceNotify[$brandKey]); ?>
         <div class="device-row">
@@ -92,6 +125,10 @@
             </div>
         </div>
         <?php endforeach; ?>
+
+        <div style="font-size:12px;color:var(--text-muted);padding:10px 2px 2px;">
+            Connect Intervals.icu above to sync with any of these devices.
+        </div>
     </div>
 
     <script>

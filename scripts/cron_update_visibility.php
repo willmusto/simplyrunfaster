@@ -11,28 +11,22 @@
  */
 
 define('SCRIPT_ROOT', dirname(__DIR__));
-define('ATHLETE_WINDOW_DAYS', 10);
 
 date_default_timezone_set('UTC');
+
+// Full bootstrap so we can also push newly-visible workouts to Intervals.icu
+// (config.php loads config.local.php + the INTERVALS_*/APP_ENCRYPTION_KEY constants;
+// Crypto/IntervalsService handle the calendar push, RecoveryModel sharpens the text).
+require_once SCRIPT_ROOT . '/config/config.php';
+require_once SCRIPT_ROOT . '/config/database.php';
 require_once SCRIPT_ROOT . '/src/Timezone.php';
+require_once SCRIPT_ROOT . '/src/Engine/RecoveryModel.php';
+require_once SCRIPT_ROOT . '/src/Crypto.php';
+require_once SCRIPT_ROOT . '/src/IntervalsService.php';
 
-foreach ([
-    SCRIPT_ROOT . '/config/config.local.php',
-    '/home/public/config/config.local.php',
-] as $cfg) {
-    if (file_exists($cfg)) { require $cfg; break; }
-}
-defined('DB_HOST')    || define('DB_HOST',    getenv('SRF_DB_HOST') ?: 'localhost');
-defined('DB_NAME')    || define('DB_NAME',    getenv('SRF_DB_NAME') ?: 'simplyrunfaster');
-defined('DB_USER')    || define('DB_USER',    getenv('SRF_DB_USER') ?: 'root');
-defined('DB_PASS')    || define('DB_PASS',    getenv('SRF_DB_PASS') ?: '');
-defined('DB_CHARSET') || define('DB_CHARSET', 'utf8');
+defined('ATHLETE_WINDOW_DAYS') || define('ATHLETE_WINDOW_DAYS', 10);
 
-$db = new PDO(
-    sprintf('mysql:host=%s;dbname=%s;charset=%s', DB_HOST, DB_NAME, DB_CHARSET),
-    DB_USER, DB_PASS,
-    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-);
+$db = Database::get();
 
 // The rolling window is anchored on each athlete's LOCAL "today": a single UTC run
 // (hour 5 UTC) covers athletes across timezones, so we group active-plan athletes by
@@ -53,10 +47,29 @@ foreach ($athleteZones as $row) {
 }
 
 $opened = 0;
+$pushed = 0;
 foreach ($byTz as $tz => $athleteIds) {
     $today   = Timezone::dateInZone($tz, 'now');
     $horizon = Timezone::dateInZone($tz, '+' . ATHLETE_WINDOW_DAYS . ' days');
     $placeholders = implode(',', array_fill(0, count($athleteIds), '?'));
+
+    // Capture the workouts about to be opened that belong to Intervals.icu-connected
+    // athletes, so we can push each to their calendar after the visibility flip.
+    $toPush = $db->prepare(
+        "SELECT pw.id, pw.athlete_id
+         FROM planned_workouts pw
+         INNER JOIN training_plans tp ON tp.id = pw.plan_id
+         INNER JOIN athletes a ON a.id = pw.athlete_id
+         INNER JOIN intervals_connections ic ON ic.user_id = a.user_id
+         WHERE pw.visible_to_athlete = 0
+           AND (pw.cancelled = 0 OR pw.cancelled IS NULL)
+           AND pw.workout_type <> 'rest'
+           AND pw.athlete_id IN ($placeholders)
+           AND pw.scheduled_date BETWEEN ? AND ?
+           AND tp.status = 'active'"
+    );
+    $toPush->execute([...$athleteIds, $today, $horizon]);
+    $pushList = $toPush->fetchAll(PDO::FETCH_ASSOC);
 
     $stmt = $db->prepare(
         "UPDATE planned_workouts pw
@@ -70,6 +83,11 @@ foreach ($byTz as $tz => $athleteIds) {
     );
     $stmt->execute([...$athleteIds, $today, $horizon]);
     $opened += $stmt->rowCount();
+
+    foreach ($pushList as $w) {
+        if (IntervalsService::pushWorkout((int)$w['athlete_id'], (int)$w['id'], $db)) $pushed++;
+    }
 }
 
-echo date('Y-m-d H:i:s') . " — visibility window updated (per athlete timezone). Opened: {$opened} workouts.\n";
+echo date('Y-m-d H:i:s') . " — visibility window updated (per athlete timezone). "
+    . "Opened: {$opened} workouts. Pushed to Intervals.icu: {$pushed}.\n";
