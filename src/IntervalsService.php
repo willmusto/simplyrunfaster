@@ -623,13 +623,13 @@ class IntervalsService
         return "{$m}m{$s}s";
     }
 
-    /** Format meters as Xkm (Intervals.icu treats bare m as minutes). */
+    /** Format meters as Xmi (Intervals.icu treats bare m as minutes). */
     private static function fmtMeters(int $meters): string
     {
-        $km = round($meters / 1000, 2);
+        $mi = round($meters / self::METERS_PER_MILE, 2);
         // Trim trailing zeros: 0.40 -> 0.4, 1.00 -> 1
-        $km = rtrim(rtrim(number_format($km, 2, '.', ''), '0'), '.');
-        return $km . 'km';
+        $mi = rtrim(rtrim(number_format($mi, 2, '.', ''), '0'), '.');
+        return $mi . 'mi';
     }
 
     /**
