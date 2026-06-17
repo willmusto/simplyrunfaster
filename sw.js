@@ -12,7 +12,7 @@
 // CACHE_NAME. If this string never changes, stale CSS/HTML stays
 // cached indefinitely. Update to today's date (YYYYMMDD) before
 // committing; the deploy checklist runs the cache-bump command.
-const CACHE_NAME    = 'srf-2026061602';
+const CACHE_NAME    = 'srf-2026061603';
 const OFFLINE_URL   = '/app/offline';
 
 // Resources to pre-cache on install.

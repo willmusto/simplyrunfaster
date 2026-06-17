@@ -86,6 +86,22 @@ class PlanGenerator
     // primary session, not budgeted quality work). See engine spec §19 item 6.
     const REPEATABLE_ARCHETYPES = ['run_walk_intervals', 'standalone_strides'];
 
+    // Structured quality archetypes carry a warmup + cooldown whose resolved
+    // warmup_minutes / cooldown_minutes are otherwise never surfaced to the athlete
+    // (the description_template holds main-set language only). wrapWithWarmupCooldown()
+    // prepends a warmup sentence and appends a cooldown sentence for these (§18.7
+    // display correction). Split by whether the warmup finishes with strides.
+    // run_walk_intervals / standalone_strides are intentionally absent — their own
+    // templates already describe a warmup and cooldown, so they are never wrapped.
+    const WARMUP_WITH_STRIDES_ARCHETYPES = [
+        'equal_distance_repeats', 'short_speed_repeats', 'sustained_hill_repeats',
+        'hill_sprints', 'plyometric_hill_circuits',
+    ];
+    const WARMUP_NO_STRIDES_ARCHETYPES = [
+        'tempo_intervals', 'high_volume_time_intervals', 'continuous_progression_tempo',
+        'structured_fartlek_ladder', 'mixed_distance_repeats',
+    ];
+
     // Return-to-running adaptive progression bounds (engine spec §18.10 / §19 item 6).
     // Stage 1 is the gentlest run/walk; stage 10 is the first 45-min continuous run.
     const RTR_MIN_STAGE   = 1;
@@ -389,6 +405,7 @@ class PlanGenerator
         $summary      = self::renderTemplate($display['summary_template'] ?? '', $instance);
         $instructions = self::renderTemplate($display['description_template'] ?? '', $instance);
         $instructions = self::normalizeInstructionText($instructions, $instance);
+        $instructions = self::wrapWithWarmupCooldown($instructions, $instance['resolved_params'] ?? [], $instance['code'] ?? '');
         $instructions = self::appendPaceCitation($instructions, $instance);
 
         $sig             = self::computeInstanceSignature($instance);
@@ -1059,6 +1076,7 @@ class PlanGenerator
         $summary      = self::renderTemplate($display['summary_template'] ?? '', $instance);
         $instructions = self::renderTemplate($display['description_template'] ?? '', $instance);
         $instructions = self::normalizeInstructionText($instructions, $instance);
+        $instructions = self::wrapWithWarmupCooldown($instructions, $instance['resolved_params'] ?? [], $instance['code'] ?? '');
         $instructions = self::appendPaceCitation($instructions, $instance);
 
         $sig             = self::computeInstanceSignature($instance);
@@ -1577,6 +1595,7 @@ class PlanGenerator
             $summary      = self::renderTemplate($display['summary_template'] ?? '', $instance);
             $instructions = self::renderTemplate($display['description_template'] ?? '', $instance);
             $instructions = self::normalizeInstructionText($instructions, $instance);
+            $instructions = self::wrapWithWarmupCooldown($instructions, $instance['resolved_params'] ?? [], $instance['code'] ?? '');
             $instructions = self::appendPaceCitation($instructions, $instance);
 
             $sig         = self::computeInstanceSignature($instance);
@@ -1843,6 +1862,25 @@ class PlanGenerator
     ): array {
         $params  = $archetype['resolved_params'] ?? [];
         $display = $archetype['display'] ?? [];
+
+        // §18.7 distance/time correction. These quality archetypes historically
+        // summarized only their main-set volume ("{{total_distance}} miles · {{time_range}}"),
+        // which excludes warmup + cooldown and badly understates the session — e.g. a
+        // 40-min session showing "1 mile · 8–11 min". Switch them to the full-session
+        // duration + distance-range summary already used by every other structured
+        // archetype, so the figures match the stored target_duration (warmup + main +
+        // cooldown). Done here (not in the archetype data) so the fix lives entirely in
+        // the generator; the show_* flags below drive distance_range computation.
+        $fullSessionSummaryArchetypes = [
+            'tempo_intervals', 'continuous_progression_tempo',
+            'equal_distance_repeats', 'mixed_distance_repeats', 'short_speed_repeats',
+        ];
+        if (in_array($archetype['code'] ?? '', $fullSessionSummaryArchetypes, true)) {
+            $display['show_distance_range'] = true;
+            $display['show_time_range']     = false;
+            $display['summary_template']    = '{{duration_minutes}} min · {{distance_range}}';
+            $archetype['display']           = $display;
+        }
 
         // Volume-derived duration always overrides the archetype midpoint
         $params['duration_minutes'] = $targetMinutes;
@@ -2471,6 +2509,50 @@ class PlanGenerator
     }
 
     /**
+     * Prepend a warmup sentence and append a cooldown sentence to a structured
+     * quality session's instructions (§18.7 display correction). The archetype's
+     * description_template carries only the main-set language; the warmup_minutes /
+     * cooldown_minutes resolved at generation time are otherwise never told to the
+     * athlete, so every quality session read as if it started cold and stopped dead.
+     *
+     * Scoped to the 10 structured quality archetypes (the warmup-with-strides and
+     * warmup-without-strides lists). Self-contained sessions whose own templates
+     * already describe a warmup and cooldown (run_walk_intervals, standalone_strides)
+     * are excluded so they are never double-wrapped.
+     *
+     * Must run AFTER renderTemplate()/normalizeInstructionText() and BEFORE
+     * appendPaceCitation(), so the cooldown sentence sits before any pace citation:
+     *   [Warmup]. [Main-set description]. [Cooldown]. [Pace citation if any].
+     */
+    private static function wrapWithWarmupCooldown(
+        string $instructions, array $resolvedParams, string $archetypeCode
+    ): string {
+        $withStrides = in_array($archetypeCode, self::WARMUP_WITH_STRIDES_ARCHETYPES, true);
+        $noStrides   = in_array($archetypeCode, self::WARMUP_NO_STRIDES_ARCHETYPES, true);
+        if (!$withStrides && !$noStrides) {
+            return $instructions; // not a wrapped archetype (easy/long/recovery/run-walk/strides)
+        }
+
+        $warmup   = (int)($resolvedParams['warmup_minutes']   ?? 0);
+        $cooldown = (int)($resolvedParams['cooldown_minutes'] ?? 0);
+        if ($warmup <= 0 || $cooldown <= 0) {
+            return $instructions;
+        }
+
+        $warmupSentence = $withStrides
+            ? "Warm up with {$warmup} minutes of easy running, finishing with 4 × 15-second strides with full recovery between each."
+            : "Warm up with {$warmup} minutes of easy running.";
+        $cooldownSentence = "Cool down with {$cooldown} minutes of easy running.";
+
+        $main  = trim($instructions);
+        $parts = $main === ''
+            ? [$warmupSentence, $cooldownSentence]
+            : [$warmupSentence, $main, $cooldownSentence];
+
+        return implode(' ', $parts);
+    }
+
+    /**
      * Append the pace-zone citation clause to rendered quality instructions when the
      * athlete's zones are visible (§19 item 14). A no-op when self::$paceZones is null
      * (hidden/empty zones) or the archetype is effort-only — so the effort-language
@@ -2526,6 +2608,19 @@ class PlanGenerator
                 && !preg_match('/\d/', $text)
             ) {
                 $reasons[] = 'numeric_quality_display_has_no_digits';
+            }
+
+            // §19 item 13: a session that carries a warmup or cooldown must surface
+            // both in the athlete-facing text. wrapWithWarmupCooldown() adds the
+            // sentences for structured quality archetypes; run/walk and strides carry
+            // the language in their own templates. A miss means the wrap was skipped.
+            $warm = (int)($params['warmup_minutes']   ?? 0);
+            $cool = (int)($params['cooldown_minutes'] ?? 0);
+            if (
+                ($warm > 0 || $cool > 0)
+                && (stripos($text, 'warm') === false || stripos($text, 'cool') === false)
+            ) {
+                $reasons[] = 'missing_warmup_cooldown_text';
             }
 
             if (!empty($reasons)) {
