@@ -12,7 +12,7 @@
 // CACHE_NAME. If this string never changes, stale CSS/HTML stays
 // cached indefinitely. Update to today's date (YYYYMMDD) before
 // committing; the deploy checklist runs the cache-bump command.
-const CACHE_NAME    = 'srf-2026061601';
+const CACHE_NAME    = 'srf-20260616';
 const OFFLINE_URL   = '/app/offline';
 
 // Resources to pre-cache on install.
@@ -21,9 +21,14 @@ const OFFLINE_URL   = '/app/offline';
 // so pre-caching the un-versioned URL would be useless (the versioned request
 // would miss and fall through to network anyway). They are instead cached
 // lazily by the cacheFirst handler on the first fetch, keyed by versioned URL.
+//
+// Only auth-independent resources are pre-cached. Personalized pages (/app,
+// /app/plan, …) are intentionally NOT pre-cached: fetching them at install
+// time stores a redirect/403/logged-out artifact (the install request reflects
+// whatever role/session happens to be active), which then gets re-served as a
+// stale "logged out" page after a deploy. They are cached lazily on a real
+// visit by networkFirst instead.
 const PRECACHE = [
-    '/app',
-    '/app/plan',
     '/app/offline',
     '/manifest.json',
 ];
@@ -48,14 +53,19 @@ self.addEventListener('install', function (event) {
 
 // â”€â”€ Activate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 self.addEventListener('activate', function (event) {
+    // Delete stale caches, but deliberately do NOT call self.clients.claim().
+    // Claiming would swap the controller of an already-open, authenticated page
+    // mid-session the instant a deploy lands; paired with the cache flush above
+    // that produced stale "logged-out" navigations. Without claim, open pages
+    // keep their current controller until the next natural navigation/relaunch,
+    // and the active session is never interrupted. skipWaiting() (in install)
+    // still makes the new SW take over on the next launch.
     event.waitUntil(
         caches.keys().then(function (keys) {
             return Promise.all(
                 keys.filter(function (k) { return k !== CACHE_NAME; })
                     .map(function (k) { return caches.delete(k); })
             );
-        }).then(function () {
-            return self.clients.claim();
         })
     );
 });
@@ -74,19 +84,23 @@ self.addEventListener('fetch', function (event) {
     // Non-GET: always network, no caching
     if (req.method !== 'GET') return;
 
+    // Auth / session-dispatch pages (login is the PWA start_url and 302-redirects
+    // by role when authenticated): always network-only. A cached copy would show a
+    // stale logged-out login screen — or a wrong-role page — to a user whose
+    // session cookie is still valid, which looks like being logged out after a
+    // deploy. Never read these from, or write them to, the cache.
+    if (isAuthPage(req.url)) {
+        event.respondWith(networkOnly(req));
+        return;
+    }
+
     // Static assets: cache-first
     if (isStaticAsset(req.url)) {
         event.respondWith(cacheFirst(req));
         return;
     }
 
-    // Plan pages and today view: network-first, cache fallback
-    if (isPlanPage(req.url)) {
-        event.respondWith(networkFirst(req, OFFLINE_URL));
-        return;
-    }
-
-    // Everything else: network-first, offline page fallback
+    // Everything else (app pages): network-first, offline page fallback
     event.respondWith(networkFirst(req, OFFLINE_URL));
 });
 
@@ -141,9 +155,23 @@ function isStaticAsset(url) {
         || url.endsWith('.woff2');
 }
 
-function isPlanPage(url) {
+function isAuthPage(url) {
     const path = new URL(url).pathname;
-    return path === '/app' || path === '/app/' || path === '/app/plan' || path.startsWith('/app/log');
+    return path === '/app/login'
+        || path === '/app/register'
+        || path === '/app/logout'
+        || path === '/app/forgot-password'
+        || path === '/app/reset-password'
+        || path.startsWith('/app/invite/');
+}
+
+async function networkOnly(req) {
+    try {
+        return await fetch(req);
+    } catch (_) {
+        const offline = await caches.match(OFFLINE_URL);
+        return offline || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
+    }
 }
 
 async function cacheFirst(req) {
@@ -164,7 +192,11 @@ async function cacheFirst(req) {
 async function networkFirst(req, fallbackUrl) {
     try {
         const response = await fetch(req);
-        if (response.ok) {
+        // Only cache final, non-redirected successes. A redirected response is
+        // the result of following a 302 (e.g. an auth/role redirect) — storing
+        // it under the originally-requested URL would re-serve a stale
+        // logged-out/wrong-role page after a deploy.
+        if (response.ok && !response.redirected) {
             const cache = await caches.open(CACHE_NAME);
             cache.put(req, response.clone());
         }

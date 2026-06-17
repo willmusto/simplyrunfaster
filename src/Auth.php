@@ -6,6 +6,13 @@ class Auth
 {
     private static function applyCookieParams(): void
     {
+        // Keep the server-side session data alive as long as the cookie (30 days).
+        // PHP's default session.gc_maxlifetime is ~24 minutes, so an idle session
+        // file can be garbage-collected out from under a still-valid cookie,
+        // silently logging the user out well before the 30-day cookie expiry.
+        // Must be set before session_start() to take effect.
+        ini_set('session.gc_maxlifetime', (string) SESSION_LIFETIME);
+
         session_set_cookie_params([
             'lifetime' => SESSION_LIFETIME,
             'path'     => '/app',
