@@ -1,6 +1,9 @@
 # Spec documents (not for deployment)
 _specs/
 
+# Claude Code instructions — kept locally, never tracked/deployed (contains deploy/SSH details)
+CLAUDE.md
+
 # Local config with production credentials
 config/config.local.php
 
