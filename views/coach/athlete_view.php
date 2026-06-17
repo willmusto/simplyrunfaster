@@ -384,8 +384,10 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             gap: 6px;
             min-width: 0;
         }
-        /* Calendar-alignment padding days carry no info in a stacked list. */
-        .macro-day-outside { display: none; }
+        /* Calendar-alignment padding days carry no info in a stacked list.
+           Compound selector so it beats the equal-specificity `.macro-day`
+           rule below (source order would otherwise re-show it as flex). */
+        .macro-day.macro-day-outside { display: none; }
         .macro-day {
             min-height: 44px;
             display: flex;
