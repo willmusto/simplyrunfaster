@@ -78,9 +78,14 @@ class AthleteController
         $db      = Database::get();
         $tz      = $athlete['timezone'] ?? Timezone::DEFAULT_TZ;
         $today   = Timezone::dateInZone($tz, 'now');
-        $endDate = Timezone::dateInZone($tz, '+' . (int)ATHLETE_WINDOW_DAYS . ' days');
+        // Fetch the full two-week swap window in one query: the plan list renders the
+        // first ATHLETE_WINDOW_DAYS, while the day-swap picker offers all 14 days
+        // (current + next week). Extra dates are simply ignored by the render loop.
+        $endDate = Timezone::dateInZone($tz, '+' . (self::SWAP_WINDOW_DAYS - 1) . ' days');
         $workouts = self::getVisibleWorkouts((int)$athlete['id'], $today, $endDate, $db);
 
+        $mustOffDays    = self::athleteMustOffDays((int)$athlete['id'], $db);
+        $swapWindowDays = self::SWAP_WINDOW_DAYS;
         $unreadMessages = self::getUnreadCount((int)$athlete['id'], $db);
 
         $pageTitle = 'My Plan';
@@ -89,6 +94,164 @@ class AthleteController
         include __DIR__ . '/../../views/layout/nav_athlete.php';
         include __DIR__ . '/../../views/athlete/plan.php';
         include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    /** Two-week athlete day-swap window: current week + next week = 14 days from today. */
+    private const SWAP_WINDOW_DAYS = 14;
+
+    /**
+     * POST /app/athlete/workout/swap — athlete moves a workout to another day within
+     * the two-week window. Body (JSON): { workout_id, target_date 'YYYY-MM-DD', force }.
+     *
+     * If the target day already holds a workout the two dates are swapped atomically;
+     * otherwise the workout's date is moved. Moving onto a must-off day requires
+     * force=true (the UI shows a soft warning first). After the DB change, affected
+     * workouts are re-pushed to Intervals.icu (upsert by srf_{id} moves the event) and
+     * the coach is notified. Returns JSON {success: bool, ...}.
+     */
+    public static function swapWorkout(): void
+    {
+        Auth::requireRole('athlete');
+        Auth::verifyCsrf();
+        header('Content-Type: application/json');
+
+        $athlete = Auth::getAthlete();
+        if (!$athlete) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'forbidden']);
+            exit;
+        }
+        $athleteId = (int)$athlete['id'];
+        $db        = Database::get();
+
+        $in         = json_decode((string)file_get_contents('php://input'), true) ?: [];
+        $workoutId  = (int)($in['workout_id'] ?? 0);
+        $targetDate = trim((string)($in['target_date'] ?? ''));
+        $force      = !empty($in['force']) && $in['force'] !== 'false';
+
+        // Two-week window in the athlete's timezone: today .. today + 13 days.
+        $tz        = $athlete['timezone'] ?? Timezone::DEFAULT_TZ;
+        $today     = Timezone::dateInZone($tz, 'now');
+        $windowEnd = Timezone::dateInZone($tz, '+' . (self::SWAP_WINDOW_DAYS - 1) . ' days');
+
+        if (!self::isValidDate($targetDate) || $targetDate < $today || $targetDate > $windowEnd) {
+            echo json_encode(['success' => false, 'error' => 'invalid_date',
+                'message' => 'You can only move workouts within the next two weeks.']);
+            exit;
+        }
+
+        // Source workout must belong to this athlete's active plan, be visible, and
+        // not be cancelled. Coach-locked workouts can't be moved by the athlete.
+        $stmt = $db->prepare(
+            'SELECT pw.* FROM planned_workouts pw
+             WHERE pw.id = ? AND pw.athlete_id = ?
+               AND pw.visible_to_athlete = 1
+               AND (pw.cancelled = 0 OR pw.cancelled IS NULL)
+               AND pw.plan_id = (
+                   SELECT id FROM training_plans
+                   WHERE athlete_id = ? AND status = "active"
+                   ORDER BY id DESC LIMIT 1
+               )
+             LIMIT 1'
+        );
+        $stmt->execute([$workoutId, $athleteId, $athleteId]);
+        $workout = $stmt->fetch();
+        if (!$workout) {
+            echo json_encode(['success' => false, 'error' => 'not_found', 'message' => 'Workout not found.']);
+            exit;
+        }
+        if (!empty($workout['coach_locked'])) {
+            echo json_encode(['success' => false, 'error' => 'locked',
+                'message' => "This workout is locked by your coach and can't be moved."]);
+            exit;
+        }
+
+        $planId  = (int)$workout['plan_id'];
+        $oldDate = (string)$workout['scheduled_date'];
+
+        // The source workout's current day must also sit inside the two-week window.
+        if ($oldDate < $today || $oldDate > $windowEnd) {
+            echo json_encode(['success' => false, 'error' => 'out_of_window',
+                'message' => 'This workout is outside the two-week window.']);
+            exit;
+        }
+
+        // No-op when dropped back on its own day.
+        if ($targetDate === $oldDate) {
+            echo json_encode(['success' => true]);
+            exit;
+        }
+
+        // Must-off guard — soft, overridable with force (the UI confirms first).
+        $mustOff       = self::athleteMustOffDays($athleteId, $db);
+        $targetIsMustOff = in_array((int)date('w', strtotime($targetDate)), $mustOff, true);
+        if ($targetIsMustOff && !$force) {
+            echo json_encode(['success' => false, 'error' => 'must_off',
+                'message' => 'This is a must-off day in your schedule.']);
+            exit;
+        }
+
+        // A visible, non-cancelled workout on the target day → swap the two dates.
+        $other = $db->prepare(
+            'SELECT id FROM planned_workouts
+             WHERE athlete_id = ? AND plan_id = ? AND scheduled_date = ? AND id <> ?
+               AND visible_to_athlete = 1
+               AND (cancelled = 0 OR cancelled IS NULL)
+             ORDER BY id ASC LIMIT 1'
+        );
+        $other->execute([$athleteId, $planId, $targetDate, $workoutId]);
+        $otherId = (int)($other->fetchColumn() ?: 0);
+
+        $now      = gmdate('Y-m-d H:i:s');
+        $affected = [$workoutId];
+
+        if ($otherId > 0) {
+            $db->beginTransaction();
+            self::applyAthleteMove($db, $workoutId, $targetDate, $oldDate, $targetIsMustOff, $now);
+            // The displaced workout takes the source day; flag its own must-off state.
+            $otherToMustOff = in_array((int)date('w', strtotime($oldDate)), $mustOff, true);
+            self::applyAthleteMove($db, $otherId, $oldDate, $targetDate, $otherToMustOff, $now);
+            $db->commit();
+            $affected[] = $otherId;
+        } else {
+            self::applyAthleteMove($db, $workoutId, $targetDate, $oldDate, $targetIsMustOff, $now);
+        }
+
+        // Re-push affected workouts (pushWorkout self-guards if not connected / is rest).
+        foreach ($affected as $id) {
+            IntervalsService::pushWorkout($athleteId, (int)$id, $db);
+        }
+
+        // Notify the coach (controllable, default off).
+        if (!empty($athlete['coach_id'])) {
+            Notifications::send((int)$athlete['coach_id'], 'athlete_day_swap', [
+                'athlete_id'   => $athleteId,
+                'athlete_name' => $athlete['name'] ?? 'Your athlete',
+                'workout_name' => ucfirst(str_replace('_', ' ', (string)$workout['workout_type'])),
+                'from_date'    => $oldDate,
+                'to_date'      => $targetDate,
+            ]);
+        }
+
+        echo json_encode(['success' => true]);
+        exit;
+    }
+
+    /**
+     * Apply one leg of an athlete move: set the new date, stamp the move audit fields,
+     * and preserve the earliest original date so the plan's "moved from" badge is stable.
+     */
+    private static function applyAthleteMove(PDO $db, int $workoutId, string $newDate, string $fromDate, bool $mustOffOverride, string $now): void
+    {
+        $db->prepare(
+            'UPDATE planned_workouts
+             SET scheduled_date          = ?,
+                 original_scheduled_date = COALESCE(original_scheduled_date, ?),
+                 athlete_moved           = 1,
+                 athlete_moved_at        = ?,
+                 must_off_override       = ?
+             WHERE id = ?'
+        )->execute([$newDate, $fromDate, $now, $mustOffOverride ? 1 : 0, $workoutId]);
     }
 
     public static function log(): void
@@ -882,6 +1045,22 @@ class AthleteController
             $plan['plan_type'] = str_replace('_', ' ', $plan['plan_type']);
         }
         return $plan;
+    }
+
+    /** True when $date is a real YYYY-MM-DD calendar date. */
+    private static function isValidDate(string $date): bool
+    {
+        $d = DateTime::createFromFormat('Y-m-d', $date);
+        return $d !== false && $d->format('Y-m-d') === $date;
+    }
+
+    /** The athlete's must-off days as ints (0=Sun … 6=Sat). */
+    private static function athleteMustOffDays(int $athleteId, PDO $db): array
+    {
+        $profile = Auth::getAthleteProfile($athleteId) ?? [];
+        $raw     = $profile['must_off_days'] ?? '[]';
+        $arr     = is_array($raw) ? $raw : (json_decode((string)$raw, true) ?: []);
+        return array_map('intval', $arr);
     }
 
     private static function getVisibleWorkouts(int $athleteId, string $start, string $end, PDO $db): array

@@ -108,6 +108,7 @@ $router->post('/onboarding/:step',    [OnboardingController::class, 'stepSubmit'
 $router->get('/dashboard',  [AthleteController::class, 'today']);
 $router->get('/',           [AthleteController::class, 'today']);
 $router->get('/plan',       [AthleteController::class, 'plan']);
+$router->post('/athlete/workout/swap', [AthleteController::class, 'swapWorkout']);
 $router->get('/log',        [AthleteController::class, 'log']);
 $router->post('/log/manual',[AthleteController::class, 'manualLog']);
 $router->get('/progress',   [AthleteController::class, 'progress']);
