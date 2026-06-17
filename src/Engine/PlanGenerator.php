@@ -832,15 +832,28 @@ class PlanGenerator
             $date = date('Y-m-d', strtotime($raceDate . " +{$d} days"));
             if ($planEnd !== '' && $date > $planEnd) break;
 
-            $isRest = $d <= 2; // first couple of days fully off
-            $type   = $isRest ? 'rest' : 'recovery';
-            $dur    = $isRest ? null : 30;
-            $load   = $isRest ? 0 : round(30 * 0.3, 2);
-            $title  = $isRest ? 'Rest' : 'Recovery Run';
-            $desc   = $isRest
-                ? 'Post-race rest day. Let your body recover — gentle movement only.'
-                : 'Easy recovery run — short and very gentle. Keep the effort light while you recover from your race.';
-            $summary = $isRest ? 'Rest + recover' : '30 min · recovery';
+            // Tiered by proximity to the race. Any surviving quality session or long
+            // run inside the window is overwritten by the tier treatment below (the
+            // existing-row UPDATE clears archetype fields), so the whole post-race
+            // window resolves to rest / easy / recovery regardless of what was there.
+            //   days 1–3   → rest (fully off)
+            //   days 4–7   → easy run, 30 min
+            //   days 8–end → recovery run, 40 min
+            // workout_type uses the real planned_workouts ENUM values ('easy',
+            // 'recovery', 'rest') — never 'easy_run', which would truncate to ''.
+            if ($d <= 3) {
+                $type = 'rest'; $dur = null; $load = 0;
+                $title = 'Rest'; $summary = 'Rest + recover';
+                $desc  = 'Post-race rest day. Let your body recover — gentle movement only.';
+            } elseif ($d <= 7) {
+                $type = 'easy'; $dur = 30; $load = round(30 * 0.5, 2);
+                $title = 'Easy Run'; $summary = '30 min · easy';
+                $desc  = 'Short, very easy run as you recover from your race. Keep the effort relaxed and purely aerobic.';
+            } else {
+                $type = 'recovery'; $dur = 40; $load = round(40 * 0.3, 2);
+                $title = 'Recovery Run'; $summary = '40 min · recovery';
+                $desc  = 'Easy recovery run — gentle and aerobic while you continue to recover from your race.';
+            }
 
             $ex = $db->prepare('SELECT id, coach_locked FROM planned_workouts WHERE plan_id = ? AND scheduled_date = ? LIMIT 1');
             $ex->execute([$planId, $date]);
