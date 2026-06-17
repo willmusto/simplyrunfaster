@@ -217,9 +217,17 @@ class AthleteController
             self::applyAthleteMove($db, $workoutId, $targetDate, $oldDate, $targetIsMustOff, $now);
         }
 
-        // Re-push affected workouts (pushWorkout self-guards if not connected / is rest).
-        foreach ($affected as $id) {
-            IntervalsService::pushWorkout($athleteId, (int)$id, $db);
+        // Re-push affected workouts to Intervals.icu — the simple move pushes the one
+        // workout; the swap pushes both. pushWorkout() takes the athletes.id (it resolves
+        // the connection via athletes.user_id internally), self-guards when there's no
+        // connection or it's a rest day, and logs to intervals_push_log. Wrapped so an
+        // Intervals failure can never fail the swap — the DB change is already committed.
+        try {
+            foreach ($affected as $id) {
+                IntervalsService::pushWorkout($athleteId, (int)$id, $db);
+            }
+        } catch (\Throwable $e) {
+            error_log('swapWorkout Intervals push failed for athlete ' . $athleteId . ': ' . $e->getMessage());
         }
 
         // Notify the coach (controllable, default off).
