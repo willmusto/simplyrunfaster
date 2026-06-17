@@ -202,6 +202,11 @@ class IntervalsService
         $params    = json_decode((string)($workout['archetype_params'] ?? ''), true) ?: [];
         $fallback  = trim((string)($workout['athlete_instructions'] ?? $workout['description'] ?? ''));
 
+        // Quality pace-range citations (engine spec §18.9) key off the archetype code.
+        if (empty($context['archetype_code'])) {
+            $context['archetype_code'] = (string)($workout['archetype_code'] ?? '');
+        }
+
         if (!is_array($structure) || empty($structure['segments']) || !is_array($structure['segments'])) {
             if ($fallback === '') {
                 error_log('IntervalsService::generateWorkoutText — no structure and no description for workout '
@@ -268,7 +273,7 @@ class IntervalsService
                 $m = (int)($seg['continuous_work_minutes'] ?? $params['continuous_work_minutes'] ?? $params['duration_minutes'] ?? 0);
                 if ($m < 1) return '';
                 $a = max(1, (int)round($m * 0.6));
-                return "- {$a}m Z2 Pace\n- " . max(1, $m - $a) . "m Z4 Pace";
+                return "- {$a}m Z2 Pace\n- " . max(1, $m - $a) . "m Z4 Pace" . self::citationSuffix($seg, $params, $context);
 
             case 'repeats':
                 return self::renderDistanceRepeats($seg, $params, $context, 'Z5 Pace', 'vo2_standard');
@@ -308,7 +313,8 @@ class IntervalsService
             $repSec = self::estimateRepSeconds($meters, (string)$effort, $context);
             $recSec = self::modelRecoverySeconds($recModel, $repSec);
         }
-        return self::repeatBlock($n, '- ' . self::fmtMeters($meters) . ' ' . $zone, self::roundSecs($recSec ?: 120));
+        $work = '- ' . self::fmtMeters($meters) . ' ' . $zone . self::citationSuffix($seg, $params, $context);
+        return self::repeatBlock($n, $work, self::roundSecs($recSec ?: 120));
     }
 
     /** tempo_intervals: time- (preferred) or distance-based reps at threshold. */
@@ -324,14 +330,15 @@ class IntervalsService
         elseif (isset($seg['rep_duration_seconds'])) $workSec = (int)$seg['rep_duration_seconds'];
         elseif (isset($params['work_duration_seconds'])) $workSec = (int)$params['work_duration_seconds'];
 
+        $cite = self::citationSuffix($seg, $params, $context);
         if ($workSec > 0) {
             $recSec = self::roundSecs(self::modelRecoverySeconds($recModel, $workSec));
-            return self::repeatBlock($n, '- ' . self::fmtSeconds($workSec) . ' ' . $zone, $recSec);
+            return self::repeatBlock($n, '- ' . self::fmtSeconds($workSec) . ' ' . $zone . $cite, $recSec);
         }
         if (isset($seg['rep_distance_miles'])) {
             $meters = (int)round((float)$seg['rep_distance_miles'] * self::METERS_PER_MILE);
             $recSec = self::roundSecs(self::modelRecoverySeconds($recModel, self::estimateRepSeconds($meters, 'half_marathon', $context)));
-            return self::repeatBlock($n, '- ' . self::fmtMeters($meters) . ' ' . $zone, $recSec);
+            return self::repeatBlock($n, '- ' . self::fmtMeters($meters) . ' ' . $zone . $cite, $recSec);
         }
         return '';
     }
@@ -380,11 +387,12 @@ class IntervalsService
             $works = [60, 90, 120];
         }
         $zone  = self::zoneFor('interval', $context, 'Z5 Pace');
+        $cite  = self::citationSuffix($seg, $params, $context);
         $lines = ["Main Set {$rounds}x"];
         foreach ($works as $w) {
             $w = (int)$w;
             if ($w < 1) continue;
-            $lines[] = '- ' . self::fmtSeconds($w) . ' ' . $zone;
+            $lines[] = '- ' . self::fmtSeconds($w) . ' ' . $zone . $cite;
             $lines[] = '- ' . self::fmtSeconds($w) . ' Z1 Pace'; // ~1:1 float recovery
         }
         return count($lines) > 1 ? implode("\n", $lines) : '';
@@ -408,7 +416,8 @@ class IntervalsService
             $recSec = self::modelRecoverySeconds((string)($seg['recovery_model'] ?? $params['recovery_model'] ?? ''), $workSec);
         }
         $zone = self::zoneFor($seg['effort'] ?? $seg['target_effort'] ?? '', $context, 'Z5 Pace');
-        return self::repeatBlock($n, '- ' . self::fmtSeconds($workSec) . ' ' . $zone, self::roundSecs($recSec));
+        $work = '- ' . self::fmtSeconds($workSec) . ' ' . $zone . self::citationSuffix($seg, $params, $context);
+        return self::repeatBlock($n, $work, self::roundSecs($recSec));
     }
 
     /** Assemble a "Main Set Nx" block from a work line and an optional recovery jog. */
@@ -508,6 +517,96 @@ class IntervalsService
             in_array($e, ['marathon', 'z3'], true)                    => 'marathon',
             default                                                   => '5K',
         };
+    }
+
+    // ── Quality pace-range citations (engine spec §18.9) ─────────────────────
+    // Appended ONLY to quality work steps. Easy/long/warmup/cooldown/recovery and
+    // hill segments stay effort/time-only and never carry a pace range (§3, §18.5).
+    // Ranges come from the athlete's *visible* pace_zones (seconds/mile, already
+    // gated in paceContext()) and are formatted with PaceZones::formatRange(),
+    // normalized to the "/mi" suffix used elsewhere in the Intervals.icu text.
+
+    /** Citation suffix (with a leading space) for a work step, or '' when none applies. */
+    private static function citationSuffix(array $seg, array $params, array $context): string
+    {
+        $cit = self::paceCitation((string)($context['archetype_code'] ?? ''), $seg, $params, $context['pace_zones'] ?? null);
+        return $cit === '' ? '' : ' ' . $cit;
+    }
+
+    /** Pace-range parenthetical for an archetype, mirroring PaceZones::qualityCitation. */
+    private static function paceCitation(string $code, array $seg, array $params, ?array $zones): string
+    {
+        if (empty($zones)) return '';
+        switch ($code) {
+            // Tempo/threshold: the 10K–half-marathon band.
+            case 'tempo_intervals':
+            case 'continuous_progression_tempo':
+            case 'high_volume_time_intervals':
+                return self::bandCitation($zones, '10K', 'half_marathon');
+
+            // VO2/interval & short speed: the track/short zone nearest the rep distance, ±5s.
+            case 'equal_distance_repeats':
+            case 'short_speed_repeats':
+                $m = (int)($seg['rep_distance_meters'] ?? $params['rep_distance_meters'] ?? 0);
+                return $m > 0 ? self::scalarCitation($zones, self::nearestDistanceKey($m)) : '';
+
+            // Mixed-distance reps: the mile–5K band.
+            case 'mixed_distance_repeats':
+                return self::bandCitation($zones, 'mile', '5K');
+
+            // Fartlek ladder: the 5K–10K band (the faster efforts).
+            case 'structured_fartlek_ladder':
+                return self::bandCitation($zones, '5K', '10K');
+
+            // Hills (effort-only, §18.5) and everything else: no pace range.
+            default:
+                return '';
+        }
+    }
+
+    /** Parenthetical band between two zone keys, or '' if either is absent. */
+    private static function bandCitation(?array $zones, string $a, string $b): string
+    {
+        if (empty($zones) || !isset($zones[$a], $zones[$b]) || !is_numeric($zones[$a]) || !is_numeric($zones[$b])) {
+            return '';
+        }
+        return self::paceRangeParen((int)$zones[$a], (int)$zones[$b]);
+    }
+
+    /** Parenthetical ±5 sec/mile band around a single scalar zone, or '' if absent. */
+    private static function scalarCitation(?array $zones, string $key): string
+    {
+        if (empty($zones) || !isset($zones[$key]) || !is_numeric($zones[$key])) {
+            return '';
+        }
+        $v = (int)$zones[$key];
+        return self::paceRangeParen($v - 5, $v + 5);
+    }
+
+    /**
+     * Map a rep distance in meters to the nearest track/short zone key. Geometric
+     * breakpoints match PaceZones::qualityCitation (566 / 1134 / 2236 m).
+     */
+    private static function nearestDistanceKey(int $meters): string
+    {
+        return match (true) {
+            $meters > 0 && $meters < 566 => '400',
+            $meters < 1134               => '800',
+            $meters < 2236               => 'mile',
+            default                      => '5K',
+        };
+    }
+
+    /** "(M:SS–M:SS/mi)" from a seconds/mile pair, via PaceZones::formatRange(). */
+    private static function paceRangeParen(int $lo, int $hi): string
+    {
+        if (!class_exists('PaceZones')) {
+            $path = __DIR__ . '/Engine/PaceZones.php';
+            if (is_file($path)) require_once $path;
+            if (!class_exists('PaceZones')) return '';
+        }
+        $range = PaceZones::formatRange(min($lo, $hi), max($lo, $hi)); // "M:SS–M:SS/mile"
+        return '(' . str_replace('/mile', '/mi', $range) . ')';
     }
 
     /**
