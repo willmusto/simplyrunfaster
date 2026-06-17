@@ -143,8 +143,30 @@ $localHour = (int)Timezone::dateInZone($tz, 'now', 'G');
     </div>
     <?php endif; ?>
 
-    <!-- THIS WEEK section -->
+    <!-- THIS WEEK section — tappable accordion rows (CSS-only toggle) -->
     <?php if (!empty($weekWorkouts)): ?>
+    <style>
+        .week-acc { border-bottom: var(--card-border); }
+        .week-acc:last-child { border-bottom: none; }
+        /* The divider now lives on .week-acc, so the inner row carries none. */
+        .week-acc .week-row { border-bottom: none; cursor: pointer; user-select: none; }
+        .week-acc-toggle { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+        .week-chevron { flex-shrink: 0; color: var(--text-muted); transition: transform 200ms ease; }
+        .week-acc-toggle:checked ~ .week-row .week-chevron { transform: rotate(180deg); }
+        .week-acc-detail { max-height: 0; overflow: hidden; transition: max-height 200ms ease; }
+        .week-acc-toggle:checked ~ .week-acc-detail { max-height: 1000px; }
+        .week-acc-panel {
+            margin: 2px 16px 14px;
+            padding: 12px 14px;
+            background: var(--recessed-bg);
+            border: var(--card-border);
+            border-radius: var(--radius-card);
+        }
+        .week-acc-title { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+        .week-acc-summary { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
+        .week-acc-instr { font-size: 14px; line-height: 1.55; color: var(--text-primary); margin: 0 0 12px; }
+        .week-acc-panel .btn:last-child { margin-bottom: 0; }
+    </style>
     <div class="section-label" style="margin-top:24px;">THIS WEEK</div>
     <div class="card" style="padding:0 0;">
         <?php
@@ -152,17 +174,42 @@ $localHour = (int)Timezone::dateInZone($tz, 'now', 'G');
         foreach ($weekWorkouts as $w):
             $isToday = $w['scheduled_date'] === $today;
             $dow     = (int)date('w', strtotime($w['scheduled_date']));
+            $wid     = (int)$w['id'];
+            $instr   = $w['athlete_instructions'] ?: ($w['description'] ?? '');
         ?>
-        <div class="week-row <?= $isToday ? 'week-row-today' : '' ?>" style="padding:10px 20px;">
-            <span class="week-row-day"><?= $dayNames[$dow] ?></span>
-            <div class="week-row-body">
-                <span class="pill <?= pill_class($w['workout_type']) ?>">
-                    <?= pill_label($w['workout_type']) ?>
+        <div class="week-acc">
+            <input type="checkbox" id="wk-<?= $wid ?>" class="week-acc-toggle">
+            <label for="wk-<?= $wid ?>" class="week-row <?= $isToday ? 'week-row-today' : '' ?>" style="padding:10px 20px;">
+                <span class="week-row-day"><?= $dayNames[$dow] ?></span>
+                <div class="week-row-body">
+                    <span class="pill <?= pill_class($w['workout_type']) ?>">
+                        <?= pill_label($w['workout_type']) ?>
+                    </span>
+                </div>
+                <span class="week-row-duration">
+                    <?= $w['target_duration'] ? format_duration((int)$w['target_duration']) : '' ?>
                 </span>
+                <svg class="week-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="6 9 12 15 18 9"/>
+                </svg>
+            </label>
+            <div class="week-acc-detail">
+                <div class="week-acc-panel">
+                    <?php if (!empty($w['display_title'])): ?>
+                    <div class="week-acc-title"><?= h($w['display_title']) ?></div>
+                    <?php endif; ?>
+                    <?php if (!empty($w['display_summary'])): ?>
+                    <div class="week-acc-summary"><?= h($w['display_summary']) ?></div>
+                    <?php endif; ?>
+                    <?php if (!empty($instr)): ?>
+                    <p class="week-acc-instr"><?= nl2br(h($instr)) ?></p>
+                    <?php endif; ?>
+                    <?php if ($isToday): ?>
+                    <a href="/log" class="btn btn-primary btn-sm">Log this workout →</a>
+                    <?php endif; ?>
+                </div>
             </div>
-            <span class="week-row-duration">
-                <?= $w['target_duration'] ? format_duration((int)$w['target_duration']) : '' ?>
-            </span>
         </div>
         <?php endforeach; ?>
     </div>
