@@ -1664,8 +1664,9 @@ class PlanGenerator
     /**
      * Return-to-running: pre-generate the FULL expected progression upfront so the coach
      * sees every planned session in the macro view. All RTR_MAX_STAGE (10) run/walk
-     * sessions are created at stage 1 on an every-other-day cadence (≥2-day gap, never on
-     * must-off days, ~20 days total), with rest / cross-training filling every day in
+     * sessions are created at their expected stage (session N at stage N, 1..10, with
+     * stage 10 the first continuous run) on an every-other-day cadence (≥2-day gap, never
+     * on must-off days, ~20 days total), with rest / cross-training filling every day in
      * between. plan_end_date spans the whole progression.
      *
      * Visibility mirrors a normal plan: the initial rolling window (first RTR_WINDOW_DAYS
@@ -1705,7 +1706,11 @@ class PlanGenerator
             $isRunDay = !in_array($dow, $mustOff, true) && ($offset - $lastRunOffset) >= 2;
 
             if ($isRunDay) {
-                $instance = self::resolveRunWalkStage($selector, $stage, 0, 'base', '5K', 'insufficient');
+                // Pre-generate session N at stage N (1..10) so the coach sees the full
+                // progression. rtr_current_stage stays 1 (the athlete starts at stage 1);
+                // onRunWalkCompletion re-stages the next session as the athlete advances.
+                $sessionStage = $placed + 1;
+                $instance = self::resolveRunWalkStage($selector, $sessionStage, 0, 'base', '5K', 'insufficient');
                 if ($instance !== null) {
                     self::insertResolvedWorkout($insert, $planId, $athleteId, $date, 'easy', $instance);
                     $placed++;
@@ -1807,7 +1812,7 @@ class PlanGenerator
      *                                         (info) flag so the coach transitions the
      *                                         athlete out of return_to_running
      * It then re-stages the next pending run/walk session in place to the new stage (see
-     * restageNextRunWalk; sessions are pre-generated at stage 1) and runs
+     * restageNextRunWalk; the baseline progression is pre-generated session N at stage N) and runs
      * validateGeneratedDisplays() on the patched plan.
      *
      * Returns a short status string for logging, or null when the workout is not a
@@ -1888,9 +1893,9 @@ class PlanGenerator
                ->execute([$newStage, $planId]);
         }
 
-        // Re-stage the next pending run/walk session in place to the new stage (sessions
-        // are pre-generated at stage 1 by generateReturnToRunning), keeping the rest of the
-        // pre-generated progression intact.
+        // Re-stage the next pending run/walk session in place to the new stage, keeping the
+        // rest of the pre-generated progression intact. (The baseline plan is pre-generated
+        // session N at stage N; this realigns the next session to the athlete's actual stage.)
         self::restageNextRunWalk($planId, $athleteId, $newStage, $completedDate, $scheduleNext, $db);
 
         // The patch wrote fresh display fields — re-validate, mirroring generate().
@@ -1900,8 +1905,8 @@ class PlanGenerator
     }
 
     /**
-     * Re-stage the NEXT pending run/walk session to $newStage after a completion. Sessions
-     * are pre-generated at stage 1 by generateReturnToRunning, so the common path is an
+     * Re-stage the NEXT pending run/walk session to $newStage after a completion. The
+     * baseline progression is pre-generated (session N at stage N), so the common path is an
      * in-place UPDATE of the next pending session's archetype + display fields — no
      * delete/insert. Coach-locked sessions are preserved (the coach's explicit override
      * wins, §24).
