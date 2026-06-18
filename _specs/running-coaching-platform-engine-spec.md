@@ -387,6 +387,24 @@ Engine inserts recovery days after any race automatically:
 | Half Marathon | 5–7 days |
 | Marathon | 10–14 days |
 
+**Tiered post-race window (as built).** `PlanGenerator::applyOneRaceAdjustment()` resolves
+the *entire* post-race window (race_date+1 .. race_date+N, where N is the per-distance day
+count above — marathon 14) by proximity to the race, overwriting whatever the generator had
+placed there (any surviving quality session or long run is converted):
+
+| Days after race | Result |
+|---|---|
+| 1–3 | Rest (no workout) |
+| 4–7 | Easy run, 30 min |
+| 8–N | Recovery run, 40 min |
+
+`workout_type` uses the real `planned_workouts` ENUM values (`rest` / `easy` / `recovery`).
+The window is capped at the plan's `plan_end_date`, so a goal race near the end of the plan
+fills only the days that remain in the plan. Coach-locked rows are never touched. The pass is
+idempotent (caps/type-swaps only), so re-running on each race add converges. This applies to
+the goal race as well as tune-up races — running `applyRaceAdjustments()` for an athlete whose
+post-race window still held training workouts converts them to the tiered pattern above.
+
 ---
 
 ## 9b. Ultra-Distance Training

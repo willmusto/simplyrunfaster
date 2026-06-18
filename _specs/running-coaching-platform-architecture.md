@@ -285,7 +285,7 @@ Holds generated plans pending coach review before activation.
 | coach_notes | TEXT | |
 
 ### `workout_library`
-Legacy template table seeded from initial workout library (WL-001 through WL-023, documented in the Workout Library document). **This table is no longer joined by AthleteController, CoachController, or TrainingLoad.php for archetype-generated workouts.** It remains in the database for historical reference and as a seed source for initial content. The archetype engine (workout_archetypes table + ArchetypeSelector) is the active workout prescription layer. Archetype/variant swapping UI was removed in Milestone 3.5 and will be redesigned in a future milestone.
+Legacy template table seeded from initial workout library (WL-001 through WL-023, documented in the Workout Library document). **This table is no longer joined by AthleteController, CoachController, or TrainingLoad.php for archetype-generated workouts.** It remains in the database for historical reference and as a seed source for initial content. The archetype engine (workout_archetypes table + ArchetypeSelector) is the active workout prescription layer. Archetype/variant swapping UI was removed in Milestone 3.5 and will be redesigned in a future milestone. *(June 2026)* The coach **Library page (`/app/coach/library`) no longer reads `workout_library` at all** — it is now a read-only browser over the active `workout_archetypes` (see §8, "Workout Library — archetype browser"); the old `workout_library` template list + "Add template" creation UI were removed.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -598,6 +598,25 @@ Coach dashboard also includes:
 - In-app messaging thread per athlete (see Section 14)
 - Push notification controls (see Section 15)
 
+**Mobile macro-plan lead-in (2026-06-17 fix):** On the coach athlete view (`views/coach/athlete_view.php`) at ≤768px, the stacked macro-plan list no longer leaves a full-height empty gap for the calendar-padding days before the plan's first workday (e.g. Mon–Wed when the plan starts Thursday). Those out-of-plan cells carry `.macro-day-outside`, which the mobile breakpoint hides — but an equal-specificity `.macro-day { display:flex }` rule directly below it was winning on source order and re-showing them. The hide rule is now the compound selector `.macro-day.macro-day-outside { display:none }` so it wins regardless of order. Desktop grid unchanged (outside days still render as blank cells).
+
+### Workout Library — archetype browser *(2026-06-17)*
+
+The coach **Library page (`/app/coach/library`, `CoachController::library()`) is a read-only browser over the active `workout_archetypes`** — it no longer touches the legacy `workout_library` table, and the old "+ Add template" creation flow (`libraryAddTemplate` + its `POST /app/coach/library` route) was removed. Archetypes are managed via the seeder, never through this UI.
+
+- **List:** dynamic count ("N workout archetypes available"); a repurposed filter bar — search (name/code/description), **Type** (Easy/Long/Quality/Recovery, mapped from `selection.slot_types`), **Phase** (Base/Build/Peak/Taper, from `selection.phases`), and **Distance** (5K/10K/Half/Marathon/Ultra/Mile, matched against `selection.goal_distances` with **Ultra→marathon** and **Mile→5K** since archetypes key on the selector distance). Cards show name, code slug, workout-type badge (shared `pill_class`/`pill_label`), phase + distance tags, intensity factor, prescription type, description (with Show more), variant count, and a "System archetype" label.
+- **Detail drawer** (right on desktop, bottom sheet ≤768px): variants, per-classification parameter ranges, generation metadata (intensity factor / prescription / recovery model / min classification), plan-type eligibility, full `display.description_template`, and a "Preview workout" button.
+- **Preview:** `GET /app/coach/library/preview?archetype_id&classification&duration&goal_distance&variant` → `CoachController::libraryPreview()` (JSON, **no DB writes**) runs the archetype through `PlanGenerator::previewArchetype()` — the same resolve→render pipeline as `composeManualWorkout()` but against a throwaway context (explicit classification + selector distance, effort-only/no pace citations). Returns `display_title`, `display_summary`, `athlete_instructions`, `generated_parameters`, and `structure` so coaches can see exactly what an athlete would be shown for any configuration.
+
+### Unified Messages tab *(2026-06-17)*
+
+A coach **Messages tab (`/app/coach/messages`, `CoachController::unifiedMessages()`)** consolidates every athlete thread into one inbox, alongside the existing per-athlete thread (`/app/coach/athlete/:id/messages`, still linked from the athlete detail page). Nav: a "Messages" item in the sidebar **and** the mobile bottom nav with a live unread badge.
+
+- **Inbox list** (left panel desktop / full-width mobile): all active athletes, sorted by most-recent message (athletes with none sort last, alphabetical), with avatar (teal when unread), name (bold when unread), 60-char preview ("You: " prefix for coach-sent), a smart timestamp, and an unread dot. Search filters by name. Built by `getMessageThreads()`; the **timestamp** (`messageListTimeLabel()`) is formatted in the **athlete's** timezone (`users.timezone` via `Timezone`): today → time ("2:34 PM"), yesterday → "Yesterday", within the past week → weekday ("Tuesday"), older → date ("Jun 9").
+- **Thread (right panel desktop / `/app/coach/messages/:id` full-page on mobile):** reuses the existing `views/coach/messages.php` component (now with an optional `$backUrl`), so session-note cards, polling, and the compose/send endpoint are shared — no duplication. Desktop loads the thread without a page reload via `GET /app/coach/messages/:id/panel` (fragment), then re-binds `window.SRF.initMessaging()` (exposed from `app.js` with teardown so swapping threads never leaks pollers). Opening a thread marks it read (`loadThreadForPanel()`), clears the row's unread indicator, and decrements the badge.
+- **Polling:** the nav badge polls `GET /app/coach/messages/unread-count` every 10s on all coach pages (`window.SRF.setNavMsgBadge`); the inbox list refreshes every 10s via `GET /app/coach/messages/threads` (re-sort + preview/timestamp/unread update, preserving search + active selection); the active thread keeps the existing 10s message poll.
+- **Mobile bottom nav (2026-06-17):** **Alerts was removed from the coach bottom nav** to make room for Messages (it remains in the desktop sidebar). Bottom nav is now: Home / Athletes / Messages / Approvals / Settings.
+
 ---
 
 ## 9. Onboarding Flow
@@ -792,6 +811,7 @@ Threads are keyed on `planned_workout_id` so an athlete can open a thread for AN
 - **Focused thread view:** `GET /app/messages/workout/{planned_workout_id}` → `AthleteController::workoutThread()` (coach parity: `GET /app/coach/workout/{planned_workout_id}/thread` → `CoachController::workoutThread()`), shared view `views/messages/workout_thread.php` — workout header (badge, title, date, summary) + chronological thread + compose. Send: `POST .../send` → `sendWorkoutMessage()` (athlete) / `CoachController::sendWorkoutMessage()` (coach); inserts a `session_notes` row, re-floats the card, notifies the other party (`athlete_session_note` / `coach_session_comment`).
 - **Entry points:** the Today "This Week" accordion cards and the Plan upcoming cards render a button via `render_workout_thread_button()` — "Ask your coach about this workout" (no thread), "1 message · waiting for reply" (`reply_count = 0`), or "View thread (N replies)" (`reply_count > 0`); state comes from `AthleteController::workoutThreadState()`.
 - **Main-thread card link:** the session card now links to `/app/messages/workout/{planned_workout_id}` (athlete) / `/app/coach/workout/{planned_workout_id}/thread` (coach), falling back to `/app/log/{completed_workout_id}` for legacy cards with no planned id. Thread/poll queries `COALESCE` planned-workout title/date so pre-completion cards render before any completion exists.
+- **Enter-to-send + live polling (2026-06-17 fix):** the focused workout thread reused neither the main thread's Enter-to-send nor its 10s polling (the generic `initMessaging()` keys off `#msgScreen`, which this view doesn't emit). `views/messages/workout_thread.php` now carries a small self-contained script: **Enter sends** (Shift+Enter = newline) by submitting the compose form, and a **10s poller** scoped to the `planned_workout_id` appends new `session_notes` without a reload (deduped, scroll-to-bottom only if already near it, pauses on tab-hide). Read-only, ownership-scoped poll endpoints (symmetric since the view is shared): `GET /app/messages/workout/:id/poll` → `AthleteController::workoutThreadPoll()` and `GET /app/coach/workout/:id/thread/poll` → `CoachController::workoutThreadPoll()`, returning notes after `?after=<id>` via `loadWorkoutThreadNotesAfter()` + `serializeWorkoutNotes()` (`mine` computed per viewer).
 
 ### Scheduled coach messages — `scheduled_messages` *(shipped — June 2026, migration 017)*
 
@@ -814,7 +834,7 @@ MyISAM/utf8, consistent with the live schema.
 - Message thread accessible from athlete profile sidebar
 - Unread message count badge on athlete roster row
 - Compose from athlete context — coach sees athlete's training data while writing
-- All athletes' unread messages surfaced in a unified "Messages" section of coach dashboard
+- All athletes' unread messages surfaced in a unified "Messages" section of coach dashboard — **shipped 2026-06-17 as the coach Messages tab (`/app/coach/messages`); see §8 "Unified Messages tab" for the inbox, live unread badge, desktop two-panel / mobile flow, and polling.**
 
 ### Athlete UI
 - Message thread accessible from bottom tab nav (messages tab or notification badge)
@@ -1126,8 +1146,11 @@ All races are treated as full effort by the engine. No target effort distinction
   race add. It is idempotent (caps / type-swaps / deletes, never compounding): race-day
   training workouts removed; long runs within 7 days forced to `continuous_long` /
   `continuous_easy` (3–4 days out capped to 60% of a normal long run, 1–2 days out a ≤30 min
-  shakeout); quality removed within 3 days; and post-race recovery/rest days inserted by
-  distance (5K 3 · 10K 5 · half 7 · marathon 14 · 50K/50mi 14–16 · 100K/100mi 21).
+  shakeout); quality removed within 3 days; and a **tiered post-race recovery window** by
+  distance (5K 3 · 10K 5 · half 7 · marathon 14 · 50K/50mi 14–16 · 100K/100mi 21). The window
+  is resolved by proximity to the race — **days 1–3 rest, days 4–7 easy 30 min, days 8–N
+  recovery 40 min** — overwriting any surviving quality/long workout, capped at `plan_end_date`,
+  never touching coach-locked rows. See engine spec §9 (Post-Race Recovery) for the full table.
 - **Recalibration:** logging a result stores `result_time` (seconds) + `result_notes`, sets
   `recalibration_proposed`, computes `proposed_pace_zones` via `PaceZones::fromRace`, and
   raises a `pace_recalibration` flag carrying the `race_id`. The Alerts view renders a
