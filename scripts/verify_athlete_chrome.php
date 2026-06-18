@@ -83,13 +83,14 @@ try {
         'profile'  => '/app/coach/athlete/' . $athleteId . '/edit',
         'flags'    => '/app/coach/athlete/' . $athleteId . '/flags',
     ];
-    foreach (array_keys($hrefs) as $key) {
-        $chromeActive = $key;
+    // Use names the partial does not clobber ($key/$href/$label/$tabs leak via include).
+    foreach ($hrefs as $tabKey => $tabHref) {
+        $chromeActive = $tabKey;
         $chrome = ['flag_count' => 2];
         ob_start(); include SCRIPT_ROOT . '/views/coach/partials/athlete_tabs.php'; $html = ob_get_clean();
-        $onlyOne   = substr_count($html, 'is-active') === 1;
-        $rightOne  = strpos($html, 'href="' . $hrefs[$key] . '" class="av-tab is-active"') !== false;
-        check("tab strip: active='{$key}' marks exactly that tab", $onlyOne && $rightOne);
+        $onlyOne  = substr_count($html, 'is-active') === 1;
+        $rightOne = strpos($html, 'href="' . $tabHref . '" class="av-tab is-active"') !== false;
+        check("tab strip: active='{$tabKey}' marks exactly that tab", $onlyOne && $rightOne);
     }
     // Flags badge: shown at >0, hidden at 0.
     $chromeActive = 'plan';
