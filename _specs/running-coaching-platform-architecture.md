@@ -1623,7 +1623,7 @@ On onboarding completion, `OnboardingController::ensureCoachAssignment()` create
 
 ---
 
-## 32. Coaching Intelligence Layer (Phases 1–3 of 4 complete)
+## 32. Coaching Intelligence Layer (Phases 1–4 complete)
 
 A capture-and-surface layer that records how coaches actually adjust plans and how athletes actually behave, turns repeated patterns into reusable coaching rules, and feeds those rules back into the engine. **Phase 1 builds the pipes, not the analysis** — no predictive modeling, no cross-athlete ML. Schema is migration_027 (MyISAM, utf8, no FKs, LONGTEXT for all JSON). The coach **Alerts** page was renamed and expanded into **Intelligence** (`/app/coach/intelligence`; `/app/coach/alerts` and the legacy `/app/coach/flags` redirect/alias to it).
 
@@ -1724,8 +1724,26 @@ Phase 3 adds forward-looking flags and per-athlete response modeling. It is an *
 
 **UI.** Intelligence page predictive flags show a confidence + horizon badge (and `adaptation_ahead` shows Accept → regeneration / Dismiss). The athlete context panel adds a **Predictions** section and a **Response profile** summary with a "Not enough data yet" empty state below 4 weeks (shared `views/partials/predictive.php`).
 
+### Phase 4 — multi-coach support & coaching philosophy export (migration_030)
+
+Phase 4 turns the single-coach intelligence layer into a multi-coach one. **Every feature is dormant until a second coaching account exists**: `CoachAssignments::multiCoach($db)` (≥2 active `coach`/`assistant_coach` users) gates all Phase 4 UI and behavior — with one sole coach nothing appears or changes. The coaching philosophy export is the lone exception (available to any coach). Builds on the existing `CoachAssignments` head/assistant model and the `coaching_decisions` resolver; no change to generation math or anything athlete-facing.
+
+**New schema (migration_030, runner `scripts/run_migration_030.php`, idempotent; 031 reserved for regen):**
+- `coaching_decisions.status` ENUM += `proposed_by_assistant`; `coaching_decisions.shared` TINYINT(1) (head-coach roster-wide sharing); `coaching_decisions.rationale` TEXT (the "why", for the export).
+- `coaching_intelligence_flags.status` ENUM += `superseded`, with a one-time backfill of the Phase 3 `[auto-resolved]` marker rows. **Trap cleanup:** `PredictiveFlags::resolveSuperseded()` now writes `status='superseded'` (not `dismissed` + text marker) and the `predicted_dropout` cooldown keys off `status <> 'superseded'` (coach dismissals still cool down; superseded handoffs re-arm freely).
+
+**Decision sharing (resolver).** `CoachingDecisions::loadActiveForAthlete()` now resolves `status='active' AND (shared=1 OR created_by IN {athlete's head + assistant})`. A head coach toggles `shared` on their own active rules (Decision Library). Shared active rules apply across every coach's athletes; a coach's non-shared active rules stay scoped to their own athletes. `proposed` and `proposed_by_assistant` never reach generation — only `active` does.
+
+**Assistant proposals.** An assistant coach's add-as-rule saves `status='proposed_by_assistant'` (mirrors the assistant request→approve capability pattern). The managing head coach sees an **Assistant proposals** section on the Intelligence page and Approves (→`active`) or Dismisses (→`inactive`). Excluded from the resolver until active; an assistant cannot self-activate (the active/inactive toggle ignores proposed statuses).
+
+**Inheritance / playbook import.** A one-time **"Import founding coach's rules"** button (shown to a coach with no rules yet, when multi-coach) copies the founding coach's active rules — **shared and non-shared alike** — as editable `proposed` copies owned by the importer; the originals and their shared flags are untouched. ("Here's my full playbook, make it yours.") Not auto-seeded at account creation.
+
+**Admin coach analytics (`/app/admin/coaches`, dormancy-gated).** Read-only per-coach aggregations: average athlete compliance (last 28 days), mean flag-resolution time (last 90 days — counts genuine coach actions `actioned`/`dismissed` only, **excludes** `superseded` auto-resolutions), and retention (active ÷ all-time-assigned athletes).
+
+**Coaching philosophy export (`/app/coach/intelligence/philosophy`, any coach).** A print-styled standalone page (browser save-to-PDF; server-side PDF deferred) rendering the coach's active rules — their own plus the shared rules they rely on — with title, plain-prose trigger/action, and rationale.
+
 ### Roadmap
 - **Phase 1:** capture pipes, behavior metrics, pattern flags, flag-for-review, decision resolver, weekly digest. **Complete.**
 - **Phase 2:** weekly-review UI, pattern proposer (rules from recurring adjustments), cross-athlete roster insights. **Complete.**
 - **Phase 3:** predictive flags (predicted_fatigue / injury_risk_pattern / predicted_dropout / adaptation_ahead) and athlete response modeling. **Complete.**
-- **Phase 4 (upcoming):** multi-coach decision sharing (promote rules across a coaching team / platform-wide).
+- **Phase 4:** multi-coach support — decision sharing, assistant proposals, playbook import, admin coach analytics, coaching philosophy export. **Complete.** (The Coaching Intelligence Layer is now feature-complete across all four phases.)
