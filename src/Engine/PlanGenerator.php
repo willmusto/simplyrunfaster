@@ -653,6 +653,15 @@ class PlanGenerator
         // signature (mile tempo pace band + mile short-rep distance bias).
         self::$planDistance = self::normalizeDistance($profile['goal_race_distance'] ?? '5K');
 
+        // Persist the engine's base classification at generation time (BUG 1). It is
+        // computed here from the athlete's goal distance + current volume profile and
+        // cached on athlete_profiles so downstream consumers (UI, future regenerations,
+        // coach overrides) can read it without recomputing. Previously it was computed
+        // transiently inside each generator and never written back, leaving the column NULL.
+        $baseClassification = self::classifyAthlete($profile, self::$planDistance);
+        $db->prepare('UPDATE athlete_profiles SET base_classification = ? WHERE athlete_id = ?')
+           ->execute([$baseClassification, $athleteId]);
+
         $planType = $profile['plan_type'] ?? 'development_plan';
 
         // Raise limited development flag for 3-day-per-week athletes (info, not blocking).
@@ -1144,8 +1153,14 @@ class PlanGenerator
         $raceDate = $profile['goal_race_date'] ?? null;
         $distance = self::normalizeDistance($profile['goal_race_distance'] ?? '5K');
 
+        // A race cycle is structurally meaningless without a goal race date (phase
+        // lengths, taper, and total weeks are all derived from it). Refuse to generate
+        // and surface a critical flag so the coach fixes the profile, rather than
+        // silently producing a broken or mis-typed plan.
         if (!$raceDate) {
-            return self::generateDevelopmentPlan($athleteId, $profile, $trigger, $db, $selector, $antiRepeatHistory);
+            self::raiseFlag($athleteId, 'missing_goal_race_date', 'critical',
+                "Cannot generate a race cycle plan without a goal race date. Please update the athlete's profile.", $db);
+            return null;
         }
 
         // Ultra context (ultra spec). $selDist is what the archetype/pace layer sees
@@ -2008,6 +2023,14 @@ class PlanGenerator
             }
         }
 
+        // The day immediately after the long run is the natural recovery rest day. When
+        // the greedy fill below has to leave a day un-trained (i.e. a rest day is needed),
+        // we prefer to leave THIS day rather than letting the residual rest default to the
+        // highest-numbered day (Saturday). Suppressed on ultra back-to-back weeks, where
+        // that slot is reserved for the Sunday medium-long run (assigned later). (BUG 3)
+        $backToBack   = $ultra !== null && !empty($ultra['back_to_back']);
+        $recoverySlot = (!$backToBack && $longDay !== null) ? ($longDay + 1) % 7 : null;
+
         // Fill remaining training days (greedy max-gap to avoid consecutive days)
         $anchors    = array_values(array_filter([$longDay, $workoutDay], fn($v) => $v !== null));
         $remaining  = array_values(array_diff($available, $anchors));
@@ -2039,9 +2062,23 @@ class PlanGenerator
                 $bestDay = $tied[0];
             } elseif (count($tied) > 1) {
                 $bestBlock = PHP_INT_MAX;
+                $blockTied = [];
                 foreach ($tied as $candidate) {
                     $block = self::largestRestBlock(array_merge($trainSoFar, [$candidate]));
-                    if ($block < $bestBlock) { $bestBlock = $block; $bestDay = $candidate; }
+                    if ($block < $bestBlock)       { $bestBlock = $block; $blockTied = [$candidate]; }
+                    elseif ($block === $bestBlock) { $blockTied[] = $candidate; }
+                }
+                // Secondary tiebreaker (BUG 3): for 6-/7-day athletes every single-rest-day
+                // layout scores an identical largest-rest-block (1), so the block score above
+                // can't discriminate and the bare greedy would leave the highest day (Saturday)
+                // as the lone rest. Prefer training on a day OTHER than the post-long-run
+                // recovery slot, so that slot is the one left un-trained — placing the rest day
+                // the day after the long run (a real recovery day) instead of biasing Saturday.
+                $bestDay = $blockTied[0];
+                if (count($blockTied) > 1 && $recoverySlot !== null) {
+                    foreach ($blockTied as $candidate) {
+                        if ($candidate !== $recoverySlot) { $bestDay = $candidate; break; }
+                    }
                 }
             }
             if ($bestDay !== null) {
@@ -2124,8 +2161,12 @@ class PlanGenerator
             }
         }
 
-        // Guardrail: at least 1 rest day
-        if (count(array_filter($schedule, fn($t) => $t === 'rest')) < 1) {
+        // Guardrail: at least 1 rest day — UNLESS the athlete genuinely requested 7
+        // training days and this week's volume supports them ($numDays === 7). Forcing a
+        // rest day on a true 7-day athlete is wrong (BUG 2), and the old reverse loop here
+        // always picked Saturday, compounding the Saturday-rest bias. When volume can't
+        // support 7 days, $numDays is already < 7 and a natural rest day exists.
+        if ($numDays < 7 && count(array_filter($schedule, fn($t) => $t === 'rest')) < 1) {
             for ($d = 6; $d >= 0; $d--) {
                 if ($schedule[$d] === 'easy' && !in_array($d, $mustOff)) {
                     $schedule[$d] = 'rest';

@@ -24,7 +24,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
         <?php endif; ?>
 
         <form method="POST" action="/app/invite/<?= h($invite['code']) ?>">
-            <?= Auth::csrfField() ?>
+            <?= Auth::inviteCsrfField($invite['code']) ?>
 
             <div class="form-group">
                 <label class="form-label" for="name">Full name</label>

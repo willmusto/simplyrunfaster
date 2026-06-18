@@ -127,6 +127,10 @@ include __DIR__ . '/../../views/layout/html_open.php';
                 <input type="date" id="goal_race_date" name="goal_race_date" class="form-input"
                        value="<?= h($d['goal_race_date'] ?? '') ?>"
                        min="<?= date('Y-m-d', strtotime('+4 weeks')) ?>">
+                <div class="form-error" id="raceDateError"
+                     style="display:none;color:var(--danger,#c0392b);font-size:13px;margin-top:6px;">
+                    Please enter your goal race date to continue.
+                </div>
             </div>
 
             <div class="form-group">
@@ -230,6 +234,28 @@ include __DIR__ . '/../../views/layout/html_open.php';
 
     radios.forEach(function(r) { r.addEventListener('change', update); });
     distRadios.forEach(function(r) { r.addEventListener('change', updateUltra); });
+
+    // Goal race date is required for a race cycle (the server enforces this too).
+    // Show inline validation rather than letting a dateless race cycle advance.
+    var form        = document.getElementById('step1Form');
+    var dateInput   = document.getElementById('goal_race_date');
+    var dateError   = document.getElementById('raceDateError');
+
+    function isRaceCycle() {
+        var val = document.querySelector('input[name="plan_type"]:checked');
+        return !!(val && val.value === 'race_cycle');
+    }
+    function clearDateError() { if (dateError) dateError.style.display = 'none'; }
+    if (dateInput) dateInput.addEventListener('input', clearDateError);
+
+    form.addEventListener('submit', function (e) {
+        if (isRaceCycle() && (!dateInput || !dateInput.value)) {
+            e.preventDefault();
+            if (dateError) dateError.style.display = '';
+            if (dateInput) { dateInput.focus(); dateInput.scrollIntoView({block: 'center'}); }
+        }
+    });
+
     update();
 })();
 </script>

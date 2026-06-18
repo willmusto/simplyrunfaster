@@ -94,6 +94,14 @@ defined('INTERVALS_REDIRECT_URI')   || define('INTERVALS_REDIRECT_URI',   getenv
 // flow refuses to store a token it could not safely encrypt.
 defined('APP_ENCRYPTION_KEY') || define('APP_ENCRYPTION_KEY', getenv('SRF_APP_ENCRYPTION_KEY') ?: '');
 
+// Secret for the invite-bound, session-independent CSRF token used on the pre-account
+// invite registration POST (Auth::inviteCsrfToken). Reuses the at-rest encryption key
+// by default so prod gets a strong per-deployment secret with no extra config; falls
+// back to a fixed string only in dev where APP_ENCRYPTION_KEY is empty. Defined after
+// APP_ENCRYPTION_KEY so the fallback can reference it.
+defined('CSRF_INVITE_SECRET') || define('CSRF_INVITE_SECRET',
+    getenv('SRF_CSRF_INVITE_SECRET') ?: (APP_ENCRYPTION_KEY ?: 'srf-invite-csrf-dev-secret'));
+
 // Training engine
 defined('ATHLETE_WINDOW_DAYS') || define('ATHLETE_WINDOW_DAYS', 10);  // rolling days visible to athlete
 defined('PUSH_AHEAD_DAYS')     || define('PUSH_AHEAD_DAYS',     1);   // push workout to watch T-1 day before

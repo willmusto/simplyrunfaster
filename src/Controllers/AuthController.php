@@ -110,9 +110,12 @@ class AuthController
 
     public static function inviteSubmit(array $params): void
     {
-        Auth::verifyCsrf();
+        $code = $params['code'] ?? '';
+        // The invite registration form uses a CSRF token bound to the invite code,
+        // not the session, so a dropped session (common on mobile) no longer trips
+        // a false "session expired" on submit.
+        Auth::verifyInviteCsrf($code);
 
-        $code   = $params['code'] ?? '';
         $invite = self::getValidInvite($code);
         if (!$invite) {
             header('Location: /app/login');

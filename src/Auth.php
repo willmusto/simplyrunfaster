@@ -203,10 +203,47 @@ class Auth
         return $_SESSION['csrf_token'] ?? '';
     }
 
+    /**
+     * Stateless CSRF token bound to an invite code rather than the PHP session.
+     * Derived as HMAC(invite:<code>, server secret) so it survives session drops —
+     * the common failure on mobile, where backgrounding the browser can lose the
+     * session between rendering the invite registration form and submitting it.
+     * The form embeds this token and inviteSubmit re-derives + compares it, so no
+     * session state (and no DB column) is needed for the pre-account registration POST.
+     */
+    public static function inviteCsrfToken(string $code): string
+    {
+        return hash_hmac('sha256', 'invite:' . $code, CSRF_INVITE_SECRET);
+    }
+
+    /** Hidden CSRF field carrying the invite-bound token (for the invite registration form). */
+    public static function inviteCsrfField(string $code): string
+    {
+        return '<input type="hidden" name="' . CSRF_TOKEN_NAME . '" value="'
+            . htmlspecialchars(self::inviteCsrfToken($code)) . '">';
+    }
+
     public static function verifyCsrf(): void
     {
+        self::verifyCsrfValue($_SESSION['csrf_token'] ?? '');
+    }
+
+    /** Verify the posted CSRF token against the invite-bound (session-independent) token. */
+    public static function verifyInviteCsrf(string $code): void
+    {
+        self::verifyCsrfValue(self::inviteCsrfToken($code));
+    }
+
+    /**
+     * Compare the posted CSRF token to an expected value, rendering the standard
+     * 403 / "session expired" response (JSON or styled page) on mismatch. The
+     * expected value is the session token for normal posts, or the invite-bound
+     * token for the pre-account invite registration post.
+     */
+    private static function verifyCsrfValue(string $expected): void
+    {
         $token = $_POST[CSRF_TOKEN_NAME] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-        if (hash_equals($_SESSION['csrf_token'] ?? '', $token)) {
+        if ($expected !== '' && hash_equals($expected, $token)) {
             return;
         }
 

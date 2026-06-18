@@ -116,6 +116,17 @@ class OnboardingController
         $_SESSION['onboarding_data']['ultra_surface'] =
             in_array($distance, $ultraDistances, true) ? $ultraSurface : null;
 
+        // A race cycle is structurally undefined without a goal race date (phase lengths,
+        // taper, and total weeks all derive from it), so it is required before advancing —
+        // mirroring the client-side check and the PlanGenerator guard. Other plan types
+        // (development / maintenance / return-to-running) keep the date optional.
+        // Session data above is already stored, so the form repopulates on redirect.
+        if ($planType === 'race_cycle' && empty($_SESSION['onboarding_data']['goal_race_date'])) {
+            $_SESSION['flash_error'] = 'Please enter your goal race date to continue.';
+            header('Location: /app/onboarding/1');
+            exit;
+        }
+
         // Return-to-running: capture time off and medical clearance on step 1
         if ($planType === 'return_to_running') {
             $_SESSION['onboarding_data']['return_time_off_band']       = $_POST['time_off_band'] ?? null;
