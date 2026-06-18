@@ -967,8 +967,8 @@ Minimum 9 sessions (18 days) before continuous running is scheduled. For signifi
 - If athlete reports discomfort (via the modified RPE prompt): engine **auto-regresses one stage** (floor of stage 1) and raises the `return_to_running_discomfort` flag for the coach immediately. This combines automatic de-load — so the athlete never stalls waiting on coach action — with coach awareness. (This refines the original "hold at current stage" intent: a regression is gentler than holding when something hurt, and the coach is still notified and can re-adjust.)
 - If athlete skips a session: engine repeats current stage on next scheduled run day — not a compliance flag, just a hold (the stage is unchanged until a session is actually completed).
 - Progression never skips stages regardless of how the athlete feels (one stage per completed session, up or down).
-- Coach can manually advance, hold, or regress stages from the athlete plan view. A coach-locked future run/walk session is preserved by the engine's window regeneration (the coach override wins).
-- **Implementation:** the per-session mechanic is `PlanGenerator::onRunWalkCompletion`, invoked after an athlete logs a run/walk completion. It re-stages the next scheduled run/walk session and keeps one pending session ahead inside the rolling visibility window, extending the plan as the athlete climbs. See engine spec §18.11.
+- Coach can manually advance, hold, or regress stages from the athlete plan view. A coach-locked future run/walk session is preserved when the engine re-stages upcoming sessions (the coach override wins).
+- **Implementation:** the full progression is **pre-generated upfront** at plan creation — all 10 run/walk sessions at their expected stage (session N at stage N, stage 10 the first continuous run) on an every-other-day cadence, so the coach sees the whole journey in the macro view (the initial 10-day window is visible to the athlete; later sessions are coach-only until the window reaches them). The per-session mechanic is `PlanGenerator::onRunWalkCompletion`, invoked after an athlete logs a run/walk completion: it re-stages the **next pending** session in place to the athlete's new stage (advancing on a clean session, regressing on discomfort), leaving the rest of the pre-generated progression intact. See engine spec §18.10/§18.11.
 
 ### Modified RPE Prompt During Return-to-Running
 Post-session prompt adds a fifth option:
@@ -998,7 +998,7 @@ Duration starts short (20-30 min) and increases gradually alongside run progress
 
 ### Transition Out of Return-to-Running
 After stage 10 (first continuous run) is completed cleanly:
-- Engine raises an info flag (`plan_rebuild_needed`, with `details.reason = 'return_to_running_complete'`): "Athlete has completed the return-to-running progression — ready to discuss the next plan type." It does **not** advance the stage further and schedules no further run/walk session (the rolling window holds gentle cross/rest days until the coach acts) — mirroring the recovery_block transition pattern.
+- Engine raises an info flag (`plan_rebuild_needed`, with `details.reason = 'return_to_running_complete'`): "Athlete has completed the return-to-running progression — ready to discuss the next plan type." It does **not** advance the stage further and schedules no further run/walk session (the pre-generated progression ends at the stage-10 session) — mirroring the recovery_block transition pattern.
 - Coach schedules goal-setting conversation
 - Coach selects next plan type: development_plan, maintenance_plan, or race_cycle
 - New plan generates per normal approval flow
