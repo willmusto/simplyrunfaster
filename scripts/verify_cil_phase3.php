@@ -94,7 +94,9 @@ try {
     check("sparse: weeks_of_data == 2", $sparse['weeks_of_data'] === 2);
     check("sparse: enough_data is false (< " . PredictiveConstants::MIN_WEEKS_DATA . " weeks)", $sparse['enough_data'] === false);
     check("sparse: easy_rpe_delta confidence == none", ($sparse['metrics']['easy_rpe_delta']['confidence'] ?? '') === 'none');
-    check("sparse: volume_tolerance value is null", ($sparse['metrics']['volume_tolerance_mins']['value'] ?? 1) === null);
+    check("sparse: volume_tolerance value is null",
+        array_key_exists('value', $sparse['metrics']['volume_tolerance_mins'])
+        && $sparse['metrics']['volume_tolerance_mins']['value'] === null);
 
     // ── Phase 2: rich history (weeks 0–13 full) ───────────────────────────────
     for ($i = 0; $i < 14; $i++) { $seedWeek($i, $mondays[$i], true); }
