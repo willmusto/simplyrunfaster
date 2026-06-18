@@ -148,6 +148,83 @@ class AdminController
         self::renderShell('admin_users', 'User management', 'users', ['users' => $users, 'coaches' => $coaches]);
     }
 
+    /**
+     * GET /app/admin/coaches — read-only per-coach performance analytics (Phase 4, B1).
+     * Windows: compliance = mean completed compliance_score over the last 28 days across the
+     * coach's active athletes; flag resolution = mean hours from raise to a genuine COACH
+     * action (actioned/dismissed, EXCLUDING auto-'superseded') over flags raised in the last
+     * 90 days; retention = active ÷ all-time-assigned athletes. Dormancy-gated (≥2 coaches).
+     */
+    public static function coaches(): void
+    {
+        Auth::requireRole('admin');
+        require_once __DIR__ . '/../../views/layout/base.php';
+        require_once __DIR__ . '/../CoachAssignments.php';
+
+        $db = Database::get();
+        $multiCoach = CoachAssignments::multiCoach($db);
+        $rows = [];
+
+        if ($multiCoach) {
+            $coaches = $db->query(
+                "SELECT id, name, role FROM users WHERE active = 1 AND role IN ('coach','assistant_coach')
+                 ORDER BY FIELD(role,'coach','assistant_coach'), name"
+            )->fetchAll(PDO::FETCH_ASSOC);
+
+            foreach ($coaches as $c) {
+                $cid = (int)$c['id'];
+
+                $activeAthletes = (int)self::scalar($db, "SELECT COUNT(*) FROM athletes WHERE coach_id = ? AND status = 'active'", [$cid]);
+                $totalAthletes  = (int)self::scalar($db, "SELECT COUNT(*) FROM athletes WHERE coach_id = ?", [$cid]);
+
+                $avgCompliance = self::scalar($db,
+                    "SELECT AVG(cw.compliance_score) FROM completed_workouts cw
+                     JOIN athletes a ON a.id = cw.athlete_id AND a.coach_id = ?
+                     WHERE cw.compliance_score IS NOT NULL AND cw.activity_date >= (CURDATE() - INTERVAL 28 DAY)",
+                    [$cid]);
+
+                // Genuine coach actions only: actioned/dismissed, NOT superseded auto-resolutions.
+                $resolveHours = self::scalar($db,
+                    "SELECT AVG(TIMESTAMPDIFF(HOUR, created_at, COALESCE(actioned_at, dismissed_at)))
+                     FROM coaching_intelligence_flags
+                     WHERE coach_id = ? AND status IN ('actioned','dismissed')
+                       AND created_at >= (NOW() - INTERVAL 90 DAY)",
+                    [$cid]);
+                $resolvedCount = (int)self::scalar($db,
+                    "SELECT COUNT(*) FROM coaching_intelligence_flags
+                     WHERE coach_id = ? AND status IN ('actioned','dismissed') AND created_at >= (NOW() - INTERVAL 90 DAY)",
+                    [$cid]);
+                $supersededCount = (int)self::scalar($db,
+                    "SELECT COUNT(*) FROM coaching_intelligence_flags
+                     WHERE coach_id = ? AND status = 'superseded' AND created_at >= (NOW() - INTERVAL 90 DAY)",
+                    [$cid]);
+
+                $rows[] = [
+                    'name' => $c['name'],
+                    'role' => $c['role'],
+                    'active_athletes' => $activeAthletes,
+                    'total_athletes'  => $totalAthletes,
+                    'avg_compliance'  => ($avgCompliance === null) ? null : (float)$avgCompliance,
+                    'resolve_hours'   => ($resolveHours === null) ? null : (float)$resolveHours,
+                    'resolved_count'  => $resolvedCount,
+                    'superseded_count'=> $supersededCount,
+                    'retention'       => $totalAthletes > 0 ? $activeAthletes / $totalAthletes : null,
+                ];
+            }
+        }
+
+        self::renderShell('users', 'Coach analytics', 'admin_coaches', [
+            'rows' => $rows, 'multiCoach' => $multiCoach,
+        ]);
+    }
+
+    private static function scalar(PDO $db, string $sql, array $params)
+    {
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchColumn();
+    }
+
     /** GET /app/admin/users/create — new coach / assistant-coach form. */
     public static function createUserForm(): void
     {

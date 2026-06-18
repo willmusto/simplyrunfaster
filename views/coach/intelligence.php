@@ -337,8 +337,47 @@ $ruleTitle = static function (array $a): string {
     <?php endforeach; ?>
     <?php endif; ?>
 
+    <!-- ════════ ASSISTANT PROPOSALS (Phase 4 — head coach review) ════════ -->
+    <?php if (!empty($assistantProposals)): ?>
+    <div class="section-label" style="margin-top:28px;">ASSISTANT PROPOSALS</div>
+    <?php foreach ($assistantProposals as $p): ?>
+    <div class="roster-row" style="margin-bottom:8px;border-left:3px solid #d99100;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+                <div style="font-size:14px;font-weight:600;margin-bottom:2px;"><?= h($p['title']) ?></div>
+                <div style="font-size:12px;color:var(--text-muted);">Proposed by <?= h($p['author_name'] ?? 'assistant coach') ?></div>
+                <?php if (!empty($p['reason'])): ?>
+                <p class="body-text" style="margin:4px 0 0;font-size:13px;color:var(--text-secondary);"><?= h($p['reason']) ?></p>
+                <?php endif; ?>
+            </div>
+            <div style="display:flex;gap:8px;flex-shrink:0;">
+                <form method="POST" action="/app/coach/intelligence/proposal/<?= (int)$p['id'] ?>/approve" style="margin:0;">
+                    <?= Auth::csrfField() ?>
+                    <button type="submit" class="btn btn-primary btn-sm">Approve</button>
+                </form>
+                <form method="POST" action="/app/coach/intelligence/proposal/<?= (int)$p['id'] ?>/dismiss" style="margin:0;">
+                    <?= Auth::csrfField() ?>
+                    <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <?php endforeach; ?>
+    <?php endif; ?>
+
     <!-- ════════ SECTION 3 — DECISION LIBRARY ════════ -->
-    <div class="section-label" style="margin-top:28px;">DECISION LIBRARY</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:28px;">
+        <div class="section-label" style="margin:0;">DECISION LIBRARY</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <?php if (!empty($canImportPlaybook)): ?>
+            <form method="POST" action="/app/coach/intelligence/import-playbook" style="margin:0;">
+                <?= Auth::csrfField() ?>
+                <button type="submit" class="btn btn-secondary btn-sm">Import founding coach's rules</button>
+            </form>
+            <?php endif; ?>
+            <a href="/app/coach/intelligence/philosophy" class="btn btn-secondary btn-sm">Export philosophy</a>
+        </div>
+    </div>
 
     <?php if (empty($decisions)): ?>
     <div class="card" style="margin-bottom:24px;">
@@ -359,6 +398,9 @@ $ruleTitle = static function (array $a): string {
                 $scope = $scopeBits ? implode(', ', $scopeBits) : 'All';
                 $isActive   = ($d['status'] === 'active');
                 $isProposed = ($d['status'] === 'proposed');
+                $isAsstProp = ($d['status'] === 'proposed_by_assistant');
+                $isShared   = !empty($d['shared']);
+                $canShare   = !empty($multiCoach) && !empty($isHeadCoach);
             ?>
             <div class="decision-cell" style="font-weight:600;">
                 <?= h($d['title']) ?>
@@ -386,14 +428,28 @@ $ruleTitle = static function (array $a): string {
                         <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
                     </form>
                 </div>
+                <?php elseif ($isAsstProp): ?>
+                <span class="pill" style="font-size:10px;background:rgba(217,145,0,0.15);color:#b97900;">Awaiting head coach</span>
                 <?php else: ?>
-                <form method="POST" action="/app/coach/intelligence/decision/<?= (int)$d['id'] ?>/toggle" style="margin:0;">
-                    <?= Auth::csrfField() ?>
-                    <button type="submit" class="btn btn-sm <?= $isActive ? 'btn-primary' : '' ?>"
-                            style="<?= $isActive ? '' : 'background:var(--recessed-bg);color:var(--text-muted);' ?>">
-                        <?= $isActive ? 'Active' : 'Inactive' ?>
-                    </button>
-                </form>
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                    <form method="POST" action="/app/coach/intelligence/decision/<?= (int)$d['id'] ?>/toggle" style="margin:0;">
+                        <?= Auth::csrfField() ?>
+                        <button type="submit" class="btn btn-sm <?= $isActive ? 'btn-primary' : '' ?>"
+                                style="<?= $isActive ? '' : 'background:var(--recessed-bg);color:var(--text-muted);' ?>">
+                            <?= $isActive ? 'Active' : 'Inactive' ?>
+                        </button>
+                    </form>
+                    <?php if ($isActive && $canShare): ?>
+                    <form method="POST" action="/app/coach/intelligence/decision/<?= (int)$d['id'] ?>/share" style="margin:0;" title="Share this rule across the whole roster">
+                        <?= Auth::csrfField() ?>
+                        <button type="submit" class="btn btn-sm" style="<?= $isShared ? 'background:#eef7f2;color:#1D9E75;' : 'background:var(--recessed-bg);color:var(--text-muted);' ?>">
+                            <?= $isShared ? 'Shared' : 'Share' ?>
+                        </button>
+                    </form>
+                    <?php elseif ($isShared): ?>
+                    <span class="pill" style="font-size:10px;background:#eef7f2;color:#1D9E75;">Shared</span>
+                    <?php endif; ?>
+                </div>
                 <?php endif; ?>
             </div>
             <?php endforeach; ?>

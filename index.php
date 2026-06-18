@@ -211,6 +211,12 @@ $router->post('/coach/intelligence/insight/:id/dismiss',     [CoachController::c
 $router->post('/coach/intelligence/review/complete',         [CoachController::class, 'completeReview']);
 // Coaching Intelligence Phase 3 — adaptation proposal accept (routes through regen flow)
 $router->post('/coach/intelligence/flag/:id/adapt-accept',   [CoachController::class, 'acceptAdaptation']);
+// Coaching Intelligence Phase 4 — multi-coach sharing / proposals / import / philosophy export
+$router->post('/coach/intelligence/decision/:id/share',      [CoachController::class, 'shareDecision']);
+$router->post('/coach/intelligence/proposal/:id/approve',    [CoachController::class, 'approveAssistantProposal']);
+$router->post('/coach/intelligence/proposal/:id/dismiss',    [CoachController::class, 'dismissAssistantProposal']);
+$router->post('/coach/intelligence/import-playbook',         [CoachController::class, 'importPlaybook']);
+$router->get('/coach/intelligence/philosophy',               [CoachController::class, 'philosophyExport']);
 $router->post('/coach/athlete/:id/race/add',        [RaceController::class, 'coachAddRace']);
 $router->get('/coach/athlete/:id/race-conflicts',   [RaceController::class, 'coachConflicts']);
 $router->post('/coach/races/:id/recalibrate/approve',[RaceController::class, 'approveRecalibration']);
@@ -241,6 +247,7 @@ $router->post('/admin/billing/comp', [AdminController::class, 'comp']);
 
 // ── Admin user management ────────────────────────────────────
 $router->get('/admin/users',                [AdminController::class, 'users']);
+$router->get('/admin/coaches',              [AdminController::class, 'coaches']);
 $router->get('/admin/users/create',         [AdminController::class, 'createUserForm']);
 $router->post('/admin/users/create',        [AdminController::class, 'createUserSubmit']);
 $router->post('/admin/users/role',          [AdminController::class, 'updateRole']);

@@ -240,14 +240,14 @@ class PredictiveFlags
             return true;
         }
 
-        // No open flag: respect a recent coach DISMISSAL (cooldown) before re-surfacing.
-        // Superseded auto-resolves (marked [auto-resolved] in suggested_action — see
-        // resolveSuperseded) are NOT dismissals and are excluded, so a handed-off flag can
-        // re-arm immediately once its reactive counterpart clears.
+        // No open flag: respect a recent coach DISMISSAL / condition-cleared resolve (both
+        // status='dismissed') as a cooldown before re-surfacing. A 'superseded' auto-resolve
+        // (handoff to a present-tense reactive flag, Phase 4 status) is NOT counted, so a
+        // handed-off flag can re-arm immediately once its reactive counterpart clears.
         $cool = $db->prepare(
             "SELECT 1 FROM coaching_intelligence_flags
              WHERE athlete_id = ? AND flag_type = ? AND created_at >= (NOW() - INTERVAL " . (int)PredictiveConstants::DROPOUT_TREND_DAYS . " DAY)
-               AND NOT (status = 'dismissed' AND suggested_action LIKE '[auto-resolved]%') LIMIT 1"
+               AND status <> 'superseded' LIMIT 1"
         );
         $cool->execute([$aid, $type]);
         if ($cool->fetchColumn()) return null;
@@ -274,10 +274,11 @@ class PredictiveFlags
 
     /**
      * Condition-cleared auto-resolve for a SUPERSEDED prediction (e.g. predicted_dropout once
-     * a present-tense reactive engagement flag opens). Closes the open flag like resolve() but
-     * stamps an "[auto-resolved] <reason>" marker into suggested_action so it is (a) legible in
-     * audit/digest and (b) excluded from the dismissal cooldown — this is not a coach dismissal,
-     * the prediction came true, and it must be free to re-arm later. Returns false if a flag was
+     * a present-tense reactive engagement flag opens). Closes the open flag with the distinct
+     * status='superseded' (Phase 4) — NOT a coach 'dismissed' — so it is (a) legible in audit /
+     * analytics as a non-coach auto-resolution and (b) excluded from the dismissal cooldown:
+     * the prediction came true, and it must be free to re-arm once the reactive flag clears.
+     * The reason is recorded in suggested_action for audit/digest. Returns false if a flag was
      * closed, null otherwise.
      */
     private static function resolveSuperseded(PDO $db, int $aid, string $type, string $reason): ?bool
@@ -287,9 +288,9 @@ class PredictiveFlags
         if ($sel->fetchColumn() === false) return null;
         $db->prepare(
             "UPDATE coaching_intelligence_flags
-             SET status = 'dismissed', dismissed_at = NOW(), suggested_action = ?
+             SET status = 'superseded', dismissed_at = NOW(), suggested_action = ?
              WHERE athlete_id = ? AND flag_type = ? AND status = 'open'"
-        )->execute(['[auto-resolved] ' . $reason, $aid, $type]);
+        )->execute(['Superseded: ' . $reason, $aid, $type]);
         return false;
     }
 

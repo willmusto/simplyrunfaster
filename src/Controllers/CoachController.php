@@ -1204,6 +1204,14 @@ class CoachController
         $reviewItemCount   = count($proposedDecisions) + count($flaggedAdjustments) + count($rosterInsights);
         $reviewEstMinutes  = self::estimateReviewMinutes(count($proposedDecisions), count($flaggedAdjustments), count($rosterInsights));
 
+        // Phase 4: multi-coach surfaces (all dormant with a single sole coach).
+        $multiCoach = CoachAssignments::multiCoach($db);
+        $viewerRole = Auth::role();
+        $isHeadCoach = in_array($viewerRole, ['coach','admin'], true);
+        $assistantProposals = ($multiCoach && $isHeadCoach) ? self::getAssistantProposals($coachId, $db) : [];
+        $canImportPlaybook = $multiCoach && !self::coachHasOwnDecisions($coachId, $db)
+            && self::foundingCoachId($coachId, $db) !== null;
+
         $athletes         = self::getRosterAthletes($coachId, $db);
         $openFlags        = count($engineFlags) + count($intelFlags);
         $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
@@ -1389,13 +1397,17 @@ class CoachController
                 break;
         }
 
+        // Assistant coaches PROPOSE (head coach approves); head coaches/admins save active.
+        $isAssistant = (Auth::role() === 'assistant_coach');
+        $status = $isAssistant ? 'proposed_by_assistant' : 'active';
+
         $db->prepare(
             'INSERT INTO coaching_decisions
-              (created_by, created_at, status, title, reason, trigger_json, action_json,
+              (created_by, created_at, status, title, reason, rationale, trigger_json, action_json,
                scope_distances, scope_phases, scope_plan_types, source)
-             VALUES (?, NOW(), "active", ?, ?, ?, ?, ?, ?, NULL, "proposed_from_adjustment")'
+             VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, NULL, "proposed_from_adjustment")'
         )->execute([
-            $coachId, $title, $reason,
+            $coachId, $status, $title, $reason, $reason,
             json_encode($trigger ?: (object)[]),
             json_encode($action ?: (object)[]),
             $distances ? json_encode($distances) : null,
@@ -1406,7 +1418,9 @@ class CoachController
         $db->prepare('UPDATE coach_adjustments SET coaching_decision_id = ?, flagged_for_review = 0 WHERE id = ?')
            ->execute([$decisionId, $adjId]);
 
-        $_SESSION['flash_success'] = 'Coaching rule saved and activated.';
+        $_SESSION['flash_success'] = $isAssistant
+            ? 'Coaching rule proposed. Your head coach will review it.'
+            : 'Coaching rule saved and activated.';
         header('Location: ' . self::intelReturn());
         exit;
     }
@@ -1421,16 +1435,191 @@ class CoachController
         $decisionId = (int)($params['id'] ?? 0);
         $db         = Database::get();
 
+        // Only flips a coach's own active↔inactive rules. Proposed / proposed_by_assistant
+        // rows are activated via the approve flow, never this toggle (prevents an assistant
+        // self-approving their own proposal).
         $stmt = $db->prepare('SELECT status FROM coaching_decisions WHERE id = ? AND created_by = ? LIMIT 1');
         $stmt->execute([$decisionId, $coachId]);
         $status = $stmt->fetchColumn();
-        if ($status !== false) {
+        if ($status === 'active' || $status === 'inactive') {
             $next = ($status === 'active') ? 'inactive' : 'active';
             $db->prepare('UPDATE coaching_decisions SET status = ?, updated_at = NOW() WHERE id = ?')
                ->execute([$next, $decisionId]);
         }
         header('Location: /app/coach/intelligence');
         exit;
+    }
+
+    // ── Multi-coach support (Coaching Intelligence Layer, Phase 4) ─────────────
+
+    /** Earliest active head coach / admin other than $exceptId — the founding playbook source. */
+    private static function foundingCoachId(int $exceptId, PDO $db): ?int
+    {
+        $stmt = $db->prepare(
+            "SELECT id FROM users WHERE active = 1 AND role IN ('coach','admin') AND id <> ? ORDER BY id ASC LIMIT 1"
+        );
+        $stmt->execute([$exceptId]);
+        $id = $stmt->fetchColumn();
+        return $id === false ? null : (int)$id;
+    }
+
+    /** Has this coach authored any decisions of their own yet? (Gates the one-time import.) */
+    private static function coachHasOwnDecisions(int $coachId, PDO $db): bool
+    {
+        $stmt = $db->prepare('SELECT 1 FROM coaching_decisions WHERE created_by = ? LIMIT 1');
+        $stmt->execute([$coachId]);
+        return (bool)$stmt->fetchColumn();
+    }
+
+    /** Assistant-proposed decisions awaiting this head coach's review (from assistants they manage). */
+    private static function getAssistantProposals(int $coachId, PDO $db): array
+    {
+        $stmt = $db->prepare(
+            "SELECT cd.*, u.name AS author_name
+             FROM coaching_decisions cd
+             JOIN users u ON u.id = cd.created_by
+             WHERE cd.status = 'proposed_by_assistant'
+               AND cd.created_by IN (SELECT id FROM users WHERE managed_by = ? AND role = 'assistant_coach')
+             ORDER BY cd.id DESC LIMIT 100"
+        );
+        $stmt->execute([$coachId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * POST /app/coach/intelligence/decision/:id/share — toggle a head coach's own ACTIVE
+     * decision shared on/off (roster-wide). Head coach / admin only; dormancy-gated.
+     */
+    public static function shareDecision(array $params): void
+    {
+        Auth::requireRole(['coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId = (int)Auth::userId();
+        $id      = (int)($params['id'] ?? 0);
+        $db      = Database::get();
+
+        if (CoachAssignments::multiCoach($db)) {
+            $db->prepare(
+                "UPDATE coaching_decisions SET shared = 1 - shared, updated_at = NOW()
+                 WHERE id = ? AND created_by = ? AND status = 'active'"
+            )->execute([$id, $coachId]);
+        }
+        header('Location: /app/coach/intelligence');
+        exit;
+    }
+
+    /** POST /app/coach/intelligence/proposal/:id/approve — head coach approves an assistant proposal → active. */
+    public static function approveAssistantProposal(array $params): void
+    {
+        Auth::requireRole(['coach','admin']);
+        Auth::verifyCsrf();
+        self::actionAssistantProposal((int)($params['id'] ?? 0), 'active', 'Assistant proposal approved and activated.');
+    }
+
+    /** POST /app/coach/intelligence/proposal/:id/dismiss — head coach dismisses an assistant proposal → inactive. */
+    public static function dismissAssistantProposal(array $params): void
+    {
+        Auth::requireRole(['coach','admin']);
+        Auth::verifyCsrf();
+        self::actionAssistantProposal((int)($params['id'] ?? 0), 'inactive', 'Assistant proposal dismissed.');
+    }
+
+    /** Shared body for approve/dismiss of an assistant proposal owned by one of this head coach's assistants. */
+    private static function actionAssistantProposal(int $id, string $newStatus, string $flash): void
+    {
+        $coachId = (int)Auth::userId();
+        $db      = Database::get();
+        $stmt = $db->prepare(
+            "SELECT cd.id, cd.reason FROM coaching_decisions cd
+             WHERE cd.id = ? AND cd.status = 'proposed_by_assistant'
+               AND cd.created_by IN (SELECT id FROM users WHERE managed_by = ? AND role = 'assistant_coach') LIMIT 1"
+        );
+        $stmt->execute([$id, $coachId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            $db->prepare('UPDATE coaching_decisions SET status = ?, rationale = COALESCE(rationale, reason), updated_at = NOW() WHERE id = ?')
+               ->execute([$newStatus, $id]);
+            $_SESSION['flash_success'] = $flash;
+        }
+        header('Location: /app/coach/intelligence');
+        exit;
+    }
+
+    /**
+     * POST /app/coach/intelligence/import-playbook — one-time import of the founding coach's
+     * ACTIVE decisions (shared AND non-shared alike) as editable 'proposed' copies owned by
+     * this coach. Originals (and their shared flags) are untouched. Dormancy-gated; only when
+     * the coach has no decisions of their own yet.
+     */
+    public static function importPlaybook(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId = (int)Auth::userId();
+        $db      = Database::get();
+
+        if (!CoachAssignments::multiCoach($db) || self::coachHasOwnDecisions($coachId, $db)) {
+            header('Location: /app/coach/intelligence'); exit;
+        }
+        $sourceId = self::foundingCoachId($coachId, $db);
+        if ($sourceId === null) { header('Location: /app/coach/intelligence'); exit; }
+
+        $src = $db->prepare(
+            "SELECT title, reason, rationale, trigger_json, action_json, scope_distances, scope_phases, scope_plan_types
+             FROM coaching_decisions WHERE created_by = ? AND status = 'active' ORDER BY id ASC"
+        );
+        $src->execute([$sourceId]);
+        $rows = $src->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $ins = $db->prepare(
+            "INSERT INTO coaching_decisions
+               (created_by, created_at, status, shared, title, reason, rationale,
+                trigger_json, action_json, scope_distances, scope_phases, scope_plan_types, source)
+             VALUES (?, NOW(), 'proposed', 0, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')"
+        );
+        $n = 0;
+        foreach ($rows as $r) {
+            $ins->execute([
+                $coachId, $r['title'], $r['reason'], ($r['rationale'] ?? $r['reason']),
+                $r['trigger_json'], $r['action_json'], $r['scope_distances'], $r['scope_phases'], $r['scope_plan_types'],
+            ]);
+            $n++;
+        }
+        $_SESSION['flash_success'] = $n > 0
+            ? "Imported {$n} rule" . ($n === 1 ? '' : 's') . " as proposals — review and activate the ones you want."
+            : 'No active rules to import yet.';
+        header('Location: /app/coach/intelligence');
+        exit;
+    }
+
+    /**
+     * GET /app/coach/intelligence/philosophy — print-styled coaching philosophy export:
+     * this coach's active decisions (own + shared decisions they rely on) with plain-prose
+     * trigger/action and rationale. Available to any coach (NOT dormancy-gated).
+     */
+    public static function philosophyExport(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db      = Database::get();
+        $coachId = (int)Auth::userId();
+
+        // Own active decisions + active shared decisions from anyone (the ones that apply).
+        $stmt = $db->prepare(
+            "SELECT cd.*, u.name AS author_name
+             FROM coaching_decisions cd
+             JOIN users u ON u.id = cd.created_by
+             WHERE cd.status = 'active' AND (cd.created_by = ? OR cd.shared = 1)
+             ORDER BY (cd.created_by = ?) DESC, cd.shared ASC, cd.id ASC"
+        );
+        $stmt->execute([$coachId, $coachId]);
+        $decisions = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $coachName = (string)(Auth::name() ?? 'Coach');
+        include __DIR__ . '/../../views/coach/philosophy_export.php';
     }
 
     // ── Weekly review (Coaching Intelligence Layer, Phase 2) ───────────────────
@@ -1573,8 +1762,8 @@ class CoachController
             $reason = 'Approved from a proposed pattern based on ' . (int)$d['proposed_from_count'] . ' similar adjustments.';
         }
 
-        $db->prepare('UPDATE coaching_decisions SET status = "active", title = ?, reason = ?, updated_at = NOW() WHERE id = ?')
-           ->execute([$title, $reason, $id]);
+        $db->prepare('UPDATE coaching_decisions SET status = "active", title = ?, reason = ?, rationale = ?, updated_at = NOW() WHERE id = ?')
+           ->execute([$title, $reason, $reason, $id]);
         $_SESSION['flash_success'] = 'Coaching rule approved and activated.';
         header('Location: ' . $back);
         exit;
@@ -1620,11 +1809,11 @@ class CoachController
 
         $db->prepare(
             'UPDATE coaching_decisions
-             SET status = "active", title = ?, reason = ?, trigger_json = ?,
+             SET status = "active", title = ?, reason = ?, rationale = ?, trigger_json = ?,
                  scope_distances = ?, scope_phases = ?, updated_at = NOW()
              WHERE id = ?'
         )->execute([
-            $title, $reason, json_encode($trigger ?: (object)[]),
+            $title, $reason, $reason, json_encode($trigger ?: (object)[]),
             $distances ? json_encode($distances) : null,
             $phases ? json_encode($phases) : null,
             $id,

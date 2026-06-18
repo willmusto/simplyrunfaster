@@ -301,9 +301,9 @@ try {
     $evaluate();
     $resolvedRow = $db->query("SELECT status, suggested_action, dismissed_at FROM coaching_intelligence_flags WHERE athlete_id = {$athleteId} AND flag_type = 'predicted_dropout' ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
     check("handoff: predicted_dropout auto-resolves when reactive opens", $openFlag('predicted_dropout') === null);
-    check("handoff: resolve is condition-cleared path, marked [auto-resolved] (not coach dismissal)",
-        $resolvedRow && $resolvedRow['status'] === 'dismissed'
-        && strpos((string)$resolvedRow['suggested_action'], '[auto-resolved]') === 0
+    check("handoff: resolve uses status='superseded' (not coach 'dismissed')",
+        $resolvedRow && $resolvedRow['status'] === 'superseded'
+        && strpos((string)$resolvedRow['suggested_action'], 'Superseded:') === 0
         && !empty($resolvedRow['dismissed_at']));
 
     // Reactive still open → suppressed; no re-raise / no flapping across passes.

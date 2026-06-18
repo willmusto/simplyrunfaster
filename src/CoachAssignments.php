@@ -86,6 +86,24 @@ class CoachAssignments
     }
 
     /**
+     * Phase 4 dormancy gate: are there ≥2 active coaching accounts (coach or
+     * assistant_coach)? With a single sole coach every Phase 4 surface
+     * (sharing / assistant proposals / inheritance / analytics) stays hidden and
+     * inert. The philosophy export is the one feature that does NOT consult this.
+     */
+    public static function multiCoach(PDO $db): bool
+    {
+        try {
+            $n = (int)$db->query(
+                "SELECT COUNT(*) FROM users WHERE active = 1 AND role IN ('coach','assistant_coach')"
+            )->fetchColumn();
+            return $n >= 2;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
      * SQL predicate + bound params restricting an `athletes` table reference to the
      * athletes a (user, role) manages. Head coaches/admins keep the existing
      * coach_id scope (athletes.coach_id is kept in sync); assistant coaches are

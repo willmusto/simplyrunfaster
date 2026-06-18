@@ -13,7 +13,10 @@ $selfId = (int)Auth::userId();
 <div class="page-content">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;">
         <div class="page-heading" style="margin-bottom:0;">User management</div>
-        <a href="/app/admin/users/create" class="btn btn-primary btn-sm">+ New coach</a>
+        <div style="display:flex;gap:8px;">
+            <a href="/app/admin/coaches" class="btn btn-secondary btn-sm">Coach analytics</a>
+            <a href="/app/admin/users/create" class="btn btn-primary btn-sm">+ New coach</a>
+        </div>
     </div>
 
     <?php if (!empty($flashSuccess)): ?>

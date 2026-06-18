@@ -33,14 +33,22 @@ class CoachingDecisions
     public static function loadActiveForAthlete(int $athleteId, PDO $db): array
     {
         try {
+            // Active decisions owned by this athlete's assigned coaches (head + assistant),
+            // PLUS active decisions any coach has marked shared (Phase 4 — roster-wide).
+            // Only status='active' ever reaches generation: 'proposed' and
+            // 'proposed_by_assistant' (and inactive) are excluded by construction. A coach's
+            // non-shared active decisions stay scoped to their own athletes.
             $stmt = $db->prepare(
                 "SELECT id, title, trigger_json, action_json
                  FROM coaching_decisions
                  WHERE status = 'active'
-                   AND created_by IN (
-                       SELECT coach_id FROM coach_assignments WHERE athlete_id = ?
-                       UNION
-                       SELECT assistant_coach_id FROM coach_assignments WHERE athlete_id = ? AND assistant_coach_id IS NOT NULL
+                   AND (
+                       shared = 1
+                       OR created_by IN (
+                           SELECT coach_id FROM coach_assignments WHERE athlete_id = ?
+                           UNION
+                           SELECT assistant_coach_id FROM coach_assignments WHERE athlete_id = ? AND assistant_coach_id IS NOT NULL
+                       )
                    )
                  ORDER BY id ASC"
             );
