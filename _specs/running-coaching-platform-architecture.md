@@ -949,7 +949,7 @@ Sessions are every other day. Off days are cross-training or rest based on avail
 
 | Stage | Run interval | Walk interval | Sessions at this stage |
 |---|---|---|---|
-| 1 | 1 min | 2 min | 1 (2 for extended break) |
+| 1 | 1 min | 3 min | 1 (2 for extended break) |
 | 2 | 2 min | 2 min | 1 (2 for extended break) |
 | 3 | 3 min | 2 min | 1 (2 for extended break) |
 | 4 | 4 min | 1 min | 1 (2 for extended break) |

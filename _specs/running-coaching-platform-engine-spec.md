@@ -1200,6 +1200,23 @@ Two archetypes serve the `insufficient` classification tier (the first archetype
 
 **`run_walk_intervals`** — staged run/walk, ten variants (`stage_1`…`stage_10`), each a distinct stage. Stages 1-9 are N reps of (run X min / walk Y min) bookended by a 10-min brisk-walk warmup and 5-min walk cooldown; stage 10 is a 45-min first continuous run (warmup/cooldown folded into the continuous effort). Stage structure (run/walk minutes, rep count) is stored per-variant and copied into `resolved_params` by `PlanGenerator::buildRunWalkParams()`, which also builds the instance-specific, **effort-only** `{{run_walk_title}}` and `{{run_walk_instruction}}` (no pace numbers, ever — `PaceZones::qualityCitation()` returns null for this code regardless of `pace_zones_visible`). `instance_signature` includes the stage variant. `intensity_factor` 0.40.
 
+Stage table (per coach specification — Stage 1 is **1 min run / 3 min walk**):
+
+| Stage | Run | Walk | Reps |
+|---|---|---|---|
+| 1 | 1 min | 3 min | 10 |
+| 2 | 2 min | 2 min | 10 |
+| 3 | 3 min | 2 min | 10 |
+| 4 | 4 min | 1 min | 8 |
+| 5 | 5 min | 1 min | 7 |
+| 6 | 6 min | 1 min | 6 |
+| 7 | 7 min | 1 min | 6 |
+| 8 | 8 min | 1 min | 6 |
+| 9 | 9 min | 1 min | 6 |
+| 10 | First continuous easy run (45 min) | — | — |
+
+Every run day in a return-to-running plan is a `run_walk_intervals` session at the current stage — **including day 1** (the day-1 easy-run guarantee from §19 item 16 is skipped for `return_to_running`, which would otherwise overwrite the stage-1 session with a continuous easy run). Off days are equipment-matched cross-training (20-25 min) or a generic gentle rest day; no rehab/coach-drill program is referenced and no em dashes appear in generated text.
+
 **`standalone_strides`** — short (~18 min) neuromuscular session: brief warmup, 4-6 × ~25 sec relaxed strides with full recovery, brief cooldown. No substantial continuous-running block (distinct from `easy_with_strides`, which appends strides to a full easy run). Honest fixed duration computed in `addDerivedParams` (warmup + stride window + cooldown), not the slot allocation. `intensity_factor` 0.45.
 
 **Stage selection (deterministic, not variety-seeking).** The stage/variant is never a weighted random pick:

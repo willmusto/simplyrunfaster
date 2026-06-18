@@ -3283,7 +3283,7 @@
     "variants": [
       {"code": "stage_1", "name": "Stage 1", "workout_type": "easy", "stage": 1, "run_minutes": 1, "walk_minutes": 3, "rep_count": 10, "warmup_minutes": 10, "cooldown_minutes": 5},
       {"code": "stage_2", "name": "Stage 2", "workout_type": "easy", "stage": 2, "run_minutes": 2, "walk_minutes": 2, "rep_count": 10, "warmup_minutes": 10, "cooldown_minutes": 5},
-      {"code": "stage_3", "name": "Stage 3", "workout_type": "easy", "stage": 3, "run_minutes": 3, "walk_minutes": 1, "rep_count": 10, "warmup_minutes": 10, "cooldown_minutes": 5},
+      {"code": "stage_3", "name": "Stage 3", "workout_type": "easy", "stage": 3, "run_minutes": 3, "walk_minutes": 2, "rep_count": 10, "warmup_minutes": 10, "cooldown_minutes": 5},
       {"code": "stage_4", "name": "Stage 4", "workout_type": "easy", "stage": 4, "run_minutes": 4, "walk_minutes": 1, "rep_count": 8, "warmup_minutes": 10, "cooldown_minutes": 5},
       {"code": "stage_5", "name": "Stage 5", "workout_type": "easy", "stage": 5, "run_minutes": 5, "walk_minutes": 1, "rep_count": 7, "warmup_minutes": 10, "cooldown_minutes": 5},
       {"code": "stage_6", "name": "Stage 6", "workout_type": "easy", "stage": 6, "run_minutes": 6, "walk_minutes": 1, "rep_count": 6, "warmup_minutes": 10, "cooldown_minutes": 5},

@@ -792,7 +792,12 @@ class PlanGenerator
         };
 
         if ($planId) {
-            self::ensurePlanStartEasyRun($planId, $athleteId, $profile, $db, $selector);
+            // The day-1 easy-run guarantee (§19 item 16) applies to race / development /
+            // maintenance plans. A return_to_running plan must keep its stage-1 run/walk
+            // session on day 1 — never overwrite it with a continuous easy run.
+            if ($planType !== 'return_to_running') {
+                self::ensurePlanStartEasyRun($planId, $athleteId, $profile, $db, $selector);
+            }
             // Patch the plan around any races on file (pre-race aerobic taper, no quality
             // within 3 days, race-day skip, post-race recovery) — §26 / ultra-spec Part 5.
             self::applyRaceAdjustments($athleteId, $db);
@@ -1683,9 +1688,6 @@ class PlanGenerator
 
         $cap          = max(1, min(7, (int)($profile['training_days_per_week'] ?? 3)));
         $mustOff      = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
-        $hasEquipment = self::hasCrossTrainingEquipment($profile);
-        $crossDesc    = self::getCrossTrainDescription($profile);
-        $drillNote    = self::RTR_DRILL_NOTE;
 
         $insert = self::rtrInsertStatement($db);
 
@@ -1710,15 +1712,12 @@ class PlanGenerator
                 }
             }
 
-            // Non-run day: cross-train (if equipment) or rest, both with the drill note.
-            self::insertReturnToRunningOffDay($insert, $planId, $athleteId, $date, $hasEquipment, $crossDesc, $drillNote);
+            // Non-run day: cross-train (matched to equipment) or a generic rest day.
+            self::insertReturnToRunningOffDay($insert, $planId, $athleteId, $date, $profile);
         }
 
         return $planId;
     }
-
-    /** Coach-drill reminder appended to every return-to-running off day. */
-    const RTR_DRILL_NOTE = ' Complete your coach-provided mobility and strength drills (rehab Phases I–III) on this day as well.';
 
     /**
      * Prepared INSERT matching insertWeekWorkouts' column order, with
@@ -1739,31 +1738,44 @@ class PlanGenerator
     }
 
     /**
-     * Insert a return-to-running off day: low-impact cross-training when the
-     * athlete has equipment, otherwise a gentle rest day. Both carry the coach
-     * drill note (rehab Phases I–III are handled by the coach off-platform).
+     * Insert a return-to-running off day: low-impact cross-training matched to the
+     * athlete's available equipment, otherwise a gentle generic rest day. No rehab /
+     * coach-drill reference (the coach has not provided one), and no em dashes.
      */
     private static function insertReturnToRunningOffDay(
-        PDOStatement $insert, int $planId, int $athleteId, string $date,
-        bool $hasEquipment, string $crossDesc, string $drillNote
+        PDOStatement $insert, int $planId, int $athleteId, string $date, array $profile
     ): void {
-        if ($hasEquipment) {
-            $desc = $crossDesc . $drillNote;
-            $insert->execute([
-                $planId, $athleteId, $date, 'cross_train',
-                null, null, null,
-                $desc, 30, round(30 * 0.4, 2),
-                null, null, null, null, 'Cross-Training', '30 min · low impact', $desc,
-            ]);
-        } else {
-            $desc = 'Rest day. Keep movement gentle and let your body recover.' . $drillNote;
-            $insert->execute([
-                $planId, $athleteId, $date, 'rest',
-                null, null, null,
-                $desc, null, 0,
-                null, null, null, null, 'Rest', 'Rest + coach drills', $desc,
-            ]);
+        [$type, $duration, $load, $title, $summary, $desc] = self::returnToRunningOffDayPrescription($profile);
+        $insert->execute([
+            $planId, $athleteId, $date, $type,
+            null, null, null,
+            $desc, $duration, $load,
+            null, null, null, null, $title, $summary, $desc,
+        ]);
+    }
+
+    /**
+     * Resolve the off-day prescription for a return-to-running plan from the athlete's
+     * cross-training equipment. Returns [workout_type, target_duration, intensity_load,
+     * display_title, display_summary, description]. Effort-only, 20-25 min cross-training;
+     * generic rest otherwise. No em dashes anywhere.
+     */
+    private static function returnToRunningOffDayPrescription(array $profile): array
+    {
+        if (($profile['cross_training_bike'] ?? 'none') !== 'none') {
+            return ['cross_train', 25, round(25 * 0.4, 2), 'Cross-Training', '20-25 min · low impact',
+                'Easy cycling, 20-25 min at a comfortable effort.'];
         }
+        if (($profile['cross_training_elliptical'] ?? 'none') !== 'none') {
+            return ['cross_train', 25, round(25 * 0.4, 2), 'Cross-Training', '20-25 min · low impact',
+                'Easy elliptical, 20-25 min at a comfortable effort.'];
+        }
+        if (!empty($profile['cross_training_pool'])) {
+            return ['cross_train', 25, round(25 * 0.4, 2), 'Cross-Training', '20-25 min · low impact',
+                'Easy pool running or swimming, 20-25 min.'];
+        }
+        return ['rest', null, 0, 'Rest', 'Rest day',
+            'Rest day. Keep movement gentle. Walking, light stretching, or your preferred low-impact activity is fine. Save your energy for the next run session.'];
     }
 
     /**
@@ -1895,9 +1907,6 @@ class PlanGenerator
 
         $selector     = new ArchetypeSelector($db);
         $mustOff      = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
-        $hasEquipment = self::hasCrossTrainingEquipment($profile);
-        $crossDesc    = self::getCrossTrainDescription($profile);
-        $drillNote    = self::RTR_DRILL_NOTE;
 
         $tz       = self::athleteTimezone($athleteId, $db);
         $today    = Timezone::dateInZone($tz, 'now');
@@ -1972,7 +1981,7 @@ class PlanGenerator
                 }
             }
 
-            self::insertReturnToRunningOffDay($insert, $planId, $athleteId, $date, $hasEquipment, $crossDesc, $drillNote);
+            self::insertReturnToRunningOffDay($insert, $planId, $athleteId, $date, $profile);
             $lastGenTs = $ts;
         }
 
@@ -1988,14 +1997,6 @@ class PlanGenerator
             'UPDATE planned_workouts SET visible_to_athlete = 1
              WHERE plan_id = ? AND scheduled_date BETWEEN ? AND ? AND visible_to_athlete = 0'
         )->execute([$planId, $today, $windowEnd]);
-    }
-
-    /** True when the athlete has any cross-training equipment available. */
-    private static function hasCrossTrainingEquipment(array $profile): bool
-    {
-        return ($profile['cross_training_bike'] ?? 'none') !== 'none'
-            || ($profile['cross_training_elliptical'] ?? 'none') !== 'none'
-            || !empty($profile['cross_training_pool']);
     }
 
     /**
