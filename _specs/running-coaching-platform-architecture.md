@@ -1623,7 +1623,7 @@ On onboarding completion, `OnboardingController::ensureCoachAssignment()` create
 
 ---
 
-## 32. Coaching Intelligence Layer (Phases 1 & 2 of 4 complete)
+## 32. Coaching Intelligence Layer (Phases 1–3 of 4 complete)
 
 A capture-and-surface layer that records how coaches actually adjust plans and how athletes actually behave, turns repeated patterns into reusable coaching rules, and feeds those rules back into the engine. **Phase 1 builds the pipes, not the analysis** — no predictive modeling, no cross-athlete ML. Schema is migration_027 (MyISAM, utf8, no FKs, LONGTEXT for all JSON). The coach **Alerts** page was renamed and expanded into **Intelligence** (`/app/coach/intelligence`; `/app/coach/alerts` and the legacy `/app/coach/flags` redirect/alias to it).
 
@@ -1704,8 +1704,28 @@ Phase 2 adds the *analysis* layer on top of Phase 1's capture pipes: it notices 
 
 **Weekly digest additions.** `cron_coaching_digest.php` runs `PatternProposer::analyze()` then `CoachingIntelligence::generateRosterInsights()` per coach before building the email, and adds three sections after Opportunities: Proposed Rules (count + up to 3 titles + a "Review proposed rules" link to the review page), Roster Insights (up to 3, severity-ordered), and Upcoming Races (next 14 days). The send guard now also fires when proposed rules or roster insights exist. All Phase 2 work is guarded on the `coach_roster_insights` table so a pre-migration-028 run is a clean no-op.
 
+### Phase 3 — predictive flags & athlete response modeling (migration_029)
+
+Phase 3 adds forward-looking flags and per-athlete response modeling. It is an **engine, not AI**: every prediction is a deterministic, interpretable formula over the athlete's own history with named inputs (a coach can read exactly why a flag fired). It is **coach-facing only** (nothing is shown to athletes or auto-sent), **never touches the generation path** (no autonomous plan changes), and emits nothing below **4 weeks** of behavior history ("Not enough data yet"). Every prediction and metric carries a **confidence tier** (none/low/medium/high) that scales with weeks of data and per-metric sample size. All thresholds live in `src/PredictiveConstants.php` (the §17 intensity-factor philosophy — tunable without touching logic). READ-ONLY against athlete_behavior_log / coaching_intelligence_flags / training_load / completed_workouts / planned_workouts / athlete_profiles; writes only to its own intelligence tables.
+
+**New schema (migration_029, runner `scripts/run_migration_029.php`, idempotent):**
+- **`athlete_response_profiles`** — one row per athlete: `computed_at`, `weeks_of_data`, and a LONGTEXT `metrics_json` payload (each metric carries value / sample_size / confidence).
+- `coaching_intelligence_flags` += `confidence` ENUM(low,medium,high) NULL, `prediction_horizon_days` INT NULL, `predicted_for_date` DATE NULL (NULL for Phase 1/2 flags), and four new `flag_type` values: `predicted_fatigue`, `predicted_dropout`, `injury_risk_pattern`, `adaptation_ahead`.
+
+**Response profiling (`src/ResponseProfiler.php`).** Interpretable per-athlete metrics over a 182-day window: easy- vs quality-day RPE-vs-prescribed delta, sustained volume tolerance (highest weekly minutes held ≥2 consecutive compliant weeks), recovery signature (mean days from a TSB dip back to normalized), and cutback response (compliance bounce on cutback weeks). Each reports "not enough data" below its sample floor. Stored in athlete_response_profiles; surfaced in the athlete context panel; individualizes the predictions.
+
+**Predictive flags (`src/PredictiveFlags.php`).** Four deterministic predictions, each UPSERTing the single open `coaching_intelligence_flags` row of its type per athlete (refreshing confidence/horizon/detail) and auto-resolving (dismissing) when the condition clears; a cooldown respects coach dismissals before re-surfacing:
+- `predicted_fatigue` (warning, ~10d) — sustained volume ramp ≥ ratio + RPE trending high + TSB sharply negative and falling.
+- `injury_risk_pattern` (warning, ~14d) — acute:chronic volume spike + RPE trending high *simultaneously*. Framed as a load PATTERN for coach attention, never a diagnosis or guarantee (principle 4); the hedge lives in the coach-facing copy.
+- `predicted_dropout` (warning, ~21d) — engagement TRAJECTORY (negative slope) + low absolute score. Coexists with (does not replace) Phase 1 `engagement_dropping` / `dropout_risk`. *(Coexist-vs-supersede UX is a pending product decision; defaulted to coexist.)*
+- `adaptation_ahead` (opportunity, ~14d) — high compliance + quality RPE trending easy + CTL rising with no fatigue/injury signal → a coach-approved PROPOSAL. **Accept** creates a pending `plan_regeneration_requests` row that routes through the EXISTING regeneration approval flow (head coach approves → generation); Phase 3 never calls PlanGenerator.
+
+**Cron wiring.** The daily cron (after Phase 1/2) calls `PredictiveFlags::run()` to recompute every active athlete's response profile and predictive flags; the Monday digest refreshes them first so predictive flags (being coaching_intelligence_flags) flow into the existing Needs Attention / Opportunities sections. Both guarded on `athlete_response_profiles` so a pre-migration-029 run is a clean no-op.
+
+**UI.** Intelligence page predictive flags show a confidence + horizon badge (and `adaptation_ahead` shows Accept → regeneration / Dismiss). The athlete context panel adds a **Predictions** section and a **Response profile** summary with a "Not enough data yet" empty state below 4 weeks (shared `views/partials/predictive.php`).
+
 ### Roadmap
 - **Phase 1:** capture pipes, behavior metrics, pattern flags, flag-for-review, decision resolver, weekly digest. **Complete.**
-- **Phase 2 (this milestone):** weekly-review UI, pattern proposer (rules from recurring adjustments), cross-athlete roster insights. **Complete.**
-- **Phase 3 (upcoming):** predictive flags and athlete-response modeling (adaptation_ahead_of_schedule, plan_adjustment_recommended become model-driven; easy_pace_drift / response_time metrics populated).
-- **Phase 4:** multi-coach decision sharing (promote rules across a coaching team / platform-wide).
+- **Phase 2:** weekly-review UI, pattern proposer (rules from recurring adjustments), cross-athlete roster insights. **Complete.**
+- **Phase 3:** predictive flags (predicted_fatigue / injury_risk_pattern / predicted_dropout / adaptation_ahead) and athlete response modeling. **Complete.**
+- **Phase 4 (upcoming):** multi-coach decision sharing (promote rules across a coaching team / platform-wide).
