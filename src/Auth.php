@@ -152,6 +152,37 @@ class Auth
         exit;
     }
 
+    /**
+     * Redirect on the hop that just (re)issued the session cookie — i.e. immediately
+     * after login / registration, where loginUser() called session_regenerate_id().
+     *
+     * Unlike redirect(), this sends a 200 HTML response carrying the Set-Cookie and
+     * performs the navigation with a meta refresh + JS fallback, instead of a 302.
+     * iOS Chrome / WebKit intermittently drops a cookie delivered on a redirect
+     * response but reliably stores one delivered on a 200 — so the next request is
+     * authenticated and the login loop is broken. session_write_close() still runs
+     * first so the session file and cookie are committed before output. A plain link
+     * is included for the rare case both meta refresh and JS are blocked.
+     */
+    public static function redirectAfterAuth(string $url): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+        $attr = htmlspecialchars($url, ENT_QUOTES);
+        http_response_code(200);
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!DOCTYPE html><html><head><meta charset="utf-8">'
+           . '<meta name="viewport" content="width=device-width, initial-scale=1">'
+           . '<meta http-equiv="refresh" content="0; url=' . $attr . '">'
+           . '<title>Signing you in…</title></head><body>'
+           . '<script>location.replace(' . json_encode($url) . ');</script>'
+           . '<p style="font-family:system-ui,-apple-system,sans-serif;text-align:center;margin-top:48px;">'
+           . 'Signing you in… <a href="' . $attr . '">Continue</a></p>'
+           . '</body></html>';
+        exit;
+    }
+
     public static function requireLogin(string $redirect = '/app/login'): void
     {
         if (!self::check()) {

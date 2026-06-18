@@ -29,7 +29,9 @@ class AuthController
             Auth::redirect('/app/login');
         }
 
-        self::redirectByRole();
+        // Post-login hop: the session cookie was just regenerated. Use the 200
+        // meta-refresh redirect so iOS Chrome reliably stores it (no login loop).
+        self::redirectByRole(true);
     }
 
     public static function logout(): void
@@ -76,7 +78,8 @@ class AuthController
             'signup_source' => 'organic',
         ]);
 
-        Auth::redirect('/app/onboarding');
+        // Account just created + logged in (session regenerated): 200 meta-refresh hop.
+        Auth::redirectAfterAuth('/app/onboarding');
     }
 
     public static function inviteForm(array $params): void
@@ -161,7 +164,8 @@ class AuthController
             )->execute([$userId]);
         }
 
-        Auth::redirect('/app/onboarding');
+        // Account just created + logged in (session regenerated): 200 meta-refresh hop.
+        Auth::redirectAfterAuth('/app/onboarding');
     }
 
     // ── Forced password change (admin-created accounts) ────────
@@ -198,19 +202,23 @@ class AuthController
         Auth::clearMustChangePassword();
 
         $_SESSION['flash_success'] = 'Password updated. Welcome to SimplyRunFaster.';
-        self::redirectByRole();
+        self::redirectByRole(true);
     }
 
     // ── Helpers ────────────────────────────────────────────────
 
-    private static function redirectByRole(): void
+    /**
+     * Send the user to their role's home. After a login / password change the session
+     * cookie was just (re)issued, so $afterAuth uses the 200 meta-refresh redirect that
+     * iOS Chrome stores reliably; ordinary "already logged in" redirects stay 302.
+     */
+    private static function redirectByRole(bool $afterAuth = false): void
     {
         $role = Auth::role();
-        if (in_array($role, ['coach','assistant_coach','admin'], true)) {
-            Auth::redirect('/app/coach/dashboard');
-        } else {
-            Auth::redirect('/app/dashboard');
-        }
+        $dest = in_array($role, ['coach','assistant_coach','admin'], true)
+            ? '/app/coach/dashboard'
+            : '/app/dashboard';
+        $afterAuth ? Auth::redirectAfterAuth($dest) : Auth::redirect($dest);
     }
 
     private static function validateRegistration(string $name, string $email, string $password, string $confirm): array
