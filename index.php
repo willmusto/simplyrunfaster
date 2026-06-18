@@ -29,6 +29,8 @@ require_once __DIR__ . '/src/CoachAdjustments.php';
 require_once __DIR__ . '/src/CoachingDecisions.php';
 require_once __DIR__ . '/src/CoachingIntelligence.php';
 require_once __DIR__ . '/src/PatternProposer.php';
+require_once __DIR__ . '/src/PredictiveConstants.php';
+require_once __DIR__ . '/src/ResponseProfiler.php';
 require_once __DIR__ . '/src/Billing.php';
 require_once __DIR__ . '/src/StripeWebhook.php';
 require_once __DIR__ . '/src/Crypto.php';
