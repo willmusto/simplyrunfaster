@@ -56,7 +56,7 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
             'day_name'   => $i === 0 ? 'Today' : $dayNames[$pdw],
             'date_label' => date('M j', strtotime($pd)),
             'must_off'   => in_array($pdw, $mustOffDays, true),
-            'label'      => $pwk ? pill_label($pwk['workout_type']) : null,
+            'label'      => $pwk ? pill_label($pwk['workout_type'], $pwk['archetype_code'] ?? null) : null,
             'locked'     => $pwk ? (bool)$pwk['coach_locked'] : false,
         ];
     }
@@ -109,8 +109,8 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
         <?php foreach ($dayWkts as $w): ?>
         <div class="card <?= $isToday ? 'card-next-up' : '' ?>">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
-                <span class="pill <?= pill_class($w['workout_type']) ?>">
-                    <?= pill_label($w['workout_type']) ?>
+                <span class="pill <?= pill_class($w['workout_type'], $w['archetype_code'] ?? null) ?>">
+                    <?= pill_label($w['workout_type'], $w['archetype_code'] ?? null) ?>
                 </span>
                 <?php if ($w['target_duration']): ?>
                 <span style="font-size:12px;color:var(--text-muted);">
@@ -131,7 +131,7 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
                         style="margin-left:auto;"
                         data-workout-id="<?= (int)$w['id'] ?>"
                         data-workout-date="<?= h($w['scheduled_date']) ?>"
-                        data-workout-label="<?= h(pill_label($w['workout_type'])) ?>">
+                        data-workout-label="<?= h(pill_label($w['workout_type'], $w['archetype_code'] ?? null)) ?>">
                     Move
                 </button>
                 <?php endif; ?>

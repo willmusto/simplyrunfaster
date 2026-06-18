@@ -126,8 +126,8 @@ $localHour = (int)Timezone::dateInZone($tz, 'now', 'G');
     <?php if ($todayWorkout): ?>
     <div class="card card-next-up">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-            <span class="pill <?= pill_class($todayWorkout['workout_type']) ?>">
-                <?= pill_label($todayWorkout['workout_type']) ?>
+            <span class="pill <?= pill_class($todayWorkout['workout_type'], $todayWorkout['archetype_code'] ?? null) ?>">
+                <?= pill_label($todayWorkout['workout_type'], $todayWorkout['archetype_code'] ?? null) ?>
             </span>
             <?php if ($todayWorkout['target_duration']): ?>
             <span class="text-muted" style="font-size:13px;">
@@ -215,8 +215,8 @@ $localHour = (int)Timezone::dateInZone($tz, 'now', 'G');
             <label for="wk-<?= $wid ?>" class="week-row <?= $isToday ? 'week-row-today' : '' ?>" style="padding:10px 20px;">
                 <span class="week-row-day"><?= $dayNames[$dow] ?></span>
                 <div class="week-row-body">
-                    <span class="pill <?= pill_class($w['workout_type']) ?>">
-                        <?= pill_label($w['workout_type']) ?>
+                    <span class="pill <?= pill_class($w['workout_type'], $w['archetype_code'] ?? null) ?>">
+                        <?= pill_label($w['workout_type'], $w['archetype_code'] ?? null) ?>
                     </span>
                 </div>
                 <span class="week-row-duration">

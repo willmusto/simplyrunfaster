@@ -33,8 +33,12 @@ function render_page(string $title, string $content, string $nav = 'athlete'): v
     echo ob_get_clean();
 }
 
-function pill_class(string $type): string
+function pill_class(string $type, ?string $archetypeCode = null): string
 {
+    // Run/walk sessions store workout_type='easy' but should not read as a teal easy
+    // run; give them the neutral recovery-badge style. Keyed on archetype_code.
+    if ($archetypeCode === 'run_walk_intervals') return 'pill-recovery';
+
     $map = [
         'easy' => 'pill-easy', 'long' => 'pill-long',
         'interval' => 'pill-interval', 'tempo' => 'pill-tempo',
@@ -47,8 +51,10 @@ function pill_class(string $type): string
     return $map[$type] ?? 'pill-rest';
 }
 
-function pill_label(string $type): string
+function pill_label(string $type, ?string $archetypeCode = null): string
 {
+    if ($archetypeCode === 'run_walk_intervals') return 'Run/walk';
+
     $map = [
         'easy' => 'Easy run', 'long' => 'Long run',
         'interval' => 'Workout', 'tempo' => 'Tempo run',
