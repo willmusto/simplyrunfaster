@@ -199,6 +199,25 @@ try {
         $ci = CoachingIntelligence::run($db, $verbose);
         echo date('Y-m-d H:i:s') . ' — coaching_intelligence complete. '
             . 'Behavior rows: ' . $ci['behavior'] . ', flags raised: ' . $ci['flags'] . "\n";
+
+        // Phase 2: cross-athlete roster insights, after individual-athlete flags.
+        // Guarded so a pre-migration-028 run is a clean no-op.
+        $hasInsights = (int)$db->query(
+            "SELECT COUNT(*) FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'coach_roster_insights'"
+        )->fetchColumn() > 0;
+        if ($hasInsights) {
+            $insightCoaches = $db->query(
+                "SELECT DISTINCT coach_id FROM athletes WHERE coach_id IS NOT NULL AND status = 'active'"
+            )->fetchAll(PDO::FETCH_COLUMN);
+            $insightTotal = 0;
+            foreach ($insightCoaches as $cid) {
+                $insightTotal += CoachingIntelligence::generateRosterInsights((int)$cid, $db);
+            }
+            echo date('Y-m-d H:i:s') . " — roster insights complete. Created {$insightTotal}.\n";
+        } else {
+            echo "  coach_roster_insights missing (migration_028 not run yet) — skipping insights.\n";
+        }
     } else {
         echo "  athlete_behavior_log missing (migration_027 not run yet) — skipping.\n";
     }

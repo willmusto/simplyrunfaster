@@ -270,6 +270,155 @@ class CoachingIntelligence
         return 1;
     }
 
+    // ── Cross-athlete roster insights (Phase 2) ─────────────────────────────────
+
+    /**
+     * Generate coach_roster_insights for one coach where a pattern spans multiple
+     * athletes. Called from the daily cron after individual-athlete flag detection,
+     * and again from the Monday digest cron. Returns the number of insights created.
+     *
+     * Dedup: an insight_type is not re-created if one for this coach was created
+     * within the last 7 days (so a daily cron run does not produce duplicates).
+     */
+    public static function generateRosterInsights(int $coachId, PDO $db): int
+    {
+        if ($coachId <= 0) return 0;
+        $created = 0;
+
+        try {
+            // 1 — compliance cluster (3+ athletes with an open compliance_dropping flag this week).
+            $rows = self::flaggedAthletes($db, $coachId, ['compliance_dropping']);
+            if (count($rows) >= 3 && !self::insightExists($db, $coachId, 'compliance_cluster')) {
+                $created += self::insertInsight($db, $coachId, 'compliance_cluster', 'warning',
+                    count($rows) . ' athletes had compliance drop this week',
+                    self::nameList($rows) . ' Consider whether there is a systemic issue — schedule conflict, '
+                    . 'plan difficulty, or seasonal factor affecting multiple athletes.',
+                    $rows);
+            }
+
+            // 2 — engagement cluster (3+ athletes disengaged or at dropout risk).
+            $rows = self::flaggedAthletes($db, $coachId, ['engagement_dropping', 'dropout_risk']);
+            if (count($rows) >= 3 && !self::insightExists($db, $coachId, 'engagement_cluster')) {
+                $created += self::insertInsight($db, $coachId, 'engagement_cluster', 'warning',
+                    count($rows) . ' athletes showing low engagement',
+                    self::nameList($rows) . ' Broad outreach or a check-in message to each may be warranted.',
+                    $rows);
+            }
+
+            // 3 — upcoming races (any athlete racing in the next 14 days). Refreshed ~weekly.
+            $races = self::upcomingRaceRows($db, $coachId, 14);
+            if ($races && !self::insightExists($db, $coachId, 'upcoming_races')) {
+                $detail = [];
+                $ids    = [];
+                foreach ($races as $r) {
+                    $detail[] = (string)$r['name'] . ' — ' . (string)$r['race_name']
+                        . ' (' . date('M j', strtotime((string)$r['race_date'])) . ')';
+                    $ids[] = ['athlete_id' => (int)$r['athlete_id'], 'name' => (string)$r['name']];
+                }
+                // De-dupe athlete pills (an athlete may have two upcoming races).
+                $pillRows = [];
+                foreach ($ids as $row) { $pillRows[$row['athlete_id']] = $row; }
+                $created += self::insertInsight($db, $coachId, 'upcoming_races', 'info',
+                    count($races) . ' athletes racing in the next 14 days',
+                    implode("\n", $detail),
+                    array_values($pillRows));
+            }
+
+            // 4 — streak cluster (3+ athletes on a compliance streak).
+            $rows = self::flaggedAthletes($db, $coachId, ['compliance_streak']);
+            if (count($rows) >= 3 && !self::insightExists($db, $coachId, 'streak_cluster')) {
+                $created += self::insertInsight($db, $coachId, 'streak_cluster', 'opportunity',
+                    count($rows) . ' athletes on a compliance streak',
+                    self::nameList($rows) . ' Your roster is in good form right now.',
+                    $rows);
+            }
+
+            // 5 — workload spike (3+ athletes working harder than prescribed).
+            $rows = self::flaggedAthletes($db, $coachId, ['rpe_trending_high']);
+            if (count($rows) >= 3 && !self::insightExists($db, $coachId, 'workload_spike')) {
+                $created += self::insertInsight($db, $coachId, 'workload_spike', 'warning',
+                    count($rows) . ' athletes working harder than prescribed',
+                    self::nameList($rows) . ' Consider whether recent plan changes or conditions are driving '
+                    . 'elevated effort across the roster.',
+                    $rows);
+            }
+        } catch (\Throwable $e) {
+            error_log('CoachingIntelligence::generateRosterInsights failed for coach ' . $coachId . ': ' . $e->getMessage());
+        }
+
+        return $created;
+    }
+
+    /** Distinct athletes [{athlete_id,name}] with an open flag of one of $types created in the last 7 days. */
+    private static function flaggedAthletes(PDO $db, int $coachId, array $types): array
+    {
+        $place = implode(',', array_fill(0, count($types), '?'));
+        $stmt = $db->prepare(
+            "SELECT cif.athlete_id, u.name
+             FROM coaching_intelligence_flags cif
+             JOIN athletes a ON a.id = cif.athlete_id
+             JOIN users u ON u.id = a.user_id
+             WHERE cif.coach_id = ? AND cif.status = 'open'
+               AND cif.flag_type IN ($place)
+               AND cif.created_at >= (NOW() - INTERVAL 7 DAY)
+             GROUP BY cif.athlete_id, u.name
+             ORDER BY u.name ASC"
+        );
+        $stmt->execute(array_merge([$coachId], $types));
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Races for this coach's active athletes in the next $days days, soonest first. */
+    private static function upcomingRaceRows(PDO $db, int $coachId, int $days): array
+    {
+        $stmt = $db->prepare(
+            "SELECT r.athlete_id, r.race_name, r.race_distance, r.race_date, u.name
+             FROM races r
+             JOIN athletes a ON a.id = r.athlete_id AND a.coach_id = ? AND a.status = 'active'
+             JOIN users u ON u.id = a.user_id
+             WHERE r.race_date >= CURDATE() AND r.race_date <= (CURDATE() + INTERVAL " . (int)$days . " DAY)
+             ORDER BY r.race_date ASC, u.name ASC"
+        );
+        $stmt->execute([$coachId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** True if an insight of this type was created for this coach within the last $days days. */
+    private static function insightExists(PDO $db, int $coachId, string $type, int $days = 7): bool
+    {
+        $stmt = $db->prepare(
+            'SELECT 1 FROM coach_roster_insights
+             WHERE coach_id = ? AND insight_type = ? AND created_at >= (NOW() - INTERVAL ' . (int)$days . ' DAY)
+             LIMIT 1'
+        );
+        $stmt->execute([$coachId, $type]);
+        return (bool)$stmt->fetchColumn();
+    }
+
+    /** Insert one roster insight. $rows is a list of [athlete_id,name]. Returns 1. */
+    private static function insertInsight(PDO $db, int $coachId, string $type, string $severity, string $title, string $detail, array $rows): int
+    {
+        $ids = array_values(array_unique(array_map(static fn($r) => (int)$r['athlete_id'], $rows)));
+        $db->prepare(
+            "INSERT INTO coach_roster_insights
+               (coach_id, created_at, insight_type, title, detail, athlete_ids, severity, status)
+             VALUES (?, NOW(), ?, ?, ?, ?, ?, 'open')"
+        )->execute([$coachId, $type, $title, $detail, json_encode($ids), $severity]);
+        return 1;
+    }
+
+    /** "Alice, Bob, and Carol." */
+    private static function nameList(array $rows): string
+    {
+        $names = array_values(array_unique(array_map(static fn($r) => (string)$r['name'], $rows)));
+        $n = count($names);
+        if ($n === 0) return '';
+        if ($n === 1) return $names[0] . '.';
+        if ($n === 2) return $names[0] . ' and ' . $names[1] . '.';
+        $last = array_pop($names);
+        return implode(', ', $names) . ', and ' . $last . '.';
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────────
 
     private static function insertMetric(PDO $db, int $athleteId, string $type, float $value, ?string $context, ?int $planWeek, ?string $phase): void

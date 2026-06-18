@@ -1623,7 +1623,7 @@ On onboarding completion, `OnboardingController::ensureCoachAssignment()` create
 
 ---
 
-## 32. Coaching Intelligence Layer (Milestone — Phase 1 of 4)
+## 32. Coaching Intelligence Layer (Phases 1 & 2 of 4 complete)
 
 A capture-and-surface layer that records how coaches actually adjust plans and how athletes actually behave, turns repeated patterns into reusable coaching rules, and feeds those rules back into the engine. **Phase 1 builds the pipes, not the analysis** — no predictive modeling, no cross-athlete ML. Schema is migration_027 (MyISAM, utf8, no FKs, LONGTEXT for all JSON). The coach **Alerts** page was renamed and expanded into **Intelligence** (`/app/coach/intelligence`; `/app/coach/alerts` and the legacy `/app/coach/flags` redirect/alias to it).
 
@@ -1684,8 +1684,28 @@ A flag toggle sits in the coach workout-detail popout header (`#mwd-flag`, teal 
 ### Weekly digest (`scripts/cron_coaching_digest.php` — Monday, hour 8 UTC)
 Per head coach, **only when there is something to report** (≥1 open intelligence flag OR ≥1 flagged adjustment pending) — no empty digests. Four sections: Needs Attention (warning flags, max 5), Opportunities (opportunity flags, max 3), Pending Reviews (count), Roster Health (active athletes + 7-day average completion across the roster). Sent via `Mailer::send` + `EmailTemplates::build('coaching_digest', …)` (teal "Open Intelligence" CTA, no em dashes, no content tables). **Requires a manual NFSN scheduler entry** (SSH cannot add scheduled tasks).
 
+### Phase 2 — pattern proposer, roster insights, weekly review (migration_028)
+
+Phase 2 adds the *analysis* layer on top of Phase 1's capture pipes: it notices when a coach keeps making the same kind of change and drafts a rule from it, surfaces patterns that span multiple athletes, and packages the whole week into one review flow.
+
+**New schema (migration_028, runner `scripts/run_migration_028.php`, idempotent):**
+- `coaching_decisions.proposed_from_count` INT, `coaching_decisions.proposed_at` DATETIME — pattern-proposer bookkeeping.
+- `coach_adjustments.proposed_decision_id` INT — set when an adjustment contributed to (or is already covered by) a proposal, so the proposer never reconsiders it.
+- **`coach_roster_insights`** — cross-athlete patterns (`insight_type` ENUM: compliance_cluster, engagement_cluster, upcoming_races, adjustment_pattern, streak_cluster, workload_spike; `severity` info/warning/opportunity; `athlete_ids` LONGTEXT JSON; `status` open/dismissed).
+- **`weekly_review_log`** — one row per (coach_id, week_start Monday); `completed_at` + counts (items_reviewed / decisions_added / flags_actioned / flags_dismissed). UNIQUE (coach_id, week_start).
+
+**Pattern proposer (`src/PatternProposer.php`, `analyze($coachId, $db)`).** Called per coach from the Monday digest cron (so proposals are fresh in the email) and may run on demand. Groups un-reviewed, un-proposed `coach_adjustments` from the last 90 days by (change_type, ctx_phase, ctx_goal_distance). Threshold is roster-size aware: `<20` athletes → 2, `20–50` → 3, `>50` → 5. For each group ≥ threshold: if an active/proposed decision already covers the same (distance, phase) scope, the adjustments are tagged with that decision id and skipped; otherwise it drafts a **proposed** `coaching_decision` (auto title, `trigger_json` from the group keys + classification when consistent, `action_json` from the most common after-state — archetype_substitution → exclude most-common before + weight most-common after ×2; duration_change → median delta minutes; others → `{}` for coach review), tags the contributing adjustments with `proposed_decision_id`, and logs an `adjustment_pattern` roster insight. Like the rest of the layer, `analyze()` swallows/logs its own errors.
+
+**Roster insights (`CoachingIntelligence::generateRosterInsights($coachId, $db)`).** Run per coach from the daily cron (after individual flags) and again from the Monday digest cron. Generates: compliance_cluster (3+ open compliance_dropping flags this week, warning), engagement_cluster (3+ engagement_dropping/dropout_risk, warning), upcoming_races (any athlete racing in the next 14 days, info), streak_cluster (3+ compliance_streak, opportunity), workload_spike (3+ rpe_trending_high, warning). Dedup: an insight_type is not re-created if one for the coach was created within the last 7 days (so the daily cron does not produce duplicates; upcoming_races therefore refreshes ~weekly).
+
+**Weekly review UI (`GET /app/coach/intelligence/review`, `views/coach/intelligence_review.php`).** A single scrollable page with an estimated time (1 min/proposal + 30 s/flagged adjustment + 30 s/insight, clamped 2–15 min) and five sections: (1) **Proposed decisions** — editable title, required reason, scope pills, plain-English trigger/action summary, Approve (`…/decision/:id/approve`, sets active) / Modify (full modal → `…/decision/:id/modify`) / Dismiss (`…/decision/:id/dismiss`, sets inactive); (2) **Roster insights** — severity-bordered cards with athlete pills, Dismiss (`…/intelligence/insight/:id/dismiss`); (3) **Flagged adjustments** — the Phase 1 add-as-rule / dismiss flow embedded inline; (4) **Upcoming races** — athletes racing in the next 14 days (informational); (5) **Complete** — `…/intelligence/review/complete` INSERT/UPDATEs `weekly_review_log` for the current Monday with `completed_at` + counts. Review-flow forms post `from=review` so actions return to the review page; the Intelligence page / library default back to `…/intelligence`.
+
+**Intelligence page additions** (without replacing the Phase 1 sections): a teal weekly-review prompt banner at the top (item count + est. minutes, or a muted "completed [day] at [time]" once `weekly_review_log.completed_at` is set for the current week); a **Roster insights** section above Athlete Flags (max 3, "View all" reveals the rest inline); a **Proposed decisions** section above Flagged for Review (count badge + top-2 preview + "Review all" link); and proposed rows in the **Decision Library** carry an amber "Proposed" badge, "Based on [N] adjustments", and inline Approve/Dismiss (the inline Approve auto-fills a reason; the weekly-review Approve requires one).
+
+**Weekly digest additions.** `cron_coaching_digest.php` runs `PatternProposer::analyze()` then `CoachingIntelligence::generateRosterInsights()` per coach before building the email, and adds three sections after Opportunities: Proposed Rules (count + up to 3 titles + a "Review proposed rules" link to the review page), Roster Insights (up to 3, severity-ordered), and Upcoming Races (next 14 days). The send guard now also fires when proposed rules or roster insights exist. All Phase 2 work is guarded on the `coach_roster_insights` table so a pre-migration-028 run is a clean no-op.
+
 ### Roadmap
-- **Phase 1 (this milestone):** capture pipes, behavior metrics, pattern flags, flag-for-review, decision resolver, weekly digest.
-- **Phase 2:** weekly-review UI (reason tags on adjustments) and a pattern proposer that suggests rules from recurring flagged adjustments.
-- **Phase 3:** predictive flags and athlete-response modeling (adaptation_ahead_of_schedule, plan_adjustment_recommended become model-driven; easy_pace_drift / response_time metrics populated).
+- **Phase 1:** capture pipes, behavior metrics, pattern flags, flag-for-review, decision resolver, weekly digest. **Complete.**
+- **Phase 2 (this milestone):** weekly-review UI, pattern proposer (rules from recurring adjustments), cross-athlete roster insights. **Complete.**
+- **Phase 3 (upcoming):** predictive flags and athlete-response modeling (adaptation_ahead_of_schedule, plan_adjustment_recommended become model-driven; easy_pace_drift / response_time metrics populated).
 - **Phase 4:** multi-coach decision sharing (promote rules across a coaching team / platform-wide).

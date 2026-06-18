@@ -23,6 +23,9 @@ require_once SCRIPT_ROOT . '/config/config.php';
 require_once SCRIPT_ROOT . '/config/database.php';
 require_once SCRIPT_ROOT . '/src/Mailer.php';
 require_once SCRIPT_ROOT . '/src/EmailTemplates.php';
+require_once SCRIPT_ROOT . '/src/CoachAdjustments.php';
+require_once SCRIPT_ROOT . '/src/CoachingIntelligence.php';
+require_once SCRIPT_ROOT . '/src/PatternProposer.php';
 
 $verbose = in_array('verbose', $argv ?? [], true);
 $dryRun  = in_array('--dry-run', $argv ?? [], true);
@@ -40,6 +43,12 @@ if ($hasTables < 3) {
     exit(0);
 }
 
+// Phase 2 tables (proposed rules + roster insights). Pre-migration-028 = clean no-op.
+$hasPhase2 = (int)$db->query(
+    "SELECT COUNT(*) FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'coach_roster_insights'"
+)->fetchColumn() > 0;
+
 $mondayLabel = date('M j', strtotime('monday this week'));
 $h = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
 
@@ -56,6 +65,45 @@ $skipped = 0;
 
 foreach ($coaches as $c) {
     $coachId = (int)$c['id'];
+
+    // Phase 2: refresh proposed rules + roster insights so the digest is current.
+    $proposed = [];
+    $insights = [];
+    $races    = [];
+    if ($hasPhase2) {
+        if (!$dryRun) {
+            PatternProposer::analyze($coachId, $db);
+            CoachingIntelligence::generateRosterInsights($coachId, $db);
+        }
+
+        $ps = $db->prepare(
+            "SELECT title, proposed_from_count FROM coaching_decisions
+             WHERE created_by = ? AND status = 'proposed'
+             ORDER BY proposed_from_count DESC, id DESC"
+        );
+        $ps->execute([$coachId]);
+        $proposed = $ps->fetchAll(PDO::FETCH_ASSOC);
+
+        $is = $db->prepare(
+            "SELECT title FROM coach_roster_insights
+             WHERE coach_id = ? AND status = 'open'
+             ORDER BY FIELD(severity,'warning','opportunity','info'), created_at DESC
+             LIMIT 3"
+        );
+        $is->execute([$coachId]);
+        $insights = $is->fetchAll(PDO::FETCH_ASSOC);
+
+        $rs = $db->prepare(
+            "SELECT u.name AS athlete_name, r.race_name, r.race_date
+             FROM races r
+             JOIN athletes a ON a.id = r.athlete_id AND a.coach_id = ? AND a.status = 'active'
+             JOIN users u ON u.id = a.user_id
+             WHERE r.race_date >= CURDATE() AND r.race_date <= (CURDATE() + INTERVAL 14 DAY)
+             ORDER BY r.race_date ASC, u.name ASC"
+        );
+        $rs->execute([$coachId]);
+        $races = $rs->fetchAll(PDO::FETCH_ASSOC);
+    }
 
     // Section 1 — warning-severity open flags (max 5).
     $warnStmt = $db->prepare(
@@ -97,8 +145,8 @@ foreach ($coaches as $c) {
         [$coachId]
     );
 
-    // GUARD: skip coaches with nothing to report.
-    if ($totalOpen === 0 && $pending === 0) { $skipped++; continue; }
+    // GUARD: skip coaches with nothing to report (proposed rules + roster insights count too).
+    if ($totalOpen === 0 && $pending === 0 && empty($proposed) && empty($insights)) { $skipped++; continue; }
 
     // Section 4 — roster health.
     $activeAthletes = (int)scalar($db,
@@ -145,6 +193,42 @@ foreach ($coaches as $c) {
         }
     } else {
         $body .= '<p style="margin:0;color:#666;">No new opportunities flagged this week.</p>';
+    }
+
+    // Phase 2 — Proposed rules (after Opportunities).
+    if ($proposed) {
+        $body .= '<p style="font-weight:600;color:#1D9E75;margin:18px 0 6px;">Proposed rules</p>';
+        $body .= '<p style="margin:0 0 6px;">The system proposed ' . count($proposed) . ' new coaching rule'
+               . (count($proposed) === 1 ? '' : 's') . ' based on your recent adjustments.</p>';
+        $body .= '<ul style="margin:0;padding-left:18px;">';
+        foreach (array_slice($proposed, 0, 3) as $p) {
+            $body .= '<li>' . $h((string)$p['title']) . '</li>';
+        }
+        $body .= '</ul>';
+        $appUrl  = defined('APP_URL') ? rtrim(APP_URL, '/') : 'https://simplyrunfaster.com/app';
+        $body .= '<p style="margin:6px 0 0;"><a href="' . $h($appUrl . '/coach/intelligence/review')
+               . '" style="color:#1D9E75;">Review proposed rules</a></p>';
+    }
+
+    // Phase 2 — Roster insights.
+    if ($insights) {
+        $body .= '<p style="font-weight:600;color:#1D9E75;margin:18px 0 6px;">Roster insights</p>';
+        $body .= '<ul style="margin:0;padding-left:18px;">';
+        foreach ($insights as $ins) {
+            $body .= '<li>' . $h((string)$ins['title']) . '</li>';
+        }
+        $body .= '</ul>';
+    }
+
+    // Phase 2 — Upcoming races (next 14 days).
+    if ($races) {
+        $body .= '<p style="font-weight:600;color:#1D9E75;margin:18px 0 6px;">Upcoming races</p>';
+        $body .= '<ul style="margin:0;padding-left:18px;">';
+        foreach ($races as $r) {
+            $body .= '<li>' . $h((string)$r['athlete_name']) . ': ' . $h((string)$r['race_name'])
+                   . ' (' . $h(date('M j', strtotime((string)$r['race_date']))) . ')</li>';
+        }
+        $body .= '</ul>';
     }
 
     $body .= '<p style="font-weight:600;color:#1D9E75;margin:18px 0 6px;">Pending reviews</p>';

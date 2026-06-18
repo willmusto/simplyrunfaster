@@ -28,6 +28,7 @@ require_once __DIR__ . '/src/CoachAssignments.php';
 require_once __DIR__ . '/src/CoachAdjustments.php';
 require_once __DIR__ . '/src/CoachingDecisions.php';
 require_once __DIR__ . '/src/CoachingIntelligence.php';
+require_once __DIR__ . '/src/PatternProposer.php';
 require_once __DIR__ . '/src/Billing.php';
 require_once __DIR__ . '/src/StripeWebhook.php';
 require_once __DIR__ . '/src/Crypto.php';
@@ -198,6 +199,13 @@ $router->post('/coach/intelligence/flag/:id/dismiss',        [CoachController::c
 $router->post('/coach/intelligence/adjustment/:id/dismiss',  [CoachController::class, 'dismissAdjustment']);
 $router->post('/coach/intelligence/adjustment/:id/rule',     [CoachController::class, 'saveDecision']);
 $router->post('/coach/intelligence/decision/:id/toggle',     [CoachController::class, 'toggleDecision']);
+// Coaching Intelligence Phase 2 — weekly review, pattern proposer, roster insights
+$router->get('/coach/intelligence/review',                   [CoachController::class, 'intelligenceReview']);
+$router->post('/coach/intelligence/decision/:id/approve',    [CoachController::class, 'approveDecision']);
+$router->post('/coach/intelligence/decision/:id/modify',     [CoachController::class, 'modifyDecision']);
+$router->post('/coach/intelligence/decision/:id/dismiss',    [CoachController::class, 'dismissProposedDecision']);
+$router->post('/coach/intelligence/insight/:id/dismiss',     [CoachController::class, 'dismissRosterInsight']);
+$router->post('/coach/intelligence/review/complete',         [CoachController::class, 'completeReview']);
 $router->post('/coach/athlete/:id/race/add',        [RaceController::class, 'coachAddRace']);
 $router->get('/coach/athlete/:id/race-conflicts',   [RaceController::class, 'coachConflicts']);
 $router->post('/coach/races/:id/recalibrate/approve',[RaceController::class, 'approveRecalibration']);

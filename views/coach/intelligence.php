@@ -102,6 +102,60 @@ $ruleTitle = static function (array $a): string {
     <div class="card" style="border-left:3px solid var(--color-danger);margin-bottom:16px;"><?= h($flashError) ?></div>
     <?php endif; ?>
 
+    <!-- ════════ WEEKLY REVIEW PROMPT ════════ -->
+    <?php $reviewDone = !empty($review) && !empty($review['completed_at']); ?>
+    <?php if (!$reviewDone): ?>
+    <div class="card" style="border-left:3px solid #1D9E75;margin-bottom:20px;background:rgba(29,158,117,0.06);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <div>
+                <div style="font-weight:600;margin-bottom:2px;">Your weekly coaching review is ready.</div>
+                <div class="body-text" style="margin:0;font-size:13px;color:var(--text-secondary);">
+                    <?= (int)($reviewItemCount ?? 0) ?> item<?= ($reviewItemCount ?? 0) === 1 ? '' : 's' ?> to review · Est. <?= (int)($reviewEstMinutes ?? 2) ?> min
+                </div>
+            </div>
+            <a href="/app/coach/intelligence/review" class="btn btn-primary btn-sm">Start weekly review →</a>
+        </div>
+    </div>
+    <?php else: ?>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:20px;">
+        Weekly review completed <?= h(Timezone::format($review['completed_at'], 'l \a\t g:i A')) ?>.
+    </div>
+    <?php endif; ?>
+
+    <!-- ════════ ROSTER INSIGHTS ════════ -->
+    <?php if (!empty($rosterInsights)): $insTotal = count($rosterInsights); ?>
+    <div class="section-label" style="margin-top:8px;">ROSTER INSIGHTS</div>
+    <?php foreach ($rosterInsights as $i => $ins):
+        $sev    = (string)$ins['severity'];
+        $insIds = json_decode((string)($ins['athlete_ids'] ?? ''), true) ?: [];
+        $hidden = $i >= 3;
+    ?>
+    <div class="roster-row ri-row<?= $hidden ? ' ri-extra' : '' ?>" style="margin-bottom:8px;border-left:3px solid <?= $borderFor($sev) ?>;<?= $hidden ? 'display:none;' : '' ?>">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+                <div style="font-size:14px;font-weight:600;margin-bottom:4px;"><?= h($ins['title']) ?></div>
+                <p class="body-text" style="margin:0 0 8px;white-space:pre-line;"><?= h($ins['detail']) ?></p>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    <?php foreach ($insIds as $aid): if (empty($rosterNames[(int)$aid])) continue; ?>
+                    <a href="/app/coach/athlete/<?= (int)$aid ?>" class="pill"
+                       style="font-size:11px;background:var(--recessed-bg);color:var(--text-secondary);text-decoration:none;"><?= h($rosterNames[(int)$aid]) ?></a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <form method="POST" action="/app/coach/intelligence/insight/<?= (int)$ins['id'] ?>/dismiss" style="flex-shrink:0;">
+                <?= Auth::csrfField() ?>
+                <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
+            </form>
+        </div>
+    </div>
+    <?php endforeach; ?>
+    <?php if ($insTotal > 3): ?>
+    <button type="button" id="ri-toggle" class="btn btn-secondary btn-sm" style="margin:4px 0 24px;">View all <?= $insTotal ?> →</button>
+    <?php else: ?>
+    <div style="margin-bottom:16px;"></div>
+    <?php endif; ?>
+    <?php endif; ?>
+
     <!-- ════════ SECTION 1 — ATHLETE FLAGS ════════ -->
     <div class="section-label" style="margin-top:8px;">ATHLETE FLAGS</div>
 
@@ -214,6 +268,26 @@ $ruleTitle = static function (array $a): string {
     <?php endforeach; ?>
     <?php endif; ?>
 
+    <!-- ════════ PROPOSED DECISIONS ════════ -->
+    <?php if (!empty($proposedDecisions)): $propTotal = count($proposedDecisions); ?>
+    <div class="section-label" style="margin-top:28px;">
+        PROPOSED DECISIONS
+        <span class="pill" style="font-size:10px;background:rgba(217,145,0,0.15);color:#b97900;"><?= $propTotal ?></span>
+    </div>
+    <?php foreach (array_slice($proposedDecisions, 0, 2) as $d): ?>
+    <div class="roster-row" style="margin-bottom:8px;border-left:3px solid #d99100;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+                <div style="font-size:14px;font-weight:600;margin-bottom:2px;"><?= h($d['title']) ?></div>
+                <div style="font-size:12px;color:var(--text-muted);">Based on <?= (int)$d['proposed_from_count'] ?> adjustment<?= (int)$d['proposed_from_count'] === 1 ? '' : 's' ?></div>
+            </div>
+            <a href="/app/coach/intelligence/review" class="btn btn-secondary btn-sm" style="flex-shrink:0;">Review</a>
+        </div>
+    </div>
+    <?php endforeach; ?>
+    <a href="/app/coach/intelligence/review" class="body-text" style="display:inline-block;margin:4px 0 8px;font-size:13px;color:#1D9E75;text-decoration:none;font-weight:600;">Review all <?= $propTotal ?> proposed rule<?= $propTotal === 1 ? '' : 's' ?> →</a>
+    <?php endif; ?>
+
     <!-- ════════ SECTION 2 — FLAGGED FOR REVIEW ════════ -->
     <div class="section-label" style="margin-top:28px;">FLAGGED FOR REVIEW</div>
 
@@ -273,15 +347,36 @@ $ruleTitle = static function (array $a): string {
                 $sp = json_decode((string)($d['scope_phases'] ?? ''), true) ?: [];
                 $scopeBits = array_merge($sd, $sp);
                 $scope = $scopeBits ? implode(', ', $scopeBits) : 'All';
-                $isActive = ($d['status'] === 'active');
+                $isActive   = ($d['status'] === 'active');
+                $isProposed = ($d['status'] === 'proposed');
             ?>
-            <div class="decision-cell" style="font-weight:600;"><?= h($d['title']) ?></div>
+            <div class="decision-cell" style="font-weight:600;">
+                <?= h($d['title']) ?>
+                <?php if ($isProposed): ?>
+                <div style="font-weight:400;font-size:11px;color:var(--text-muted);">Based on <?= (int)$d['proposed_from_count'] ?> adjustment<?= (int)$d['proposed_from_count'] === 1 ? '' : 's' ?></div>
+                <?php endif; ?>
+            </div>
             <div class="decision-cell" style="color:var(--text-muted);font-size:12px;"><?= h($scope) ?></div>
             <div class="decision-cell"><?= (int)$d['times_fired'] ?></div>
             <div class="decision-cell" style="font-size:12px;color:var(--text-muted);">
                 <?= $d['last_fired_at'] ? h(Timezone::format($d['last_fired_at'], 'M j')) : '—' ?>
             </div>
             <div class="decision-cell">
+                <?php if ($isProposed): ?>
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                    <span class="pill" style="font-size:10px;background:rgba(217,145,0,0.15);color:#b97900;">Proposed</span>
+                    <form method="POST" action="/app/coach/intelligence/decision/<?= (int)$d['id'] ?>/approve" style="margin:0;">
+                        <?= Auth::csrfField() ?>
+                        <input type="hidden" name="from" value="library">
+                        <button type="submit" class="btn btn-primary btn-sm">Approve</button>
+                    </form>
+                    <form method="POST" action="/app/coach/intelligence/decision/<?= (int)$d['id'] ?>/dismiss" style="margin:0;">
+                        <?= Auth::csrfField() ?>
+                        <input type="hidden" name="from" value="library">
+                        <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
+                    </form>
+                </div>
+                <?php else: ?>
                 <form method="POST" action="/app/coach/intelligence/decision/<?= (int)$d['id'] ?>/toggle" style="margin:0;">
                     <?= Auth::csrfField() ?>
                     <button type="submit" class="btn btn-sm <?= $isActive ? 'btn-primary' : '' ?>"
@@ -289,6 +384,7 @@ $ruleTitle = static function (array $a): string {
                         <?= $isActive ? 'Active' : 'Inactive' ?>
                     </button>
                 </form>
+                <?php endif; ?>
             </div>
             <?php endforeach; ?>
         </div>
@@ -398,5 +494,16 @@ $ruleTitle = static function (array $a): string {
     document.getElementById('rule-cancel').addEventListener('click', close);
     modal.addEventListener('click', function (e) { if (e.target.id === 'rule-bd') close(); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && modal.classList.contains('is-open')) close(); });
+})();
+
+// Roster insights: reveal the rows beyond the first three inline.
+(function () {
+    'use strict';
+    var toggle = document.getElementById('ri-toggle');
+    if (!toggle) return;
+    toggle.addEventListener('click', function () {
+        document.querySelectorAll('.ri-extra').forEach(function (el) { el.style.display = ''; });
+        toggle.style.display = 'none';
+    });
 })();
 </script>

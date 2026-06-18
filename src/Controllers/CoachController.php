@@ -1191,6 +1191,16 @@ class CoachController
         $flaggedAdjustments = self::getFlaggedAdjustments($coachId, $db);
         $decisions          = self::getCoachDecisions($coachId, $db);
 
+        // Phase 2: proposed rules, roster insights, weekly-review status, upcoming races.
+        $proposedDecisions = self::getProposedDecisions($coachId, $db);
+        $rosterInsights    = self::getRosterInsights($coachId, $db);
+        $rosterNames       = self::rosterNameMap($coachId, $db);
+        $upcomingRaces     = self::getUpcomingRaces($coachId, $db);
+        $weekStart         = self::currentWeekStart();
+        $review            = self::getWeeklyReview($coachId, $weekStart, $db);
+        $reviewItemCount   = count($proposedDecisions) + count($flaggedAdjustments) + count($rosterInsights);
+        $reviewEstMinutes  = self::estimateReviewMinutes(count($proposedDecisions), count($flaggedAdjustments), count($rosterInsights));
+
         $athletes         = self::getRosterAthletes($coachId, $db);
         $openFlags        = count($engineFlags) + count($intelFlags);
         $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
@@ -1304,7 +1314,7 @@ class CoachController
         if ($stmt->fetchColumn()) {
             $db->prepare('UPDATE coach_adjustments SET flagged_for_review = 0 WHERE id = ?')->execute([$adjId]);
         }
-        header('Location: /app/coach/intelligence');
+        header('Location: ' . self::intelReturn());
         exit;
     }
 
@@ -1330,14 +1340,14 @@ class CoachController
         );
         $stmt->execute(array_merge($sp, [$adjId]));
         $adj = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$adj) { header('Location: /app/coach/intelligence'); exit; }
+        if (!$adj) { header('Location: ' . self::intelReturn()); exit; }
 
         $title  = trim((string)($_POST['title'] ?? ''));
         $reason = trim((string)($_POST['reason'] ?? ''));
         if ($title === '')  $title  = 'Coaching rule';
         if ($reason === '') {
             $_SESSION['flash_error'] = 'A reason is required to save a coaching rule.';
-            header('Location: /app/coach/intelligence');
+            header('Location: ' . self::intelReturn());
             exit;
         }
 
@@ -1394,7 +1404,7 @@ class CoachController
            ->execute([$decisionId, $adjId]);
 
         $_SESSION['flash_success'] = 'Coaching rule saved and activated.';
-        header('Location: /app/coach/intelligence');
+        header('Location: ' . self::intelReturn());
         exit;
     }
 
@@ -1418,6 +1428,315 @@ class CoachController
         }
         header('Location: /app/coach/intelligence');
         exit;
+    }
+
+    // ── Weekly review (Coaching Intelligence Layer, Phase 2) ───────────────────
+
+    /** Monday (ISO week start) of the current week, as Y-m-d. */
+    private static function currentWeekStart(): string
+    {
+        return date('Y-m-d', strtotime('monday this week'));
+    }
+
+    /** Where a proposed-decision / insight / adjustment action returns to. Forms in the
+     *  weekly-review flow post from=review; the Intelligence page / library default to it. */
+    private static function intelReturn(): string
+    {
+        return (($_POST['from'] ?? '') === 'review') ? '/app/coach/intelligence/review' : '/app/coach/intelligence';
+    }
+
+    /** The weekly_review_log row for this coach + week, or null. */
+    private static function getWeeklyReview(int $coachId, string $weekStart, PDO $db): ?array
+    {
+        $stmt = $db->prepare('SELECT * FROM weekly_review_log WHERE coach_id = ? AND week_start = ? LIMIT 1');
+        $stmt->execute([$coachId, $weekStart]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    /** Proposed coaching_decisions for this coach, highest-evidence first. */
+    private static function getProposedDecisions(int $coachId, PDO $db): array
+    {
+        $stmt = $db->prepare(
+            'SELECT * FROM coaching_decisions
+             WHERE created_by = ? AND status = "proposed"
+             ORDER BY proposed_from_count DESC, id DESC LIMIT 200'
+        );
+        $stmt->execute([$coachId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Open roster insights for this coach, severity-ordered. */
+    private static function getRosterInsights(int $coachId, PDO $db, int $limit = 200): array
+    {
+        $stmt = $db->prepare(
+            'SELECT * FROM coach_roster_insights
+             WHERE coach_id = ? AND status = "open"
+             ORDER BY FIELD(severity,"warning","opportunity","info"), created_at DESC
+             LIMIT ' . (int)$limit
+        );
+        $stmt->execute([$coachId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Athletes (in this coach's scope) racing in the next $days days, soonest first. */
+    private static function getUpcomingRaces(int $coachId, PDO $db, int $days = 14): array
+    {
+        [$scope, $sp] = self::athleteScope('a');
+        $stmt = $db->prepare(
+            'SELECT r.id, r.athlete_id, r.race_name, r.race_distance, r.race_date,
+                    DATEDIFF(r.race_date, CURDATE()) AS days_until, u.name AS athlete_name
+             FROM races r
+             JOIN athletes a ON a.id = r.athlete_id AND ' . $scope . ' AND a.status = "active"
+             JOIN users u ON u.id = a.user_id
+             WHERE r.race_date >= CURDATE() AND r.race_date <= (CURDATE() + INTERVAL ' . (int)$days . ' DAY)
+             ORDER BY r.race_date ASC, u.name ASC'
+        );
+        $stmt->execute($sp);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** athlete_id => name map for this coach's scope (resolves insight athlete pills). */
+    private static function rosterNameMap(int $coachId, PDO $db): array
+    {
+        [$scope, $sp] = self::athleteScope('a');
+        $stmt = $db->prepare(
+            'SELECT a.id, u.name FROM athletes a JOIN users u ON u.id = a.user_id WHERE ' . $scope
+        );
+        $stmt->execute($sp);
+        $map = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) { $map[(int)$r['id']] = (string)$r['name']; }
+        return $map;
+    }
+
+    /** Estimated review minutes: 1 min/proposal + 30s/flagged adj + 30s/insight, clamped 2..15. */
+    private static function estimateReviewMinutes(int $proposed, int $flagged, int $insights): int
+    {
+        $secs = $proposed * 60 + $flagged * 30 + $insights * 30;
+        $mins = (int)ceil($secs / 60);
+        return max(2, min(15, $mins));
+    }
+
+    /**
+     * GET /app/coach/intelligence/review — the focused single-page weekly review.
+     * Sections: proposed decisions, roster insights, flagged adjustments, upcoming
+     * races, and a complete-review footer.
+     */
+    public static function intelligenceReview(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db      = Database::get();
+        $coachId = (int)Auth::userId();
+
+        $proposedDecisions  = self::getProposedDecisions($coachId, $db);
+        $rosterInsights     = self::getRosterInsights($coachId, $db);
+        $flaggedAdjustments = self::getFlaggedAdjustments($coachId, $db);
+        $upcomingRaces      = self::getUpcomingRaces($coachId, $db);
+        $rosterNames        = self::rosterNameMap($coachId, $db);
+
+        $weekStart  = self::currentWeekStart();
+        $review     = self::getWeeklyReview($coachId, $weekStart, $db);
+        $estMinutes = self::estimateReviewMinutes(count($proposedDecisions), count($flaggedAdjustments), count($rosterInsights));
+        $itemsCount = count($proposedDecisions) + count($flaggedAdjustments) + count($rosterInsights);
+
+        $flashSuccess = $_SESSION['flash_success'] ?? null;
+        $flashError   = $_SESSION['flash_error']   ?? null;
+        unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
+        $pageTitle = 'Weekly review';
+        $activeNav = 'intelligence';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_coach.php';
+        include __DIR__ . '/../../views/coach/intelligence_review.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    /**
+     * POST /app/coach/intelligence/decision/:id/approve — approve a proposed rule.
+     * Sets status=active. A reason is required from the review flow; the inline
+     * library button auto-fills one from the proposal evidence.
+     */
+    public static function approveDecision(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId = (int)Auth::userId();
+        $id      = (int)($params['id'] ?? 0);
+        $db      = Database::get();
+        $back    = self::intelReturn();
+
+        $stmt = $db->prepare(
+            'SELECT id, title, proposed_from_count FROM coaching_decisions
+             WHERE id = ? AND created_by = ? AND status = "proposed" LIMIT 1'
+        );
+        $stmt->execute([$id, $coachId]);
+        $d = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$d) { header('Location: ' . $back); exit; }
+
+        $reason = trim((string)($_POST['reason'] ?? ''));
+        $title  = trim((string)($_POST['title'] ?? ''));
+        if ($title === '') $title = (string)$d['title'];
+
+        if ($reason === '') {
+            if (!empty($_POST['require_reason'])) {
+                $_SESSION['flash_error'] = 'A reason is required to approve a proposed rule.';
+                header('Location: ' . $back); exit;
+            }
+            $reason = 'Approved from a proposed pattern based on ' . (int)$d['proposed_from_count'] . ' similar adjustments.';
+        }
+
+        $db->prepare('UPDATE coaching_decisions SET status = "active", title = ?, reason = ?, updated_at = NOW() WHERE id = ?')
+           ->execute([$title, $reason, $id]);
+        $_SESSION['flash_success'] = 'Coaching rule approved and activated.';
+        header('Location: ' . $back);
+        exit;
+    }
+
+    /**
+     * POST /app/coach/intelligence/decision/:id/modify — approve a proposed rule with
+     * edits from the full modal (title, reason, distance/phase scope). Sets status=active.
+     */
+    public static function modifyDecision(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId = (int)Auth::userId();
+        $id      = (int)($params['id'] ?? 0);
+        $db      = Database::get();
+        $back    = self::intelReturn();
+
+        $stmt = $db->prepare(
+            'SELECT * FROM coaching_decisions WHERE id = ? AND created_by = ? AND status = "proposed" LIMIT 1'
+        );
+        $stmt->execute([$id, $coachId]);
+        $d = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$d) { header('Location: ' . $back); exit; }
+
+        $title  = trim((string)($_POST['title'] ?? ''));
+        $reason = trim((string)($_POST['reason'] ?? ''));
+        if ($title === '') $title = (string)$d['title'];
+        if ($reason === '') {
+            $_SESSION['flash_error'] = 'A reason is required to save a coaching rule.';
+            header('Location: ' . $back); exit;
+        }
+
+        $distances = array_values(array_filter(array_map('strval', (array)($_POST['distances'] ?? []))));
+        $phases    = array_values(array_filter(array_map('strval', (array)($_POST['phases'] ?? []))));
+
+        // Rebuild trigger_json from the edited scope, preserving any captured classification.
+        $trigger = json_decode((string)($d['trigger_json'] ?? ''), true) ?: [];
+        unset($trigger['goal_distance'], $trigger['phase']);
+        if ($distances) $trigger['goal_distance'] = $distances;
+        if ($phases)    $trigger['phase'] = $phases;
+
+        $db->prepare(
+            'UPDATE coaching_decisions
+             SET status = "active", title = ?, reason = ?, trigger_json = ?,
+                 scope_distances = ?, scope_phases = ?, updated_at = NOW()
+             WHERE id = ?'
+        )->execute([
+            $title, $reason, json_encode($trigger ?: (object)[]),
+            $distances ? json_encode($distances) : null,
+            $phases ? json_encode($phases) : null,
+            $id,
+        ]);
+        $_SESSION['flash_success'] = 'Coaching rule updated and activated.';
+        header('Location: ' . $back);
+        exit;
+    }
+
+    /** POST /app/coach/intelligence/decision/:id/dismiss — dismiss a proposed rule (status=inactive). */
+    public static function dismissProposedDecision(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId = (int)Auth::userId();
+        $id      = (int)($params['id'] ?? 0);
+        $db      = Database::get();
+        $back    = self::intelReturn();
+
+        $db->prepare(
+            'UPDATE coaching_decisions SET status = "inactive", updated_at = NOW()
+             WHERE id = ? AND created_by = ? AND status = "proposed"'
+        )->execute([$id, $coachId]);
+        header('Location: ' . $back);
+        exit;
+    }
+
+    /** POST /app/coach/intelligence/insight/:id/dismiss — dismiss a roster insight. */
+    public static function dismissRosterInsight(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId = (int)Auth::userId();
+        $id      = (int)($params['id'] ?? 0);
+        $db      = Database::get();
+        $back    = self::intelReturn();
+
+        $db->prepare(
+            'UPDATE coach_roster_insights SET status = "dismissed", dismissed_at = NOW()
+             WHERE id = ? AND coach_id = ?'
+        )->execute([$id, $coachId]);
+        header('Location: ' . $back);
+        exit;
+    }
+
+    /**
+     * POST /app/coach/intelligence/review/complete — mark this week's review complete.
+     * Records the workload reviewed and counts decisions/flags actioned since Monday.
+     */
+    public static function completeReview(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId   = (int)Auth::userId();
+        $db        = Database::get();
+        $weekStart = self::currentWeekStart();
+
+        $itemsReviewed = max(0, (int)($_POST['items_reviewed'] ?? 0));
+
+        // Decisions activated this week (approvals + manual add-as-rule).
+        $decisionsAdded = (int)self::reviewScalar($db,
+            'SELECT COUNT(*) FROM coaching_decisions
+             WHERE created_by = ? AND status = "active" AND COALESCE(updated_at, created_at) >= ?',
+            [$coachId, $weekStart]);
+
+        [$scope, $sp] = self::athleteScope('a');
+        $flagsActioned = (int)self::reviewScalar($db,
+            'SELECT COUNT(*) FROM coaching_intelligence_flags cif
+             JOIN athletes a ON a.id = cif.athlete_id AND ' . $scope . '
+             WHERE cif.actioned_at >= ?', array_merge($sp, [$weekStart]));
+        $flagsDismissed = (int)self::reviewScalar($db,
+            'SELECT COUNT(*) FROM coaching_intelligence_flags cif
+             JOIN athletes a ON a.id = cif.athlete_id AND ' . $scope . '
+             WHERE cif.dismissed_at >= ?', array_merge($sp, [$weekStart]));
+
+        $db->prepare(
+            'INSERT INTO weekly_review_log
+               (coach_id, week_start, completed_at, items_reviewed, decisions_added, flags_actioned, flags_dismissed)
+             VALUES (?, ?, NOW(), ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+               completed_at = NOW(), items_reviewed = VALUES(items_reviewed),
+               decisions_added = VALUES(decisions_added), flags_actioned = VALUES(flags_actioned),
+               flags_dismissed = VALUES(flags_dismissed)'
+        )->execute([$coachId, $weekStart, $itemsReviewed, $decisionsAdded, $flagsActioned, $flagsDismissed]);
+
+        $_SESSION['flash_success'] = 'Weekly review marked complete. Nice work.';
+        header('Location: /app/coach/intelligence');
+        exit;
+    }
+
+    private static function reviewScalar(PDO $db, string $sql, array $params)
+    {
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchColumn();
     }
 
     public static function dismissFlag(array $params): void
