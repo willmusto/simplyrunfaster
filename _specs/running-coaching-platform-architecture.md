@@ -1747,3 +1747,16 @@ Phase 4 turns the single-coach intelligence layer into a multi-coach one. **Ever
 - **Phase 2:** weekly-review UI, pattern proposer (rules from recurring adjustments), cross-athlete roster insights. **Complete.**
 - **Phase 3:** predictive flags (predicted_fatigue / injury_risk_pattern / predicted_dropout / adaptation_ahead) and athlete response modeling. **Complete.**
 - **Phase 4:** multi-coach support — decision sharing, assistant proposals, playbook import, admin coach analytics, coaching philosophy export. **Complete.** (The Coaching Intelligence Layer is now feature-complete across all four phases.)
+
+## 33. Regen carry-over of athlete-exposed weeks (migration_031)
+
+By default a regeneration now **preserves every whole week the athlete has already seen** instead of wiping the plan and rebuilding from scratch. `PlanGenerator::generate($athleteId, $trigger, bool $fullWipe = false)`:
+
+- **Capture (before archive):** `capturePreservation()` looks at the prior **ACTIVE** plan and collects, within the new plan's forward span (>= tomorrow): every row in an **exposed whole week** (a Mon–Sun week with ≥1 `visible_to_athlete=1` row) plus any **coach_locked** row anywhere (principle 4 — coach edits are sticky). Returns null (→ legacy behavior) when there is no active prior plan or nothing exposed/locked.
+- **Generation math is UNCHANGED:** the new plan is generated full-span exactly as before (volume/cutback/phase/continuity/lead-in/code-week anchoring). The carried signatures/codes are merged into the anti-repeat history so the fresh remainder never duplicates a carried quality instance within the 28-day hard block.
+- **Carry-over (after generation):** `applyPreservation()` deletes the freshly-generated rows on the carried dates and **MOVES** the preserved prior rows into the new plan — reassigning `plan_id` and stamping `carried_over_from_plan_id` / `carried_over_at`, keeping the row's **id** (so the `srf_{id}` Intervals.icu event survives — never delete+recreate), content, visibility, and `coach_locked`. Because exposed units are whole Mon–Sun weeks, the fresh remainder begins at a clean Monday with no mixed weeks. A volume seam at the carried→fresh boundary is accepted (every regen is coach-reviewed in `pending_approval`).
+- **Intervals continuity:** `archivePreviousPlans()` / `IntervalsService::deleteEventsForPlan()` take an exclude list so carried workouts' events are spared; non-carried prior events are still deleted.
+- **Schema (migration_031):** `planned_workouts.carried_over_from_plan_id` INT NULL + `carried_over_at` DATETIME NULL.
+- **Full-wipe escape hatch:** a REQUIRED checkbox on both regen entry points (coach Generate Plan + head-coach regeneration approval), default unchecked, labelled "Regenerate entire plan including days that have been exposed to the athlete." Checked → `$fullWipe=true` → legacy archive-all + delete-all-events + rebuild.
+- **Coach badge:** carried rows show a coach-only "↻" badge (`.macro-carried-badge`) in the macro plan, mirroring the assistant-coach "AC" badge; never shown to athletes.
+- Verified by `scripts/verify_regen_carryover.php` (byte-identical carry + same id + event intact, coach_locked preserved, clean Monday boundary, anti-repeat within window, full-wipe carries nothing).
