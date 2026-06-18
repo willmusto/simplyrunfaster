@@ -14,7 +14,7 @@ $lastMessageId = $messages ? (int)end($messages)['id'] : 0;
 
     <div class="msg-header">
         <div class="msg-header-inner">
-            <a href="/app/coach/athlete/<?= $athleteId ?>" class="msg-header-back" title="Back">←</a>
+            <a href="<?= h($backUrl ?? ('/app/coach/athlete/' . $athleteId)) ?>" class="msg-header-back" title="Back">←</a>
             <div class="athlete-avatar"><?= h(avatar_initials($athlete['name'])) ?></div>
             <div>
                 <div class="msg-header-title"><?= h($athlete['name']) ?></div>

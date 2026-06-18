@@ -1449,35 +1449,12 @@ class CoachController
             return;
         }
 
-        // Mark athlete messages as read
-        $db->prepare(
-            'UPDATE messages SET read_at = NOW() WHERE athlete_id = ? AND sender_role = "athlete" AND read_at IS NULL'
-        )->execute([$athleteId]);
-
-        // Fetch thread (oldest first). pw2 covers session cards linked to a planned
-        // workout that has not been completed yet (no completed_workout_id).
-        $stmt = $db->prepare(
-            'SELECT m.*,
-                    COALESCE(cw.workout_type, pw2.workout_type)   AS session_type,
-                    COALESCE(cw.activity_date, pw2.scheduled_date) AS session_date,
-                    COALESCE(pw.display_title, pw2.display_title)  AS session_title,
-                    u.name AS sender_name
-             FROM messages m
-             LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
-             LEFT JOIN planned_workouts pw  ON pw.id = cw.planned_workout_id
-             LEFT JOIN planned_workouts pw2 ON pw2.id = m.planned_workout_id
-             LEFT JOIN users u ON u.id = m.sender_id
-             WHERE m.athlete_id = ?
-             ORDER BY m.sent_at ASC
-             LIMIT 200'
-        );
-        $stmt->execute([$athleteId]);
-        $messages = $stmt->fetchAll();
+        // Mark read + fetch the thread (shared with the unified inbox panels).
+        [$messages, $planPhase] = self::loadThreadForPanel($db, $athleteId);
 
         $athletes         = self::getRosterAthletes($coachId, $db);
         $openFlags        = self::getOpenFlagsCount($coachId, $db);
         $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
-        $planPhase        = self::currentPlanPhase(self::getActivePlanDetail($athleteId, $db));
 
         $pageTitle = 'Messages: ' . h($athlete['name']);
         $activeNav = 'athletes';
@@ -1763,6 +1740,204 @@ class CoachController
 
         echo json_encode(self::serializeMessages($rows, $coachId));
         exit;
+    }
+
+    // ── Unified Messages tab ───────────────────────────────────
+
+    /** GET /app/coach/messages — two-panel unified inbox (list + thread). */
+    public static function unifiedMessages(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db      = Database::get();
+        $coachId = (int)Auth::userId();
+
+        $threads          = self::getMessageThreads($coachId, $db);
+        $athletes         = self::getRosterAthletes($coachId, $db);
+        $openFlags        = self::getOpenFlagsCount($coachId, $db);
+        $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
+
+        // Optional deep-link / desktop preselect (?athlete=N) renders the thread
+        // straight into the right panel and marks it read.
+        $selectedId = (int)($_GET['athlete'] ?? 0);
+        $athlete = null; $messages = []; $planPhase = null; $backUrl = '/app/coach/messages';
+        if ($selectedId) {
+            $athlete = self::getAthleteForCoach($selectedId, $coachId, $db);
+            if ($athlete) { [$messages, $planPhase] = self::loadThreadForPanel($db, $selectedId); }
+        }
+
+        $pageTitle = 'Messages';
+        $activeNav = 'messages';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_coach.php';
+        include __DIR__ . '/../../views/coach/messages_unified.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    /** GET /app/coach/messages/{id} — full-page thread (mobile entry; back → list). */
+    public static function unifiedThread(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db        = Database::get();
+        $coachId   = (int)Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) { http_response_code(404); include __DIR__ . '/../../views/errors/404.php'; return; }
+
+        [$messages, $planPhase] = self::loadThreadForPanel($db, $athleteId);
+        $backUrl = '/app/coach/messages';
+
+        $athletes         = self::getRosterAthletes($coachId, $db);
+        $openFlags        = self::getOpenFlagsCount($coachId, $db);
+        $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
+
+        $pageTitle = 'Messages: ' . h($athlete['name']);
+        $activeNav = 'messages';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_coach.php';
+        include __DIR__ . '/../../views/coach/messages.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    /** GET /app/coach/messages/{id}/panel — thread fragment for desktop AJAX swap. */
+    public static function messageThreadPanel(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db        = Database::get();
+        $coachId   = (int)Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) { http_response_code(404); echo 'Not found'; return; }
+
+        [$messages, $planPhase] = self::loadThreadForPanel($db, $athleteId);
+        $backUrl = '/app/coach/messages';
+        include __DIR__ . '/../../views/coach/messages.php';   // fragment only — no layout
+    }
+
+    /** GET /app/coach/messages/unread-count — JSON {count} for the nav badge poll. */
+    public static function unreadMessageCount(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        header('Content-Type: application/json');
+        echo json_encode(['count' => self::navUnreadCount()]);
+        exit;
+    }
+
+    /** GET /app/coach/messages/threads — JSON {count, threads} for the list refresh poll. */
+    public static function messageThreads(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+        header('Content-Type: application/json');
+
+        $db      = Database::get();
+        $coachId = (int)Auth::userId();
+        $threads = self::getMessageThreads($coachId, $db);
+        $count   = 0;
+        foreach ($threads as $t) { $count += (int)$t['unread_count']; }
+        echo json_encode(['count' => $count, 'threads' => $threads]);
+        exit;
+    }
+
+    /** Total unread athlete messages across the coach's scoped athletes (nav badge). */
+    public static function navUnreadCount(): int
+    {
+        $db = Database::get();
+        [$scope, $sp] = self::athleteScope('a');
+        $stmt = $db->prepare(
+            'SELECT COUNT(*) FROM messages m
+             JOIN athletes a ON a.id = m.athlete_id AND ' . $scope . '
+             WHERE m.sender_role = "athlete" AND m.read_at IS NULL'
+        );
+        $stmt->execute($sp);
+        return (int)$stmt->fetchColumn();
+    }
+
+    /**
+     * Athlete inbox rows: latest message preview + relative time + unread count,
+     * scoped to the coach and sorted by most-recent-message DESC (athletes with no
+     * messages sort last, alphabetical). Requires base.php (rel_time/avatar_initials).
+     */
+    private static function getMessageThreads(int $coachId, PDO $db): array
+    {
+        [$scope, $sp] = self::athleteScope('a');
+        $stmt = $db->prepare(
+            'SELECT a.id AS athlete_id, u.name,
+                    lm.body AS last_body, UNIX_TIMESTAMP(lm.sent_at) AS last_ts, lm.sender_role AS last_role,
+                    (SELECT COUNT(*) FROM messages mu
+                       WHERE mu.athlete_id = a.id AND mu.sender_role = "athlete" AND mu.read_at IS NULL) AS unread_count
+             FROM athletes a
+             JOIN users u ON u.id = a.user_id
+             LEFT JOIN messages lm ON lm.id = (
+                 SELECT m2.id FROM messages m2 WHERE m2.athlete_id = a.id
+                 ORDER BY m2.sent_at DESC, m2.id DESC LIMIT 1
+             )
+             WHERE ' . $scope . ' AND a.status = "active"
+             ORDER BY (lm.sent_at IS NULL), lm.sent_at DESC, u.name ASC'
+        );
+        $stmt->execute($sp);
+
+        $out = [];
+        foreach ($stmt->fetchAll() as $r) {
+            $ts   = (int)($r['last_ts'] ?? 0);
+            $body = trim((string)($r['last_body'] ?? ''));
+            if ($body === '') {
+                $preview = 'No messages yet';
+            } else {
+                $preview = mb_substr($body, 0, 60) . (mb_strlen($body) > 60 ? '…' : '');
+                if (($r['last_role'] ?? '') !== 'athlete') $preview = 'You: ' . $preview;
+            }
+            $out[] = [
+                'id'           => (int)$r['athlete_id'],
+                'name'         => (string)$r['name'],
+                'initials'     => avatar_initials((string)$r['name']),
+                'preview'      => $preview,
+                'ts'           => $ts,
+                'time_label'   => $ts ? rel_time($ts) : '',
+                'unread'       => ((int)$r['unread_count']) > 0,
+                'unread_count' => (int)$r['unread_count'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Mark an athlete's thread read and load it for a thread panel (shared by
+     * coachMessages, the unified preselect, the AJAX panel, and the mobile page).
+     * Returns [messages, planPhaseLabel].
+     */
+    private static function loadThreadForPanel(PDO $db, int $athleteId): array
+    {
+        $db->prepare(
+            'UPDATE messages SET read_at = NOW() WHERE athlete_id = ? AND sender_role = "athlete" AND read_at IS NULL'
+        )->execute([$athleteId]);
+
+        $stmt = $db->prepare(
+            'SELECT m.*,
+                    COALESCE(cw.workout_type, pw2.workout_type)   AS session_type,
+                    COALESCE(cw.activity_date, pw2.scheduled_date) AS session_date,
+                    COALESCE(pw.display_title, pw2.display_title)  AS session_title,
+                    u.name AS sender_name
+             FROM messages m
+             LEFT JOIN completed_workouts cw ON cw.id = m.completed_workout_id
+             LEFT JOIN planned_workouts pw  ON pw.id = cw.planned_workout_id
+             LEFT JOIN planned_workouts pw2 ON pw2.id = m.planned_workout_id
+             LEFT JOIN users u ON u.id = m.sender_id
+             WHERE m.athlete_id = ?
+             ORDER BY m.sent_at ASC
+             LIMIT 200'
+        );
+        $stmt->execute([$athleteId]);
+        $messages  = $stmt->fetchAll();
+        $planPhase = self::currentPlanPhase(self::getActivePlanDetail($athleteId, $db));
+        return [$messages, $planPhase];
     }
 
     // ── Messaging JSON helpers ─────────────────────────────────

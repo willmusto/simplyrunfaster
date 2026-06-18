@@ -1,6 +1,7 @@
 <?php
 $activeNav = $activeNav ?? 'dashboard';
 $theme     = Auth::theme();
+$navUnread = class_exists('CoachController') ? CoachController::navUnreadCount() : 0;
 ?>
 <nav class="top-nav">
     <div class="logo">Simply<span>Run</span>Faster</div>
@@ -54,6 +55,14 @@ $theme     = Auth::theme();
             <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
         </svg>
         Athletes
+    </a>
+    <a href="/app/coach/messages" class="sidebar-nav-item <?= $activeNav === 'messages' ? 'active' : '' ?>">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        Messages
+        <span class="pill pill-critical js-nav-msg-badge" style="margin-left:auto;<?= $navUnread > 0 ? '' : 'display:none;' ?>"><?= (int)$navUnread ?></span>
     </a>
     <a href="/app/coach/approvals" class="sidebar-nav-item <?= $activeNav === 'approvals' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
@@ -153,6 +162,14 @@ $theme     = Auth::theme();
         </svg>
         Athletes
     </a>
+    <a href="/app/coach/messages" class="bottom-nav-item <?= $activeNav === 'messages' ? 'active' : '' ?>" style="position:relative;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        Messages
+        <span class="js-nav-msg-badge" style="position:absolute;top:4px;right:50%;transform:translateX(18px);min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--color-danger);color:#fff;font-size:10px;line-height:16px;text-align:center;<?= $navUnread > 0 ? '' : 'display:none;' ?>"><?= (int)$navUnread ?></span>
+    </a>
     <a href="/app/coach/approvals" class="bottom-nav-item <?= $activeNav === 'approvals' ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
@@ -178,3 +195,27 @@ $theme     = Auth::theme();
         Settings
     </a>
 </nav>
+
+<script>
+(function () {
+    'use strict';
+    window.SRF = window.SRF || {};
+    function setNavMsgBadge(n) {
+        document.querySelectorAll('.js-nav-msg-badge').forEach(function (el) {
+            if (n > 0) { el.textContent = n; el.style.display = ''; }
+            else { el.style.display = 'none'; }
+        });
+    }
+    window.SRF.setNavMsgBadge = setNavMsgBadge;
+
+    // Poll the unread count on every coach page so the badge stays live.
+    function poll() {
+        fetch('/app/coach/messages/unread-count', { headers: { 'X-Requested-With': 'fetch' } })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (d && typeof d.count === 'number') setNavMsgBadge(d.count); })
+            .catch(function () {});
+    }
+    setInterval(poll, 10000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
+})();
+</script>

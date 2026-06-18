@@ -239,7 +239,11 @@
     });
 
     // ── Messages: live thread (send, poll, auto-scroll) ──────
+    var msgTeardown = null;
     function initMessaging() {
+        // Re-init (unified messages swaps the active thread) tears down the prior
+        // instance's timer + listeners first, preventing duplicate polling.
+        if (msgTeardown) { msgTeardown(); msgTeardown = null; }
         var screen = document.getElementById('msgScreen');
         if (!screen) return;
 
@@ -432,11 +436,18 @@
             if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
         }
 
-        document.addEventListener('visibilitychange', function () {
+        var onVisibility = function () {
             if (document.hidden) { stopPolling(); }
             else { poll(); startPolling(); }     // catch up immediately, then resume
-        });
+        };
+        document.addEventListener('visibilitychange', onVisibility);
         window.addEventListener('pagehide', stopPolling);
+
+        msgTeardown = function () {
+            stopPolling();
+            document.removeEventListener('visibilitychange', onVisibility);
+            window.removeEventListener('pagehide', stopPolling);
+        };
 
         // Initial state: scroll to the most recent message, begin polling.
         scrollToBottom();
@@ -444,6 +455,8 @@
     }
 
     window.addEventListener('load', initMessaging);
+    window.SRF = window.SRF || {};
+    window.SRF.initMessaging = initMessaging;
 
     // ── Helpers ──────────────────────────────────────────────
     function urlBase64ToUint8Array(base64String) {

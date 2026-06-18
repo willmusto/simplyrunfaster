@@ -77,6 +77,18 @@ function format_duration(int $minutes): string
     return $m ? "{$h}h {$m}min" : "{$h}h";
 }
 
+/** Compact relative time for message lists: "now", "2m", "1h", "3d", then "Jun 15". */
+function rel_time(int $ts): string
+{
+    if ($ts <= 0) return '';
+    $diff = time() - $ts;
+    if ($diff < 45)        return 'now';
+    if ($diff < 3600)      return max(1, (int)round($diff / 60)) . 'm';
+    if ($diff < 86400)     return (int)floor($diff / 3600) . 'h';
+    if ($diff < 7 * 86400) return (int)floor($diff / 86400) . 'd';
+    return date('M j', $ts);
+}
+
 /**
  * Athlete-facing label for a stored goal_race_distance. Standard distances are
  * already stored as display strings ("5K", "Marathon") and pass through; ultra
