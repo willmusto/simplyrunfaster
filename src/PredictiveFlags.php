@@ -155,6 +155,17 @@ class PredictiveFlags
     private static function evalDropout(PDO $db, int $aid, int $cid, int $weeks, array $in): ?bool
     {
         $C = PredictiveConstants::class;
+
+        // Handoff to the present-tense reactive flags: once Phase 1's engagement_dropping
+        // or dropout_risk is open, the prediction has materialized. Stand down — auto-resolve
+        // via the condition-cleared path (NOT a coach dismissal, so the cooldown doesn't apply
+        // and it can re-arm once the reactive flag clears) and suppress (re-)raising to prevent
+        // flapping. The Phase 1 reactive flags themselves are left untouched.
+        if (self::flagOpen($db, $aid, 'engagement_dropping') || self::flagOpen($db, $aid, 'dropout_risk')) {
+            return self::resolveSuperseded($db, $aid, 'predicted_dropout',
+                'superseded by present-tense engagement flag (prediction materialized)');
+        }
+
         $haveInputs = $in['eng_n'] >= $C::DROPOUT_MIN_POINTS && $in['eng_slope_week'] !== null && $in['eng_current'] !== null;
         $conf = $C::metricConfidence($weeks, $in['eng_n'], $C::DROPOUT_MIN_POINTS);
 
@@ -229,10 +240,14 @@ class PredictiveFlags
             return true;
         }
 
-        // No open flag: respect a recent coach action / auto-resolve (cooldown) before re-surfacing.
+        // No open flag: respect a recent coach DISMISSAL (cooldown) before re-surfacing.
+        // Superseded auto-resolves (marked [auto-resolved] in suggested_action — see
+        // resolveSuperseded) are NOT dismissals and are excluded, so a handed-off flag can
+        // re-arm immediately once its reactive counterpart clears.
         $cool = $db->prepare(
             "SELECT 1 FROM coaching_intelligence_flags
-             WHERE athlete_id = ? AND flag_type = ? AND created_at >= (NOW() - INTERVAL " . (int)PredictiveConstants::DROPOUT_TREND_DAYS . " DAY) LIMIT 1"
+             WHERE athlete_id = ? AND flag_type = ? AND created_at >= (NOW() - INTERVAL " . (int)PredictiveConstants::DROPOUT_TREND_DAYS . " DAY)
+               AND NOT (status = 'dismissed' AND suggested_action LIKE '[auto-resolved]%') LIMIT 1"
         );
         $cool->execute([$aid, $type]);
         if ($cool->fetchColumn()) return null;
@@ -254,6 +269,27 @@ class PredictiveFlags
         if ($sel->fetchColumn() === false) return null;
         $db->prepare("UPDATE coaching_intelligence_flags SET status = 'dismissed', dismissed_at = NOW() WHERE athlete_id = ? AND flag_type = ? AND status = 'open'")
            ->execute([$aid, $type]);
+        return false;
+    }
+
+    /**
+     * Condition-cleared auto-resolve for a SUPERSEDED prediction (e.g. predicted_dropout once
+     * a present-tense reactive engagement flag opens). Closes the open flag like resolve() but
+     * stamps an "[auto-resolved] <reason>" marker into suggested_action so it is (a) legible in
+     * audit/digest and (b) excluded from the dismissal cooldown — this is not a coach dismissal,
+     * the prediction came true, and it must be free to re-arm later. Returns false if a flag was
+     * closed, null otherwise.
+     */
+    private static function resolveSuperseded(PDO $db, int $aid, string $type, string $reason): ?bool
+    {
+        $sel = $db->prepare("SELECT id FROM coaching_intelligence_flags WHERE athlete_id = ? AND flag_type = ? AND status = 'open' LIMIT 1");
+        $sel->execute([$aid, $type]);
+        if ($sel->fetchColumn() === false) return null;
+        $db->prepare(
+            "UPDATE coaching_intelligence_flags
+             SET status = 'dismissed', dismissed_at = NOW(), suggested_action = ?
+             WHERE athlete_id = ? AND flag_type = ? AND status = 'open'"
+        )->execute(['[auto-resolved] ' . $reason, $aid, $type]);
         return false;
     }
 

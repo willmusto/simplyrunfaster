@@ -277,6 +277,53 @@ try {
     $fatLow = $openFlag('predicted_fatigue');
     check("confidence scales: 5 weeks of data → low (was medium at 16)", $fatLow && $fatLow['confidence'] === 'low');
 
+    // ── Scenario 5: predicted_dropout hands off to the reactive engagement flags ──
+    $countDropoutRows = function () use ($db, $athleteId) {
+        return (int)$db->query("SELECT COUNT(*) FROM coaching_intelligence_flags WHERE athlete_id = {$athleteId} AND flag_type = 'predicted_dropout'")->fetchColumn();
+    };
+    $openReactive = function (string $type) use ($db, $athleteId, $coachUserId) {
+        $db->prepare("INSERT INTO coaching_intelligence_flags (athlete_id, coach_id, created_at, flag_type, severity, title, detail, suggested_action, status)
+                      VALUES (?, ?, NOW(), ?, 'warning', 'Reactive engagement flag', 'present-tense', 'reach out', 'open')")
+           ->execute([$athleteId, $coachUserId, $type]);
+    };
+    $clearReactive = function (string $type) use ($db, $athleteId) {
+        $db->prepare("UPDATE coaching_intelligence_flags SET status = 'dismissed', dismissed_at = NOW() WHERE athlete_id = ? AND flag_type = ? AND status = 'open'")->execute([$athleteId, $type]);
+    };
+
+    $resetAll();
+    $seedWeeksCompletion(16, 0.8);
+    foreach ([28 => 80, 21 => 60, 14 => 40, 7 => 25, 0 => 18] as $ago => $score) { $seedEngagement($ago, (float)$score); }
+    $evaluate();
+    check("handoff: predicted_dropout open before any reactive flag", $openFlag('predicted_dropout') !== null);
+
+    // Phase 1's present-tense engagement_dropping opens → prediction has materialized.
+    $openReactive('engagement_dropping');
+    $evaluate();
+    $resolvedRow = $db->query("SELECT status, suggested_action, dismissed_at FROM coaching_intelligence_flags WHERE athlete_id = {$athleteId} AND flag_type = 'predicted_dropout' ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    check("handoff: predicted_dropout auto-resolves when reactive opens", $openFlag('predicted_dropout') === null);
+    check("handoff: resolve is condition-cleared path, marked [auto-resolved] (not coach dismissal)",
+        $resolvedRow && $resolvedRow['status'] === 'dismissed'
+        && strpos((string)$resolvedRow['suggested_action'], '[auto-resolved]') === 0
+        && !empty($resolvedRow['dismissed_at']));
+
+    // Reactive still open → suppressed; no re-raise / no flapping across passes.
+    $rowsAfterResolve = $countDropoutRows();
+    $evaluate();
+    check("handoff: predicted_dropout stays down while reactive open (suppressed raise)", $openFlag('predicted_dropout') === null);
+    check("handoff: no flapping — no new predicted_dropout row while reactive open", $countDropoutRows() === $rowsAfterResolve);
+
+    // Reactive clears, trajectory still down → re-arm (cooldown must NOT block the handoff resolve).
+    $clearReactive('engagement_dropping');
+    $evaluate();
+    check("re-arm: predicted_dropout raises again once reactive clears (not cooldown-blocked)", $openFlag('predicted_dropout') !== null);
+
+    check("scope: predicted_fatigue / injury_risk_pattern / adaptation_ahead unaffected by handoff",
+        $openFlag('predicted_fatigue') === null && $openFlag('injury_risk_pattern') === null && $openFlag('adaptation_ahead') === null);
+    check("handoff: still no plan generated (training_plans 0)",
+        (int)$db->query("SELECT COUNT(*) FROM training_plans WHERE athlete_id = {$athleteId}")->fetchColumn() === 0);
+    check("handoff: still no auto-created regeneration request",
+        (int)$db->query("SELECT COUNT(*) FROM plan_regeneration_requests WHERE athlete_id = {$athleteId}")->fetchColumn() === 0);
+
     echo "\n================================\n";
     echo "  CIL Phase 3 — Stage A + B verification\n";
     echo "  PASS: {$pass}   FAIL: {$fail}\n";
