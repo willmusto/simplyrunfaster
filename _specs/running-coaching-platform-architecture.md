@@ -606,6 +606,15 @@ Coach dashboard also includes:
 
 **Mobile macro-plan lead-in (2026-06-17 fix):** On the coach athlete view (`views/coach/athlete_view.php`) at ≤768px, the stacked macro-plan list no longer leaves a full-height empty gap for the calendar-padding days before the plan's first workday (e.g. Mon–Wed when the plan starts Thursday). Those out-of-plan cells carry `.macro-day-outside`, which the mobile breakpoint hides — but an equal-specificity `.macro-day { display:flex }` rule directly below it was winning on source order and re-showing them. The hide rule is now the compound selector `.macro-day.macro-day-outside { display:none }` so it wins regardless of order. Desktop grid unchanged (outside days still render as blank cells).
 
+### Coach training log — read-only history *(2026-06-18)*
+
+A coach now has a flat chronological record of what an athlete actually did, separate from the macro plan. `GET /app/coach/athlete/:id/log` → `CoachController::athleteLog()` (a "Training log" link in the athlete-view header), coach-owns-athlete scoped (assistants: their assigned athletes). **Pure SELECT + render — no writes, no engine calls, no edit affordances** (editing lives in the plan's coach-edit feature).
+
+- A stream of the athlete's `completed_workouts`, newest first, **grouped by Mon–Sun week** with a per-week rollup (total time, total distance, # runs, avg compliance over matched rows). Each row: date, workout-type badge, actual duration / distance / pace / HR, effort, and a watch-vs-manual source marker.
+- **Matched** rows (`planned_workout_id` set, `LEFT JOIN planned_workouts`) also show the planned title + target duration + `compliance_score` and link to the existing workout thread (`/app/coach/workout/{planned_workout_id}/thread`); a 💬 indicator counts `session_notes`. **Unplanned** rows (no `planned_workout_id`, e.g. an off-plan Intervals pull) are marked "Off-plan" and expand inline to read-only detail (commenting on unplanned sessions is a known gap, deferred).
+- **Default 8-week window** with windowed Older/Newer pagination back through history (each page is its own 8 whole weeks — bounded query on the `(athlete_id, activity_date)` index, scales past beta). Distance/pace respect `athlete_profiles.units`; weeks anchor on the athlete's timezone. Mobile single-column.
+- The data fetch is the pure `CoachController::athleteLogData($athleteId, $page, $tz, $db)` (no auth/echo), so it is unit-tested directly (`scripts/verify_coach_log.php`).
+
 ### Workout Library — archetype browser *(2026-06-17)*
 
 The coach **Library page (`/app/coach/library`, `CoachController::library()`) is a read-only browser over the active `workout_archetypes`** — it no longer touches the legacy `workout_library` table, and the old "+ Add template" creation flow (`libraryAddTemplate` + its `POST /app/coach/library` route) was removed. Archetypes are managed via the seeder, never through this UI.
