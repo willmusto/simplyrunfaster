@@ -74,7 +74,7 @@ class PredictiveFlags
         // Gather named inputs once.
         $in = self::inputs($db, $athleteId, $weeks);
 
-        $act = static function (bool $fired) use (&$open, &$resolved) {
+        $act = static function (?bool $fired) use (&$open, &$resolved) {
             if ($fired === true) $open++; elseif ($fired === false) $resolved++;
         };
 
