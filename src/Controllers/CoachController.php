@@ -1195,7 +1195,7 @@ class CoachController
         $proposedDecisions = self::getProposedDecisions($coachId, $db);
         $rosterInsights    = self::getRosterInsights($coachId, $db);
         $rosterNames       = self::rosterNameMap($coachId, $db);
-        $upcomingRaces     = self::getUpcomingRaces($coachId, $db);
+        $upcomingRaces     = self::getUpcomingRaces($coachId, $db, 14);
         $weekStart         = self::currentWeekStart();
         $review            = self::getWeeklyReview($coachId, $weekStart, $db);
         $reviewItemCount   = count($proposedDecisions) + count($flaggedAdjustments) + count($rosterInsights);
@@ -1478,23 +1478,6 @@ class CoachController
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
-    /** Athletes (in this coach's scope) racing in the next $days days, soonest first. */
-    private static function getUpcomingRaces(int $coachId, PDO $db, int $days = 14): array
-    {
-        [$scope, $sp] = self::athleteScope('a');
-        $stmt = $db->prepare(
-            'SELECT r.id, r.athlete_id, r.race_name, r.race_distance, r.race_date,
-                    DATEDIFF(r.race_date, CURDATE()) AS days_until, u.name AS athlete_name
-             FROM races r
-             JOIN athletes a ON a.id = r.athlete_id AND ' . $scope . ' AND a.status = "active"
-             JOIN users u ON u.id = a.user_id
-             WHERE r.race_date >= CURDATE() AND r.race_date <= (CURDATE() + INTERVAL ' . (int)$days . ' DAY)
-             ORDER BY r.race_date ASC, u.name ASC'
-        );
-        $stmt->execute($sp);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    }
-
     /** athlete_id => name map for this coach's scope (resolves insight athlete pills). */
     private static function rosterNameMap(int $coachId, PDO $db): array
     {
@@ -1532,7 +1515,7 @@ class CoachController
         $proposedDecisions  = self::getProposedDecisions($coachId, $db);
         $rosterInsights     = self::getRosterInsights($coachId, $db);
         $flaggedAdjustments = self::getFlaggedAdjustments($coachId, $db);
-        $upcomingRaces      = self::getUpcomingRaces($coachId, $db);
+        $upcomingRaces      = self::getUpcomingRaces($coachId, $db, 14);
         $rosterNames        = self::rosterNameMap($coachId, $db);
 
         $weekStart  = self::currentWeekStart();

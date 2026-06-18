@@ -269,7 +269,7 @@ $reviewDone = !empty($review) && !empty($review['completed_at']);
     <?php else: ?>
     <div class="card" style="margin-bottom:24px;">
         <?php foreach ($upcomingRaces as $r):
-            $days = (int)$r['days_until'];
+            $days = (int)floor((strtotime((string)$r['race_date']) - strtotime('today')) / 86400);
             $until = $days <= 0 ? 'today' : ($days === 1 ? 'tomorrow' : "in {$days} days");
         ?>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--recessed-bg);flex-wrap:wrap;">
