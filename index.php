@@ -193,7 +193,7 @@ $router->post('/coach/athlete/:id/workout/reschedule', [CoachController::class, 
 $router->post('/coach/athlete/:id/workout/add',        [CoachController::class, 'addWorkout']);
 $router->post('/coach/athlete/:id/workout/remove',     [CoachController::class, 'removeWorkout']);
 $router->get('/coach/library',            [CoachController::class, 'library']);
-$router->post('/coach/library',           [CoachController::class, 'libraryAddTemplate']);
+$router->get('/coach/library/preview',    [CoachController::class, 'libraryPreview']);
 $router->get('/coach/settings',           [CoachController::class, 'settings']);
 $router->post('/coach/settings',          [CoachController::class, 'settingsSave']);
 $router->get('/coach/settings/notifications',  [CoachController::class, 'notifications']);

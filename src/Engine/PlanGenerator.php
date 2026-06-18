@@ -986,6 +986,95 @@ class PlanGenerator
     }
 
     /**
+     * Read-only archetype preview for the coach Library browser. Runs the same
+     * resolve → render pipeline as composeManualWorkout() but against a throwaway
+     * context (explicit classification + selector goal distance) instead of loading
+     * a real athlete profile. Effort-only: pace citations are suppressed because
+     * there is no athlete pace-zone profile to cite. No DB writes.
+     *
+     * @param string      $goalDistance Selector distance: 5K|10K|half|marathon.
+     * @return array|null { workout_type, display_title, display_summary,
+     *                      athlete_instructions, generated_parameters, structure,
+     *                      target_duration, variant } or null if code unknown/inactive.
+     */
+    public static function previewArchetype(
+        string $archetypeCode, string $classification, int $durationMinutes,
+        string $goalDistance, ?string $variantCode = null, ?PDO $db = null
+    ): ?array {
+        $db = $db ?? Database::get();
+
+        $classification = in_array($classification, ['workable', 'well_trained'], true)
+            ? $classification : 'workable';
+        $goalDistance = in_array($goalDistance, ['5K', '10K', 'half', 'marathon'], true)
+            ? $goalDistance : '5K';
+
+        self::$paceZones   = null;          // effort-only — no athlete zones to cite
+        self::$planDistance = $goalDistance;
+
+        $selector  = new ArchetypeSelector($db);
+        $archetype = $selector->getByCode($archetypeCode);
+        if (!$archetype || ($archetype['status'] ?? 'active') !== 'active') {
+            self::$planDistance = null;
+            return null;
+        }
+
+        $phase     = 'base';
+        $archetype = $selector->resolveParameters($archetype, $classification);
+
+        // Variant: explicit code if valid, else the first defined variant ("Auto").
+        $variants = $archetype['variants'] ?? [];
+        $chosen   = null;
+        if ($variantCode !== null && $variantCode !== '' && $variantCode !== 'auto') {
+            foreach ($variants as $v) {
+                if (($v['code'] ?? null) === $variantCode) { $chosen = $v; break; }
+            }
+        }
+        if ($chosen === null && !empty($variants)) {
+            $chosen = $variants[0];
+        }
+        if ($chosen !== null) {
+            $archetype['resolved_variant'] = $chosen;
+        }
+
+        $minDur = $selector->getMinimumSessionDurationMinutes($archetype, $classification, $phase, $goalDistance);
+        $target = max(1, $durationMinutes);
+        if ($minDur !== null) {
+            $target = max((int)ceil($minDur), $target);
+        }
+
+        $instance = self::addDerivedParams($archetype, $target, $phase, $goalDistance, $classification);
+
+        $display      = $instance['display'] ?? [];
+        $title        = self::renderTemplate($display['title_template'] ?? '', $instance);
+        $summary      = self::renderTemplate($display['summary_template'] ?? '', $instance);
+        $instructions = self::renderTemplate($display['description_template'] ?? '', $instance);
+        $instructions = self::normalizeInstructionText($instructions, $instance);
+        $instructions = self::wrapWithWarmupCooldown($instructions, $instance['resolved_params'] ?? [], $instance['code'] ?? '');
+        $instructions = self::appendPaceCitation($instructions, $instance);
+
+        $params          = $instance['resolved_params'] ?? [];
+        $structure       = self::resolveStructure($instance);
+        $variantWorkout  = $instance['resolved_variant']['workout_type'] ?? null;
+        $metadataWorkout = $instance['metadata']['workout_type'] ?? $instance['workout_type'] ?? null;
+        $workoutType     = $variantWorkout ?? $metadataWorkout ?? 'easy';
+        $storedDuration  = self::computeActualDuration($instance) ?? (int)($params['duration_minutes'] ?? $target);
+
+        self::$paceZones   = null;
+        self::$planDistance = null;
+
+        return [
+            'workout_type'         => $workoutType,
+            'display_title'        => $title ?: null,
+            'display_summary'      => $summary ?: null,
+            'athlete_instructions' => $instructions ?: null,
+            'generated_parameters' => $params,
+            'structure'            => $structure ?: null,
+            'target_duration'      => $storedDuration,
+            'variant'              => $instance['resolved_variant']['code'] ?? null,
+        ];
+    }
+
+    /**
      * Archetype catalogue for the coach's manual-add picker, scoped to one athlete so
      * default durations reflect their classification. Returns active archetypes with
      * a UI category (easy / long / quality / recovery), short description, default

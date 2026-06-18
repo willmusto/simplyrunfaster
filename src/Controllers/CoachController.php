@@ -1048,43 +1048,37 @@ class CoachController
         $openFlags        = self::getOpenFlagsCount($coachId, $db);
         $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
 
-        $success = $_SESSION['flash_success'] ?? null;
-        $error   = $_SESSION['flash_error']   ?? null;
-        unset($_SESSION['flash_success'], $_SESSION['flash_error']);
-
-        // Filter params
+        // Filters. Type maps to the add-workout slot category (easy/long/quality/
+        // recovery); phase to selection.phases; distance to selection.goal_distances
+        // (ultra→marathon, mile→5K, since archetypes key on the selector distance).
         $filterType     = $_GET['type']     ?? '';
         $filterPhase    = $_GET['phase']    ?? '';
         $filterDistance = $_GET['distance'] ?? '';
         $filterSearch   = trim($_GET['q']   ?? '');
 
-        $sql    = 'SELECT * FROM workout_library WHERE 1=1';
-        $params = [];
+        $selector = new ArchetypeSelector($db);
+        $codes = $db->query('SELECT code FROM workout_archetypes WHERE status = "active" ORDER BY workout_type, name')
+                    ->fetchAll(PDO::FETCH_COLUMN);
 
-        if ($filterType) {
-            $sql     .= ' AND workout_type = ?';
-            $params[] = $filterType;
+        $all = [];
+        foreach ($codes as $code) {
+            $a = $selector->getByCode((string)$code);
+            if ($a) $all[] = self::archetypeCard($a);
         }
-        if ($filterPhase) {
-            $sql     .= ' AND phase_tags LIKE ?';
-            $params[] = '%' . $filterPhase . '%';
-        }
-        if ($filterDistance) {
-            $sql     .= ' AND distance_tags LIKE ?';
-            $params[] = '%' . $filterDistance . '%';
-        }
-        if ($filterSearch) {
-            $sql     .= ' AND (name LIKE ? OR athlete_facing_name LIKE ? OR description LIKE ?)';
-            $like     = '%' . $filterSearch . '%';
-            $params[] = $like;
-            $params[] = $like;
-            $params[] = $like;
-        }
-        $sql .= ' ORDER BY workout_type ASC, name ASC';
+        $totalCount = count($all);
 
-        $stmt = $db->prepare($sql);
-        $stmt->execute($params);
-        $templates = $stmt->fetchAll();
+        $distMatch = $filterDistance !== '' ? self::previewSelectorDistance($filterDistance) : '';
+
+        $archetypes = array_values(array_filter($all, static function (array $a) use ($filterType, $filterPhase, $distMatch, $filterSearch): bool {
+            if ($filterType !== '' && !in_array($filterType, $a['categories'], true)) return false;
+            if ($filterPhase !== '' && !in_array($filterPhase, $a['phases'], true)) return false;
+            if ($distMatch !== '' && !in_array($distMatch, $a['goal_distances'], true)) return false;
+            if ($filterSearch !== '') {
+                $hay = mb_strtolower($a['name'] . ' ' . $a['code'] . ' ' . $a['description']);
+                if (mb_strpos($hay, mb_strtolower($filterSearch)) === false) return false;
+            }
+            return true;
+        }));
 
         $pageTitle = 'Workout Library';
         $activeNav = 'library';
@@ -1094,47 +1088,129 @@ class CoachController
         include __DIR__ . '/../../views/layout/html_close.php';
     }
 
-    public static function libraryAddTemplate(): void
+    /**
+     * Normalize a decoded workout_archetypes row into the flat shape the Library
+     * view + detail panel consume. All values are derived (read-only) — archetypes
+     * are managed via the seeder, never through this UI.
+     */
+    private static function archetypeCard(array $a): array
     {
-        Auth::requireRole(['coach','assistant_coach','admin']);
-        Auth::verifyCsrf();
+        $gen       = $a['generation'] ?? [];
+        $sel       = $a['selection']  ?? [];
+        $slotTypes = $sel['slot_types'] ?? [];
 
-        $db   = Database::get();
-        $name = trim($_POST['name'] ?? '');
-
-        if (!$name) {
-            $_SESSION['flash_error'] = 'Template name is required.';
-            header('Location: /app/coach/library');
-            exit;
+        // Category buckets from slot_types (mirrors the add-workout picker filters).
+        $cats = [];
+        if (in_array('easy', $slotTypes, true))     $cats[] = 'easy';
+        if (in_array('long_run', $slotTypes, true)) $cats[] = 'long';
+        if (in_array('recovery', $slotTypes, true)) $cats[] = 'recovery';
+        if (in_array('quality_primary', $slotTypes, true) || in_array('quality_secondary', $slotTypes, true)) $cats[] = 'quality';
+        if (empty($cats)) {
+            $cats[] = match ((string)($a['workout_type'] ?? 'easy')) {
+                'easy' => 'easy', 'long' => 'long', 'recovery' => 'recovery', default => 'quality',
+            };
         }
 
-        $validTypes = ['easy','long','tempo','interval','hill','fartlek','race_pace','recovery','rest','cross_train'];
-        $type = in_array($_POST['workout_type'] ?? '', $validTypes, true) ? $_POST['workout_type'] : 'easy';
+        $variants = [];
+        foreach (($a['variants'] ?? []) as $v) {
+            if (!isset($v['code'])) continue;
+            $variants[] = [
+                'code'             => (string)$v['code'],
+                'name'             => (string)($v['name'] ?? $v['code']),
+                'workout_type'     => (string)($v['workout_type'] ?? ($a['workout_type'] ?? '')),
+                'description'      => (string)($v['description'] ?? ''),
+                'intensity_factor' => isset($v['intensity_factor']) ? (float)$v['intensity_factor'] : null,
+            ];
+        }
 
-        $phaseTags    = json_encode(array_filter(array_map('trim', explode(',', $_POST['phase_tags'] ?? ''))));
-        $distanceTags = json_encode(array_filter(array_map('trim', explode(',', $_POST['distance_tags'] ?? ''))));
+        $prescModel = (string)($gen['prescription_model'] ?? '');
+        $prescLabel = match (true) {
+            str_starts_with($prescModel, 'time')     => 'Time-based',
+            str_starts_with($prescModel, 'distance') => 'Distance-based',
+            $prescModel !== ''                       => ucfirst(str_replace('_', ' ', $prescModel)),
+            default                                  => '—',
+        };
 
-        $prescType  = in_array($_POST['prescription_type'] ?? '', ['time','distance','count'], true) ? $_POST['prescription_type'] : 'time';
-        $trackReq   = in_array($_POST['track_required'] ?? '', ['yes','no','preferred'], true) ? $_POST['track_required'] : 'no';
-        $intensity  = max(0.0, min(1.0, (float)($_POST['intensity_factor'] ?? 0.5)));
-        $clearance  = isset($_POST['coach_clearance_required']) ? 1 : 0;
-        $desc       = trim($_POST['description'] ?? '');
-        $engineNotes = trim($_POST['engine_notes'] ?? '');
-        $athleteName = trim($_POST['athlete_facing_name'] ?? '');
+        return [
+            'id'                   => (int)($a['id'] ?? 0),
+            'code'                 => (string)($a['code'] ?? ''),
+            'name'                 => (string)($a['name'] ?? $a['code'] ?? ''),
+            'workout_type'         => (string)($a['workout_type'] ?? 'easy'),
+            'description'          => (string)($a['description'] ?? ''),
+            'description_template' => (string)($a['display']['description_template'] ?? ''),
+            'intensity_factor'     => isset($gen['intensity_factor']) ? (float)$gen['intensity_factor'] : null,
+            'prescription_model'   => $prescModel,
+            'prescription_label'   => $prescLabel,
+            'recovery_model'       => $gen['recovery_model'] ?? null,
+            'phases'               => array_values($sel['phases'] ?? []),
+            'goal_distances'       => array_values($sel['goal_distances'] ?? []),
+            'plan_types'           => array_values($sel['plan_types'] ?? []),
+            'slot_types'           => array_values($slotTypes),
+            'min_classification'   => (string)($sel['min_classification'] ?? 'workable'),
+            'categories'           => array_values(array_unique($cats)),
+            'variants'             => $variants,
+            'variant_count'        => count($variants),
+            'parameters'           => $a['parameters'] ?? [],
+        ];
+    }
 
-        $db->prepare(
-            'INSERT INTO workout_library
-             (name, athlete_facing_name, workout_type, phase_tags, distance_tags, prescription_type,
-              track_required, intensity_factor, coach_clearance_required, description, engine_notes, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        )->execute([
-            $name, $athleteName ?: null, $type, $phaseTags, $distanceTags, $prescType,
-            $trackReq, $intensity, $clearance, $desc ?: null, $engineNotes ?: null, Auth::userId(),
-        ]);
+    /** Map a UI goal-distance choice to the selector distance archetypes key on. */
+    private static function previewSelectorDistance(string $d): string
+    {
+        return match (strtolower(trim($d))) {
+            '5k'       => '5K',
+            '10k'      => '10K',
+            'half'     => 'half',
+            'marathon' => 'marathon',
+            'mile'     => '5K',       // mile resolves to 5K archetypes (selectorDistance)
+            'ultra'    => 'marathon', // ultras resolve to marathon archetypes
+            default    => '5K',
+        };
+    }
 
-        $_SESSION['flash_success'] = 'Template "' . htmlspecialchars($name, ENT_QUOTES) . '" added to library.';
-        header('Location: /app/coach/library');
-        exit;
+    /**
+     * GET /app/coach/library/preview — read-only archetype preview (JSON, no writes).
+     * Runs the archetype through PlanGenerator's resolution pipeline with a throwaway
+     * context so coaches can see what an athlete would be shown for any configuration.
+     */
+    public static function libraryPreview(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        header('Content-Type: application/json');
+
+        $db = Database::get();
+        $archetypeId = (int)($_GET['archetype_id'] ?? 0);
+
+        $stmt = $db->prepare('SELECT code FROM workout_archetypes WHERE id = ? AND status = "active" LIMIT 1');
+        $stmt->execute([$archetypeId]);
+        $code = $stmt->fetchColumn();
+        if (!$code) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Archetype not found']);
+            return;
+        }
+
+        $classification = ($_GET['classification'] ?? '') === 'well_trained' ? 'well_trained' : 'workable';
+        $duration       = max(5, min(300, (int)($_GET['duration'] ?? 45)));
+        $variant        = trim((string)($_GET['variant'] ?? '')) ?: null;
+        $selDist        = self::previewSelectorDistance($_GET['goal_distance'] ?? 'marathon');
+
+        try {
+            $preview = PlanGenerator::previewArchetype((string)$code, $classification, $duration, $selDist, $variant, $db);
+        } catch (\Throwable $e) {
+            error_log('libraryPreview: ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode(['error' => 'Could not generate preview']);
+            return;
+        }
+
+        if ($preview === null) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Could not generate a preview for this archetype']);
+            return;
+        }
+
+        echo json_encode(['preview' => $preview]);
     }
 
     public static function settings(): void
