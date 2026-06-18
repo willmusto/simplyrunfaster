@@ -156,24 +156,37 @@ try {
     })();
     check("carried dates contain no freshly-generated row", $freshOnCarried === 0);
 
-    // Fresh remainder begins at the Monday of the first fully-unexposed week.
+    // Fresh remainder begins in the first fully-unexposed week — a clean Monday boundary:
+    // no fresh row at/before the last exposed Sunday, and the earliest fresh row falls in the
+    // week whose Monday is the day after that Sunday (rest days carry no row, so the first
+    // fresh row is that week's first training day, not necessarily the Monday itself).
     $firstFresh = (string)$db->query(
         "SELECT MIN(scheduled_date) FROM planned_workouts WHERE plan_id={$planId1} AND carried_over_from_plan_id IS NULL"
     )->fetchColumn();
-    check("fresh remainder begins on a Monday", $firstFresh !== '' && (int)date('N', strtotime($firstFresh)) === 1);
-    check("fresh remainder begins the day after the last exposed Sunday",
-        $firstFresh === date('Y-m-d', strtotime($lastExposedSunday . ' +1 day')));
+    $firstFreshMonday = date('Y-m-d', strtotime($lastExposedSunday . ' +1 day'));
+    check("no fresh row at or before the last exposed Sunday", $firstFresh > $lastExposedSunday);
+    check("fresh remainder begins in the first fully-unexposed week (clean Monday boundary)",
+        $firstFresh !== '' && mondayOf($firstFresh) === $firstFreshMonday);
 
-    // Anti-repeat: no carried signature duplicated in the fresh remainder.
+    // Anti-repeat: no carried QUALITY/long instance_signature duplicated in the fresh remainder
+    // (easy/recovery runs repeat every week by design and are not anti-repeat-governed).
+    $qualTypes = ['long','tempo','interval','hill','fartlek','speed','race_pace'];
     $carriedSigs = [];
-    foreach ($capById as $r) if (!empty($r['instance_signature'])) $carriedSigs[(string)$r['instance_signature']] = true;
-    $freshSigs = $db->query(
+    foreach ($capById as $r) {
+        if (!empty($r['instance_signature']) && in_array((string)$r['workout_type'], $qualTypes, true)) {
+            $carriedSigs[(string)$r['instance_signature']] = true;
+        }
+    }
+    $qPlace = implode(',', array_fill(0, count($qualTypes), '?'));
+    $fst = $db->prepare(
         "SELECT DISTINCT instance_signature FROM planned_workouts
-         WHERE plan_id={$planId1} AND carried_over_from_plan_id IS NULL AND instance_signature IS NOT NULL"
-    )->fetchAll(PDO::FETCH_COLUMN);
+         WHERE plan_id=? AND carried_over_from_plan_id IS NULL AND instance_signature IS NOT NULL
+           AND workout_type IN ($qPlace)"
+    );
+    $fst->execute(array_merge([$planId1], $qualTypes));
     $dupSig = false;
-    foreach ($freshSigs as $s) if (isset($carriedSigs[(string)$s])) { $dupSig = true; break; }
-    check("no carried instance_signature duplicated in the fresh remainder", !$dupSig);
+    foreach ($fst->fetchAll(PDO::FETCH_COLUMN) as $s) if (isset($carriedSigs[(string)$s])) { $dupSig = true; break; }
+    check("no carried quality/long instance_signature duplicated in the fresh remainder", !$dupSig);
 
     // Generation math intact: the fresh region is a real generated plan.
     $freshCount = (int)$db->query("SELECT COUNT(*) FROM planned_workouts WHERE plan_id={$planId1} AND carried_over_from_plan_id IS NULL")->fetchColumn();
