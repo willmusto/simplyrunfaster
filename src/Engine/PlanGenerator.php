@@ -1977,6 +1977,14 @@ class PlanGenerator
         $requestedDays = max(2, min(7, (int)($profile['training_days_per_week'] ?? 4)));
         $numDays       = max(2, min($requestedDays, self::supportedTrainingDays($weeklyMins)));
 
+        // Cutback weeks give even a 7-day athlete a genuine recovery day: drop a 7-day
+        // week to 6 so exactly one rest day appears. The recoverySlot tiebreaker below
+        // then places it the day after the long run. Only the all-7 case is reduced —
+        // athletes who already have rest days on normal weeks keep their cutback shape.
+        if ($isCutback && $numDays >= 7) {
+            $numDays = 6;
+        }
+
         $longPrefRaw = isset($profile['long_run_day']) ? (int)$profile['long_run_day'] : 0;
         $longPref    = $longPrefRaw > 0 ? $longPrefRaw : null;
         $workoutPref = (isset($profile['primary_workout_day']) && $profile['primary_workout_day'] !== '')
