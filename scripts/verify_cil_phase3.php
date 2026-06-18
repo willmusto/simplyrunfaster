@@ -29,6 +29,7 @@ defined('DB_CHARSET') || define('DB_CHARSET', 'utf8');
 require_once SCRIPT_ROOT . '/config/database.php';
 require_once SCRIPT_ROOT . '/src/PredictiveConstants.php';
 require_once SCRIPT_ROOT . '/src/ResponseProfiler.php';
+require_once SCRIPT_ROOT . '/src/PredictiveFlags.php';
 
 $db = Database::get();
 $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -43,8 +44,9 @@ function approx(?float $v, float $target, float $tol = 0.001): bool {
     return $v !== null && abs($v - $target) <= $tol;
 }
 
-$athleteId = null;
-$userId    = null;
+$athleteId   = null;
+$userId      = null;
+$coachUserId = null;
 
 try {
     // ── Setup: throwaway athlete ──────────────────────────────────────────────
@@ -57,6 +59,12 @@ try {
     $db->prepare("INSERT INTO athletes (user_id, onboarding_completed_at, status) VALUES (?, NOW(), 'active')")->execute([$userId]);
     $athleteId = (int)$db->lastInsertId();
     $db->prepare("INSERT INTO athlete_profiles (athlete_id, plan_type, current_weekly_minutes) VALUES (?, 'development_plan', 100)")->execute([$athleteId]);
+
+    // Throwaway coach (predictive flags must attribute to a coach).
+    $db->prepare("INSERT INTO users (email, password_hash, role, name, timezone) VALUES (?, ?, 'coach', 'CIL3 Coach Bot', 'America/New_York')")
+       ->execute(['cil3_coach_' . substr(md5((string)mt_rand()), 0, 8) . '@example.test', password_hash('x', PASSWORD_DEFAULT)]);
+    $coachUserId = (int)$db->lastInsertId();
+    $db->prepare("UPDATE athletes SET coach_id = ? WHERE id = ?")->execute([$coachUserId, $athleteId]);
 
     // 16 consecutive Mondays, oldest first, ending ~1 week ago.
     $mondays = [];
@@ -152,8 +160,125 @@ try {
         && PredictiveConstants::tierForWeeks(10) === 'medium'
         && PredictiveConstants::tierForWeeks(20) === 'high');
 
+    // ════════ STAGE B — predictive flags ════════
+    $monByWeeks = static function (int $n): int { return strtotime('monday this week') - $n * 7 * 86400; };
+    $seedWeeksCompletion = function (int $nWeeks, float $val) use ($db, $athleteId, $monByWeeks) {
+        $base = $monByWeeks($nWeeks);
+        for ($i = 0; $i < $nWeeks; $i++) {
+            $m = date('Y-m-d', $base + $i * 7 * 86400);
+            $db->prepare("INSERT INTO athlete_behavior_log (athlete_id, logged_at, metric_type, metric_value, phase) VALUES (?, ?, 'completion_rate', ?, 'base')")
+               ->execute([$athleteId, $m . ' 09:00:00', $val]);
+        }
+    };
+    $seedRpe = function (float $val, int $count = 3) use ($db, $athleteId) {
+        for ($i = 1; $i <= $count; $i++) {
+            $db->prepare("INSERT INTO athlete_behavior_log (athlete_id, logged_at, metric_type, metric_value, phase) VALUES (?, ?, 'rpe_vs_target', ?, 'base')")
+               ->execute([$athleteId, date('Y-m-d H:i:s', time() - $i * 86400), $val]);
+        }
+    };
+    $seedEngagement = function (int $daysAgo, float $val) use ($db, $athleteId) {
+        $db->prepare("INSERT INTO athlete_behavior_log (athlete_id, logged_at, metric_type, metric_value, phase) VALUES (?, ?, 'engagement_score', ?, 'base')")
+           ->execute([$athleteId, date('Y-m-d H:i:s', time() - $daysAgo * 86400), $val]);
+    };
+    $seedCompleted = function (int $daysAgo, int $mins) use ($db, $athleteId) {
+        $db->prepare("INSERT INTO completed_workouts (athlete_id, source, activity_date, workout_type, actual_duration, synced_at) VALUES (?, 'manual', ?, 'easy', ?, NOW())")
+           ->execute([$athleteId, date('Y-m-d', time() - $daysAgo * 86400), $mins]);
+    };
+    $seedTsb = function (int $daysAgo, float $tsb, float $ctl) use ($db, $athleteId) {
+        $db->prepare("INSERT INTO training_load (athlete_id, `date`, atl, ctl, tsb, daily_stress, computed_at) VALUES (?, ?, 0, ?, ?, 0, NOW())")
+           ->execute([$athleteId, date('Y-m-d', time() - $daysAgo * 86400), $ctl, $tsb]);
+    };
+    $clearInputs = function () use ($db, $athleteId) {
+        foreach (['athlete_behavior_log','completed_workouts','training_load'] as $t) {
+            $db->prepare("DELETE FROM {$t} WHERE athlete_id = ?")->execute([$athleteId]);
+        }
+    };
+    $resetAll = function () use ($db, $athleteId) {
+        foreach (['athlete_behavior_log','completed_workouts','training_load','coaching_intelligence_flags'] as $t) {
+            $db->prepare("DELETE FROM {$t} WHERE athlete_id = ?")->execute([$athleteId]);
+        }
+    };
+    $openFlag = function (string $type) use ($db, $athleteId) {
+        $s = $db->prepare("SELECT confidence, prediction_horizon_days, predicted_for_date FROM coaching_intelligence_flags WHERE athlete_id = ? AND flag_type = ? AND status = 'open' LIMIT 1");
+        $s->execute([$athleteId, $type]);
+        return $s->fetch(PDO::FETCH_ASSOC) ?: null;
+    };
+    $dismissedExists = function (string $type) use ($db, $athleteId) {
+        $s = $db->prepare("SELECT 1 FROM coaching_intelligence_flags WHERE athlete_id = ? AND flag_type = ? AND status = 'dismissed' LIMIT 1");
+        $s->execute([$athleteId, $type]);
+        return (bool)$s->fetchColumn();
+    };
+    $evaluate = function () use ($athleteId, $coachUserId, $db) {
+        $p = ResponseProfiler::recompute($athleteId, $db);
+        return PredictiveFlags::evaluateAthlete($athleteId, $coachUserId, $db, $p);
+    };
+
+    // ── Scenario 1: fatigue + injury fire simultaneously ──────────────────────
+    $resetAll();
+    $seedWeeksCompletion(16, 0.9);
+    $seedRpe(2.0, 3);                                  // RPE +2 vs prescribed (high)
+    $seedCompleted(1, 500);                            // last-7 spike
+    $seedCompleted(8, 150); $seedCompleted(15, 150); $seedCompleted(17, 150); $seedCompleted(22, 150);
+    $seedTsb(7, -5, 50); $seedTsb(0, -20, 50);         // TSB now -20, falling, < -15
+    $evaluate();
+    $fat = $openFlag('predicted_fatigue');
+    $inj = $openFlag('injury_risk_pattern');
+    check("predicted_fatigue fires (ramp + RPE high + TSB falling)", $fat !== null);
+    check("predicted_fatigue horizon == " . PredictiveConstants::FATIGUE_HORIZON_DAYS, $fat && (int)$fat['prediction_horizon_days'] === PredictiveConstants::FATIGUE_HORIZON_DAYS);
+    check("predicted_fatigue confidence == medium (rpe sample caps 16wk tier)", $fat && $fat['confidence'] === 'medium');
+    check("predicted_fatigue predicted_for_date is set", $fat && !empty($fat['predicted_for_date']));
+    check("injury_risk_pattern fires (spike + RPE high)", $inj !== null);
+    check("injury_risk_pattern horizon == " . PredictiveConstants::INJURY_HORIZON_DAYS, $inj && (int)$inj['prediction_horizon_days'] === PredictiveConstants::INJURY_HORIZON_DAYS);
+    check("adaptation_ahead does NOT fire while fatigued", $openFlag('adaptation_ahead') === null);
+    check("no plan generated by predictions (training_plans 0)", (int)$db->query("SELECT COUNT(*) FROM training_plans WHERE athlete_id = {$athleteId}")->fetchColumn() === 0);
+    check("predictions did NOT auto-create a regeneration request", (int)$db->query("SELECT COUNT(*) FROM plan_regeneration_requests WHERE athlete_id = {$athleteId}")->fetchColumn() === 0);
+
+    // ── Scenario 1 clear: conditions vanish → flags auto-resolve ──────────────
+    $clearInputs();
+    $seedWeeksCompletion(16, 0.9);                     // keep weeks_of_data; no RPE/volume/TSB triggers
+    $evaluate();
+    check("predicted_fatigue auto-resolves when condition clears", $openFlag('predicted_fatigue') === null && $dismissedExists('predicted_fatigue'));
+    check("injury_risk_pattern auto-resolves when condition clears", $openFlag('injury_risk_pattern') === null && $dismissedExists('injury_risk_pattern'));
+
+    // ── Scenario 2: dropout fires on declining engagement trajectory ──────────
+    $resetAll();
+    $seedWeeksCompletion(16, 0.8);
+    foreach ([28 => 80, 21 => 60, 14 => 40, 7 => 25, 0 => 18] as $ago => $score) { $seedEngagement($ago, (float)$score); }
+    $evaluate();
+    $drop = $openFlag('predicted_dropout');
+    check("predicted_dropout fires (declining slope + low absolute)", $drop !== null);
+    check("predicted_dropout horizon == " . PredictiveConstants::DROPOUT_HORIZON_DAYS, $drop && (int)$drop['prediction_horizon_days'] === PredictiveConstants::DROPOUT_HORIZON_DAYS);
+
+    // ── Scenario 3: adaptation_ahead fires (opportunity), no auto-regen ───────
+    $resetAll();
+    $seedWeeksCompletion(16, 0.95);                    // compliance high
+    $seedRpe(-2.0, 3);                                 // quality RPE easy
+    foreach ([21 => 40, 14 => 46, 7 => 52, 0 => 58] as $ago => $ctl) { $seedTsb($ago, 5.0, (float)$ctl); } // CTL rising
+    $evaluate();
+    $adapt = $openFlag('adaptation_ahead');
+    check("adaptation_ahead fires (compliance high + RPE easy + CTL rising, no fatigue)", $adapt !== null);
+    check("adaptation_ahead horizon == " . PredictiveConstants::ADAPT_HORIZON_DAYS, $adapt && (int)$adapt['prediction_horizon_days'] === PredictiveConstants::ADAPT_HORIZON_DAYS);
+    check("adaptation_ahead did NOT auto-create a regeneration request", (int)$db->query("SELECT COUNT(*) FROM plan_regeneration_requests WHERE athlete_id = {$athleteId}")->fetchColumn() === 0);
+
+    // ── Scenario 3 clear: RPE no longer easy → adaptation resolves ────────────
+    $clearInputs();
+    $seedWeeksCompletion(16, 0.95);
+    $seedRpe(0.0, 3);
+    $evaluate();
+    check("adaptation_ahead auto-resolves when condition clears", $openFlag('adaptation_ahead') === null && $dismissedExists('adaptation_ahead'));
+
+    // ── Scenario 4: confidence scales with data volume ────────────────────────
+    $resetAll();
+    $seedWeeksCompletion(5, 0.9);                      // only 5 weeks → 'low' tier
+    $seedRpe(2.0, 3);
+    $seedCompleted(1, 500); $seedCompleted(8, 150); $seedCompleted(15, 150); $seedCompleted(17, 150); $seedCompleted(22, 150);
+    $seedTsb(7, -5, 50); $seedTsb(0, -20, 50);
+    $evaluate();
+    $fatLow = $openFlag('predicted_fatigue');
+    check("confidence scales: 5 weeks of data → low (was medium at 16)", $fatLow && $fatLow['confidence'] === 'low');
+
     echo "\n================================\n";
-    echo "  CIL Phase 3 — Stage A verification\n";
+    echo "  CIL Phase 3 — Stage A + B verification\n";
     echo "  PASS: {$pass}   FAIL: {$fail}\n";
     echo "================================\n";
 
@@ -164,9 +289,11 @@ try {
                   'engine_flags','athlete_profiles'] as $t) {
             try { $db->prepare("DELETE FROM {$t} WHERE athlete_id = ?")->execute([$athleteId]); } catch (\Throwable $e) {}
         }
+        try { $db->prepare("DELETE FROM plan_regeneration_requests WHERE athlete_id = ?")->execute([$athleteId]); } catch (\Throwable $e) {}
         $db->prepare("DELETE FROM athletes WHERE id = ?")->execute([$athleteId]);
     }
-    if ($userId) { $db->prepare("DELETE FROM users WHERE id = ?")->execute([$userId]); }
+    if ($userId)      { $db->prepare("DELETE FROM users WHERE id = ?")->execute([$userId]); }
+    if ($coachUserId) { $db->prepare("DELETE FROM users WHERE id = ?")->execute([$coachUserId]); }
 }
 
 exit($fail === 0 ? 0 : 1);

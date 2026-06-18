@@ -1007,6 +1007,36 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             <?php endif; ?>
         </div>
 
+        <!-- Predictions + response profile (Coaching Intelligence Phase 3) -->
+        <?php require_once __DIR__ . '/../partials/predictive.php'; ?>
+        <?php $predFlags = array_values(array_filter($predictiveFlags ?? [], static fn($f) => pf_is_predictive((string)$f['flag_type']))); ?>
+        <?php if (!empty($predFlags)): ?>
+        <div class="section-label">PREDICTIONS</div>
+        <div class="card" style="margin-bottom:16px;">
+            <?php foreach ($predFlags as $i => $pf): ?>
+            <div style="padding:8px 0;<?= $i ? 'border-top:1px solid var(--recessed-bg);' : '' ?>">
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
+                    <span style="font-size:13px;font-weight:600;"><?= h($pf['title']) ?></span>
+                    <?= pf_confidence_badge($pf['confidence'] ?? null, $pf['prediction_horizon_days'] ?? null) ?>
+                </div>
+                <p class="body-text" style="margin:0;font-size:12px;color:var(--text-secondary);"><?= h($pf['detail']) ?></p>
+                <?php if (($pf['flag_type'] ?? '') === 'adaptation_ahead'): ?>
+                <form method="POST" action="/app/coach/intelligence/flag/<?= (int)$pf['id'] ?>/adapt-accept" style="margin-top:8px;">
+                    <?= Auth::csrfField() ?>
+                    <input type="hidden" name="from" value="athlete">
+                    <button type="submit" class="btn btn-primary btn-sm">Accept &amp; request plan</button>
+                </form>
+                <?php endif; ?>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
+        <div class="section-label">RESPONSE PROFILE</div>
+        <div class="card" style="margin-bottom:16px;">
+            <?= pf_response_profile_html($responseProfile ?? null) ?>
+        </div>
+
         <!-- Athlete profile -->
         <?php if ($profile): ?>
         <div class="section-label">PROFILE</div>

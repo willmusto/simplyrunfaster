@@ -32,6 +32,9 @@ require_once SCRIPT_ROOT . '/src/EmailTemplates.php';
 require_once SCRIPT_ROOT . '/src/Notifications.php';
 require_once SCRIPT_ROOT . '/src/CoachAdjustments.php';
 require_once SCRIPT_ROOT . '/src/CoachingIntelligence.php';
+require_once SCRIPT_ROOT . '/src/PredictiveConstants.php';
+require_once SCRIPT_ROOT . '/src/ResponseProfiler.php';
+require_once SCRIPT_ROOT . '/src/PredictiveFlags.php';
 
 $verbose = in_array('verbose', $argv ?? [], true);
 $db      = Database::get();
@@ -217,6 +220,20 @@ try {
             echo date('Y-m-d H:i:s') . " — roster insights complete. Created {$insightTotal}.\n";
         } else {
             echo "  coach_roster_insights missing (migration_028 not run yet) — skipping insights.\n";
+        }
+
+        // Phase 3: recompute response profiles + predictive flags daily.
+        // Guarded so a pre-migration-029 run is a clean no-op.
+        $hasProfiles = (int)$db->query(
+            "SELECT COUNT(*) FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'athlete_response_profiles'"
+        )->fetchColumn() > 0;
+        if ($hasProfiles) {
+            $pf = PredictiveFlags::run($db, $verbose);
+            echo date('Y-m-d H:i:s') . " — predictive flags complete. Profiles: {$pf['profiles']}, "
+                . "opened/refreshed: {$pf['open']}, resolved: {$pf['resolved']}.\n";
+        } else {
+            echo "  athlete_response_profiles missing (migration_029 not run yet) — skipping predictions.\n";
         }
     } else {
         echo "  athlete_behavior_log missing (migration_027 not run yet) — skipping.\n";

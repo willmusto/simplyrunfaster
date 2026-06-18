@@ -31,6 +31,7 @@ require_once __DIR__ . '/src/CoachingIntelligence.php';
 require_once __DIR__ . '/src/PatternProposer.php';
 require_once __DIR__ . '/src/PredictiveConstants.php';
 require_once __DIR__ . '/src/ResponseProfiler.php';
+require_once __DIR__ . '/src/PredictiveFlags.php';
 require_once __DIR__ . '/src/Billing.php';
 require_once __DIR__ . '/src/StripeWebhook.php';
 require_once __DIR__ . '/src/Crypto.php';
@@ -208,6 +209,8 @@ $router->post('/coach/intelligence/decision/:id/modify',     [CoachController::c
 $router->post('/coach/intelligence/decision/:id/dismiss',    [CoachController::class, 'dismissProposedDecision']);
 $router->post('/coach/intelligence/insight/:id/dismiss',     [CoachController::class, 'dismissRosterInsight']);
 $router->post('/coach/intelligence/review/complete',         [CoachController::class, 'completeReview']);
+// Coaching Intelligence Phase 3 — adaptation proposal accept (routes through regen flow)
+$router->post('/coach/intelligence/flag/:id/adapt-accept',   [CoachController::class, 'acceptAdaptation']);
 $router->post('/coach/athlete/:id/race/add',        [RaceController::class, 'coachAddRace']);
 $router->get('/coach/athlete/:id/race-conflicts',   [RaceController::class, 'coachConflicts']);
 $router->post('/coach/races/:id/recalibrate/approve',[RaceController::class, 'approveRecalibration']);

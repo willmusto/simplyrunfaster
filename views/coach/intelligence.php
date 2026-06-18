@@ -7,6 +7,8 @@
  *       $flaggedAdjustments, $decisions, $flashSuccess, $flashError.
  */
 
+require_once __DIR__ . '/../partials/predictive.php';
+
 // ── Section 1: merge intelligence + engine flags, severity-ordered ──
 $rank = ['critical' => 0, 'warning' => 1, 'opportunity' => 2, 'info' => 3];
 $entries = [];
@@ -179,6 +181,7 @@ $ruleTitle = static function (array $a): string {
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
                         <span style="font-size:14px;font-weight:600;"><?= h($f['athlete_name']) ?></span>
                         <span class="pill" style="font-size:10px;background:var(--recessed-bg);color:<?= $borderFor($sev) ?>;"><?= h(strtoupper($sev)) ?></span>
+                        <?php if (!empty($f['confidence'])): ?><?= pf_confidence_badge($f['confidence'] ?? null, $f['prediction_horizon_days'] ?? null) ?><?php endif; ?>
                     </div>
                     <div style="font-size:14px;font-weight:600;margin-bottom:4px;"><?= h($f['title']) ?></div>
                     <p class="body-text" style="margin:0 0 6px;"><?= h($f['detail']) ?></p>
@@ -192,7 +195,14 @@ $ruleTitle = static function (array $a): string {
                     </div>
                 </div>
                 <div style="display:flex;gap:8px;flex-shrink:0;">
+                    <?php if (($f['flag_type'] ?? '') === 'adaptation_ahead'): ?>
+                    <form method="POST" action="/app/coach/intelligence/flag/<?= (int)$f['id'] ?>/adapt-accept">
+                        <?= Auth::csrfField() ?>
+                        <button type="submit" class="btn btn-primary btn-sm">Accept &amp; request plan</button>
+                    </form>
+                    <?php else: ?>
                     <a href="<?= h($actUrl) ?>" class="btn btn-secondary btn-sm"><?= h($actLabel) ?></a>
+                    <?php endif; ?>
                     <form method="POST" action="/app/coach/intelligence/flag/<?= (int)$f['id'] ?>/dismiss">
                         <?= Auth::csrfField() ?>
                         <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>

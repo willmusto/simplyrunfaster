@@ -26,6 +26,9 @@ require_once SCRIPT_ROOT . '/src/EmailTemplates.php';
 require_once SCRIPT_ROOT . '/src/CoachAdjustments.php';
 require_once SCRIPT_ROOT . '/src/CoachingIntelligence.php';
 require_once SCRIPT_ROOT . '/src/PatternProposer.php';
+require_once SCRIPT_ROOT . '/src/PredictiveConstants.php';
+require_once SCRIPT_ROOT . '/src/ResponseProfiler.php';
+require_once SCRIPT_ROOT . '/src/PredictiveFlags.php';
 
 $verbose = in_array('verbose', $argv ?? [], true);
 $dryRun  = in_array('--dry-run', $argv ?? [], true);
@@ -48,6 +51,19 @@ $hasPhase2 = (int)$db->query(
     "SELECT COUNT(*) FROM information_schema.TABLES
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'coach_roster_insights'"
 )->fetchColumn() > 0;
+
+// Phase 3 (migration_029): refresh response profiles + predictive flags so the
+// Monday digest's Needs Attention / Opportunities sections reflect the latest
+// predictions. Predictive flags are coaching_intelligence_flags rows, so they flow
+// into the existing severity-ordered sections automatically. Pre-migration = no-op.
+$hasPhase3 = (int)$db->query(
+    "SELECT COUNT(*) FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'athlete_response_profiles'"
+)->fetchColumn() > 0;
+if ($hasPhase3 && !$dryRun) {
+    $pf = PredictiveFlags::run($db);
+    echo "Predictive flags refreshed: opened/refreshed {$pf['open']}, resolved {$pf['resolved']}.\n";
+}
 
 $mondayLabel = date('M j', strtotime('monday this week'));
 $h = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');

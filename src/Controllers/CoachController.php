@@ -84,6 +84,9 @@ class CoachController
         $archetypeLibrary = $activePlan ? PlanGenerator::manualArchetypeLibrary($athleteId, $db) : [];
         $athleteFlags  = self::getAthleteFlags($athleteId, $db, 10);
         $loadSnapshot  = self::getLoadSnapshot($athleteId, $db);
+        // Phase 3: athlete response profile + open coaching-intelligence (incl. predictive) flags.
+        $responseProfile = ResponseProfiler::load($athleteId, $db);
+        $predictiveFlags = self::getOpenIntelFlagsForAthlete($athleteId, $db);
         $pbs           = self::getPersonalBests($athleteId, $db);
         $nextRace      = self::getNextRace($athleteId, $db);
 
@@ -1665,6 +1668,69 @@ class CoachController
             'UPDATE coach_roster_insights SET status = "dismissed", dismissed_at = NOW()
              WHERE id = ? AND coach_id = ?'
         )->execute([$id, $coachId]);
+        header('Location: ' . $back);
+        exit;
+    }
+
+    /** Open coaching_intelligence_flags for one athlete (predictive + Phase 1), severity-ordered. */
+    private static function getOpenIntelFlagsForAthlete(int $athleteId, PDO $db): array
+    {
+        try {
+            $stmt = $db->prepare(
+                'SELECT * FROM coaching_intelligence_flags
+                 WHERE athlete_id = ? AND status = "open"
+                 ORDER BY FIELD(severity,"warning","opportunity","info"), created_at DESC
+                 LIMIT 50'
+            );
+            $stmt->execute([$athleteId]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * POST /app/coach/intelligence/flag/:id/adapt-accept — accept an adaptation_ahead
+     * proposal. Creates a pending plan_regeneration_request (the EXISTING approval flow)
+     * and marks the flag actioned. Phase 3 NEVER calls PlanGenerator itself.
+     */
+    public static function acceptAdaptation(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId = (int)Auth::userId();
+        $flagId  = (int)($params['id'] ?? 0);
+        $db      = Database::get();
+
+        [$scope, $sp] = self::athleteScope('a');
+        $stmt = $db->prepare(
+            'SELECT cif.id, cif.athlete_id FROM coaching_intelligence_flags cif
+             JOIN athletes a ON a.id = cif.athlete_id AND ' . $scope . '
+             WHERE cif.id = ? AND cif.flag_type = "adaptation_ahead" AND cif.status = "open" LIMIT 1'
+        );
+        $stmt->execute(array_merge($sp, [$flagId]));
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $back = (($_POST['from'] ?? '') === 'athlete' && $row)
+            ? '/app/coach/athlete/' . (int)$row['athlete_id']
+            : self::intelReturn();
+
+        if (!$row) { header('Location: ' . $back); exit; }
+        $athleteId = (int)$row['athlete_id'];
+
+        // Route through the existing regeneration approval flow — no autonomous generation.
+        $exists = $db->prepare('SELECT 1 FROM plan_regeneration_requests WHERE athlete_id = ? AND status = "pending" LIMIT 1');
+        $exists->execute([$athleteId]);
+        if (!$exists->fetchColumn()) {
+            $db->prepare(
+                'INSERT INTO plan_regeneration_requests (athlete_id, requested_by, requested_at, status, notes)
+                 VALUES (?, ?, NOW(), "pending", ?)'
+            )->execute([$athleteId, $coachId, 'Adaptation ahead of schedule — proposed by Coaching Intelligence (Phase 3).']);
+        }
+        $db->prepare('UPDATE coaching_intelligence_flags SET status = "actioned", actioned_at = NOW() WHERE id = ?')->execute([$flagId]);
+
+        $_SESSION['flash_success'] = 'Plan-regeneration request created. Approve it from the athlete page to advance the plan.';
         header('Location: ' . $back);
         exit;
     }
