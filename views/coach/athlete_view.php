@@ -626,6 +626,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             <div class="page-heading" style="margin-bottom:0;"><?= h($athlete['name']) ?></div>
             <div class="av-header-email" style="font-size:12px;color:var(--text-muted);"><?= h($athlete['email']) ?></div>
         </div>
+        <a href="/app/coach/athlete/<?= (int)$athlete['id'] ?>/log" class="btn btn-secondary btn-sm" style="margin-left:auto;flex-shrink:0;">Training log →</a>
     </div>
 
     <div class="av-grid">

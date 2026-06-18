@@ -157,6 +157,126 @@ class CoachController
         include __DIR__ . '/../../views/layout/html_close.php';
     }
 
+    /** Weeks of completed-workout history shown per page on the coach training log. */
+    private const LOG_WEEKS_PER_PAGE = 8;
+
+    /**
+     * GET /app/coach/athlete/:id/log — read-only coach training log: the athlete's actual
+     * completed_workouts, newest first, grouped by Mon–Sun week with per-week rollups, matched
+     * (planned-vs-actual + thread link) and unplanned ("off-plan") sessions in one stream.
+     * Pure SELECT + render — no writes, no engine calls. Coach-owns-athlete scoped.
+     */
+    public static function athleteLog(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db        = Database::get();
+        $coachId   = (int)Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) {
+            http_response_code(404);
+            include __DIR__ . '/../../views/errors/404.php';
+            return;
+        }
+
+        $profile = Auth::getAthleteProfile($athleteId) ?? [];
+        $units   = (($profile['units'] ?? 'miles') === 'km') ? 'km' : 'miles';
+        $tz      = $athlete['timezone'] ?: 'America/New_York';
+        $page    = max(0, (int)($_GET['page'] ?? 0));
+        $log     = self::athleteLogData($athleteId, $page, $tz, $db);
+
+        $athletes         = self::getRosterAthletes($coachId, $db);
+        $openFlags        = self::getOpenFlagsCount($coachId, $db);
+        $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
+
+        $pageTitle = 'Training log: ' . h($athlete['name']);
+        $activeNav = 'athletes';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_coach.php';
+        include __DIR__ . '/../../views/coach/athlete_log.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    /**
+     * PURE: one page (8 whole Mon–Sun weeks) of completed-workout history for the training log.
+     * No writes. Returns ['weeks'=>[...newest first...], 'page', 'has_older', 'has_newer',
+     * 'window_start', 'window_end']; each week carries its rollup + rows (each row = the
+     * completed_workouts columns + planned_title/planned_duration/planned_type/note_count/matched).
+     */
+    public static function athleteLogData(int $athleteId, int $page, string $tz, PDO $db): array
+    {
+        $per  = self::LOG_WEEKS_PER_PAGE;
+        $page = max(0, $page);
+        $todayLocal = Timezone::dateInZone(Timezone::isValid($tz) ? $tz : 'America/New_York', 'now');
+
+        // Monday of the athlete's current local week, then this page's 8-week window.
+        $t    = strtotime($todayLocal);
+        $dow  = (int)date('N', $t); // 1=Mon..7=Sun
+        $anchorMon = strtotime(date('Y-m-d', $t)) - ($dow - 1) * 86400;
+        $newestMon = $anchorMon - ($page * $per * 7 * 86400);
+        $oldestMon = $newestMon - (($per - 1) * 7 * 86400);
+        $windowStart = date('Y-m-d', $oldestMon);
+        $windowEnd   = date('Y-m-d', $newestMon + 6 * 86400);
+
+        $stmt = $db->prepare(
+            "SELECT cw.*, pw.display_title AS planned_title, pw.target_duration AS planned_duration,
+                    pw.workout_type AS planned_type,
+                    (SELECT COUNT(*) FROM session_notes sn WHERE sn.planned_workout_id = cw.planned_workout_id) AS note_count
+             FROM completed_workouts cw
+             LEFT JOIN planned_workouts pw ON pw.id = cw.planned_workout_id
+             WHERE cw.athlete_id = ? AND cw.activity_date BETWEEN ? AND ?
+             ORDER BY cw.activity_date DESC, cw.id DESC"
+        );
+        $stmt->execute([$athleteId, $windowStart, $windowEnd]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $weeks = [];
+        foreach ($rows as $r) {
+            $d    = strtotime((string)$r['activity_date']);
+            $rdow = (int)date('N', $d);
+            $mon  = date('Y-m-d', $d - ($rdow - 1) * 86400);
+            if (!isset($weeks[$mon])) {
+                $weeks[$mon] = ['monday' => $mon, 'rows' => [], 'total_minutes' => 0,
+                                'total_distance' => 0.0, 'runs' => 0, '_csum' => 0.0, '_ccount' => 0];
+            }
+            $matched     = $r['planned_workout_id'] !== null;
+            $r['matched'] = $matched;
+            $weeks[$mon]['rows'][]          = $r;
+            $weeks[$mon]['total_minutes']  += (int)($r['actual_duration'] ?? 0);
+            $weeks[$mon]['total_distance'] += (float)($r['actual_distance'] ?? 0);
+            $weeks[$mon]['runs']++;
+            if ($matched && $r['compliance_score'] !== null) {
+                $weeks[$mon]['_csum'] += (float)$r['compliance_score'];
+                $weeks[$mon]['_ccount']++;
+            }
+        }
+        krsort($weeks); // newest week first
+
+        $out = [];
+        foreach ($weeks as $w) {
+            $w['avg_compliance'] = $w['_ccount'] > 0 ? $w['_csum'] / $w['_ccount'] : null;
+            $w['label']          = 'Week of ' . date('M j', strtotime($w['monday']));
+            unset($w['_csum'], $w['_ccount']);
+            $out[] = $w;
+        }
+
+        $older = $db->prepare("SELECT 1 FROM completed_workouts WHERE athlete_id = ? AND activity_date < ? LIMIT 1");
+        $older->execute([$athleteId, $windowStart]);
+
+        return [
+            'weeks'        => $out,
+            'page'         => $page,
+            'per_page'     => $per,
+            'has_older'    => (bool)$older->fetchColumn(),
+            'has_newer'    => $page > 0,
+            'window_start' => $windowStart,
+            'window_end'   => $windowEnd,
+        ];
+    }
+
     public static function editProfile(array $params): void
     {
         Auth::requireRole(['coach','assistant_coach','admin']);
