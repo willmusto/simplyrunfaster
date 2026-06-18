@@ -542,91 +542,24 @@ class CoachController
         $oldArch = $before['archetype_code'] !== null ? (string)$before['archetype_code'] : null;
         $oldLoad = $before['intensity_load'] !== null ? (float)$before['intensity_load'] : null;
 
-        $changeType = null;
-        $newArch    = $oldArch;
-
-        if ($mode === 'archetype') {
-            $code     = trim((string)($in['archetype_code'] ?? ''));
-            $variant  = isset($in['archetype_variant']) && $in['archetype_variant'] !== '' ? (string)$in['archetype_variant'] : null;
-            $duration = (int)($in['duration'] ?? 0);
-            $composed = PlanGenerator::composeManualWorkout($athleteId, $code, $variant, $duration, $db);
-            if (!$composed) { echo json_encode(['ok' => false, 'error' => 'archetype_failed', 'message' => 'Could not build that workout.']); exit; }
-
-            if ($preview) {
-                echo json_encode(['ok' => true, 'success' => true, 'preview' => self::previewPayload(
-                    $composed['display_title'], $composed['display_summary'],
-                    $composed['athlete_instructions'], $composed['workout_type'], (int)$composed['target_duration']
-                )]); exit;
-            }
-
-            $sets = [
-                'workout_type = ?', 'archetype_code = ?', 'archetype_variant = ?', 'archetype_params = ?',
-                'workout_archetype_id = ?', 'archetype_version_snapshot = ?', 'instance_signature = ?',
-                'structure = ?', 'display_title = ?', 'display_summary = ?', 'athlete_instructions = ?',
-                'description = ?', 'target_duration = ?', 'intensity_load = ?',
-            ];
-            $vals = [
-                $composed['workout_type'], $composed['archetype_code'], $composed['archetype_variant'], $composed['archetype_params'],
-                $composed['workout_archetype_id'], $composed['archetype_version_snapshot'], $composed['instance_signature'],
-                $composed['structure'], $composed['display_title'], $composed['display_summary'], $composed['athlete_instructions'],
-                $composed['athlete_instructions'], $composed['target_duration'], $composed['intensity_load'],
-            ];
-            $newArch    = $composed['archetype_code'];
-            $changeType = 'archetype_substitution';
-            self::finishWorkoutEdit($db, $workoutId, $sets, $vals, $coachId, $isAssistant);
-
-        } elseif ($mode === 'freeform') {
-            $title      = trim((string)($in['title'] ?? ''));
-            $validTypes = ['easy', 'long', 'tempo', 'interval', 'hill', 'fartlek', 'race_pace', 'recovery', 'rest', 'cross_train', 'speed', 'plyometric'];
-            $wt         = in_array($in['workout_type'] ?? '', $validTypes, true) ? (string)$in['workout_type'] : 'easy';
-            $duration   = (int)($in['duration'] ?? 0);
-            $instr      = trim((string)($in['instructions'] ?? '')) ?: null;
-            $coachNotes = trim((string)($in['coach_notes'] ?? '')) ?: null;
-            if ($title === '' || $duration < 1) { echo json_encode(['ok' => false, 'error' => 'invalid', 'message' => 'Title and a duration of at least 1 minute are required.']); exit; }
-
-            $load = round($duration * (self::FREEFORM_LOAD_FACTOR[$wt] ?? 0.5), 2);
-            $sets = [
-                'workout_type = ?', 'archetype_code = NULL', 'archetype_variant = NULL', 'archetype_params = NULL',
-                'workout_archetype_id = NULL', 'archetype_version_snapshot = NULL', 'instance_signature = NULL',
-                'structure = NULL', 'display_title = ?', 'display_summary = NULL', 'athlete_instructions = ?',
-                'description = ?', 'notes = ?', 'target_duration = ?', 'intensity_load = ?',
-            ];
-            $vals = [$wt, $title, $instr, $instr, $coachNotes, $duration, $load];
-            $newArch    = null;
-            $changeType = 'archetype_substitution';
-            self::finishWorkoutEdit($db, $workoutId, $sets, $vals, $coachId, $isAssistant);
-
-        } else { // surface
-            $validTypes = ['easy','long','interval','hill','fartlek','tempo','race','race_pace','speed','plyometric','recovery','cross_train'];
-            $type    = in_array($in['workout_type'] ?? '', $validTypes, true) ? (string)$in['workout_type'] : $oldType;
-            $newDur  = (isset($in['target_duration']) && (int)$in['target_duration'] > 0) ? (int)$in['target_duration'] : ($oldDur ?? 0);
-
-            // Preserve the row's effective intensity factor; recompute load for the new duration.
-            $factor = ($oldLoad !== null && $oldLoad > 0 && $oldDur) ? $oldLoad / $oldDur : (self::FREEFORM_LOAD_FACTOR[$type] ?? 0.5);
-            $load   = round($newDur * $factor, 2);
-
-            $sets = ['workout_type = ?', 'target_duration = ?', 'intensity_load = ?'];
-            $vals = [$type, $newDur, $load];
-
-            // Coach owns title + instructions when supplied; keep the summary's duration honest.
-            if (array_key_exists('title', $in)) {
-                $sets[] = 'display_title = ?'; $vals[] = trim((string)$in['title']) ?: null;
-            }
-            if (array_key_exists('athlete_instructions', $in)) {
-                $sets[] = 'athlete_instructions = ?'; $vals[] = trim((string)$in['athlete_instructions']) ?: null;
-            }
-            if (array_key_exists('coach_notes', $in)) {
-                $sets[] = 'notes = ?'; $vals[] = trim((string)$in['coach_notes']) ?: null;
-            }
-            // No stale duration text: regenerate the one-line summary when duration/type changed.
-            if ($newDur !== $oldDur || $type !== $oldType) {
-                $sets[] = 'display_summary = ?';
-                $vals[] = format_duration($newDur) . ' · ' . pill_label($type, $oldArch);
-            }
-            $changeType = ($type !== $oldType) ? 'archetype_substitution'
-                        : (($newDur !== $oldDur) ? 'duration_change' : 'instructions_edited');
-            self::finishWorkoutEdit($db, $workoutId, $sets, $vals, $coachId, $isAssistant);
+        // Resolve the per-mode column set through the pure composer (no DB write / echo / exit),
+        // then persist here. Keeps the silent-load-desync logic exercised by the verify.
+        $r = self::composeWorkoutEdit($mode, $before, $in, $db);
+        if (!empty($r['error'])) {
+            echo json_encode(['ok' => false, 'error' => $r['error'], 'message' => $r['message'] ?? null]); exit;
         }
+        if ($preview && $mode === 'archetype' && !empty($r['composed'])) {
+            $c = $r['composed'];
+            echo json_encode(['ok' => true, 'success' => true, 'preview' => self::previewPayload(
+                $c['display_title'], $c['display_summary'], $c['athlete_instructions'],
+                $c['workout_type'], (int)$c['target_duration']
+            )]); exit;
+        }
+        $changeType = $r['change_type'] ?? null;
+
+        $sets = []; $vals = [];
+        foreach ($r['columns'] as $col => $v) { $sets[] = "`{$col}` = ?"; $vals[] = $v; }
+        self::finishWorkoutEdit($db, $workoutId, $sets, $vals, $coachId);
 
         // Best-effort Intervals re-push — DB change already committed; never fail the edit.
         try { IntervalsService::pushWorkout($athleteId, $workoutId, $db); } catch (\Throwable $e) {
@@ -685,13 +618,116 @@ class CoachController
         exit;
     }
 
-    /** Apply a workout-edit UPDATE: append the lock/edited columns (+ assistant tag) and run it. */
-    private static function finishWorkoutEdit(PDO $db, int $workoutId, array $sets, array $vals, int $coachId, bool $isAssistant): void
+    /**
+     * Resolve the column set a workout edit should persist, for a given (mode, existing row,
+     * input). PURE: no DB write, no echo, no exit (it only reads via composeManualWorkout for
+     * the archetype mode). Returns:
+     *   ['error'=>?string, 'message'=>?string]                  on validation failure, OR
+     *   ['change_type'=>string, 'columns'=>array<col,?scalar>,  on success
+     *    'composed'=>?array]                                     ('composed' set for archetype mode)
+     * `columns` maps column name → value to UPDATE (null = SQL NULL). The lock/edited columns are
+     * appended by finishWorkoutEdit, not here. Requires the base.php display helpers to be loaded.
+     */
+    public static function composeWorkoutEdit(string $mode, array $before, array $in, PDO $db): array
+    {
+        $athleteId = (int)$before['athlete_id'];
+        $oldType   = (string)($before['workout_type'] ?? '');
+        $oldDur    = $before['target_duration'] !== null ? (int)$before['target_duration'] : null;
+        $oldArch   = $before['archetype_code'] !== null ? (string)$before['archetype_code'] : null;
+        $oldLoad   = $before['intensity_load'] !== null ? (float)$before['intensity_load'] : null;
+
+        if ($mode === 'archetype') {
+            $code     = trim((string)($in['archetype_code'] ?? ''));
+            $variant  = isset($in['archetype_variant']) && $in['archetype_variant'] !== '' ? (string)$in['archetype_variant'] : null;
+            $duration = (int)($in['duration'] ?? 0);
+            $composed = PlanGenerator::composeManualWorkout($athleteId, $code, $variant, $duration, $db);
+            if (!$composed) return ['error' => 'archetype_failed', 'message' => 'Could not build that workout.'];
+
+            return [
+                'change_type' => 'archetype_substitution',
+                'composed'    => $composed,
+                'columns'     => [
+                    'workout_type'               => $composed['workout_type'],
+                    'archetype_code'             => $composed['archetype_code'],
+                    'archetype_variant'          => $composed['archetype_variant'],
+                    'archetype_params'           => $composed['archetype_params'],
+                    'workout_archetype_id'       => $composed['workout_archetype_id'],
+                    'archetype_version_snapshot' => $composed['archetype_version_snapshot'],
+                    'instance_signature'         => $composed['instance_signature'],
+                    'structure'                  => $composed['structure'],
+                    'display_title'              => $composed['display_title'],
+                    'display_summary'            => $composed['display_summary'],
+                    'athlete_instructions'       => $composed['athlete_instructions'],
+                    'description'                => $composed['athlete_instructions'],
+                    'target_duration'            => (int)$composed['target_duration'],
+                    'intensity_load'             => $composed['intensity_load'],
+                ],
+            ];
+        }
+
+        if ($mode === 'freeform') {
+            $title      = trim((string)($in['title'] ?? ''));
+            $validTypes = ['easy', 'long', 'tempo', 'interval', 'hill', 'fartlek', 'race_pace', 'recovery', 'rest', 'cross_train', 'speed', 'plyometric'];
+            $wt         = in_array($in['workout_type'] ?? '', $validTypes, true) ? (string)$in['workout_type'] : 'easy';
+            $duration   = (int)($in['duration'] ?? 0);
+            $instr      = trim((string)($in['instructions'] ?? '')) ?: null;
+            $coachNotes = trim((string)($in['coach_notes'] ?? '')) ?: null;
+            if ($title === '' || $duration < 1) return ['error' => 'invalid', 'message' => 'Title and a duration of at least 1 minute are required.'];
+
+            $load = round($duration * (self::FREEFORM_LOAD_FACTOR[$wt] ?? 0.5), 2);
+            return [
+                'change_type' => 'archetype_substitution',
+                'columns'     => [
+                    'workout_type'               => $wt,
+                    'archetype_code'             => null,
+                    'archetype_variant'          => null,
+                    'archetype_params'           => null,
+                    'workout_archetype_id'       => null,
+                    'archetype_version_snapshot' => null,
+                    'instance_signature'         => null,
+                    'structure'                  => null,
+                    'display_title'              => $title,
+                    'display_summary'            => null,
+                    'athlete_instructions'       => $instr,
+                    'description'                => $instr,
+                    'notes'                      => $coachNotes,
+                    'target_duration'            => $duration,
+                    'intensity_load'             => $load,
+                ],
+            ];
+        }
+
+        // surface — tweak in place; archetype_code + instance_signature unchanged.
+        $validTypes = ['easy','long','interval','hill','fartlek','tempo','race','race_pace','speed','plyometric','recovery','cross_train'];
+        $type   = in_array($in['workout_type'] ?? '', $validTypes, true) ? (string)$in['workout_type'] : $oldType;
+        $newDur = (isset($in['target_duration']) && (int)$in['target_duration'] > 0) ? (int)$in['target_duration'] : ($oldDur ?? 0);
+
+        // Preserve the row's effective intensity factor; recompute load for the new duration.
+        $factor = ($oldLoad !== null && $oldLoad > 0 && $oldDur) ? $oldLoad / $oldDur : (self::FREEFORM_LOAD_FACTOR[$type] ?? 0.5);
+        $cols   = ['workout_type' => $type, 'target_duration' => $newDur, 'intensity_load' => round($newDur * $factor, 2)];
+
+        // Coach owns title + instructions when supplied.
+        if (array_key_exists('title', $in))                $cols['display_title']        = trim((string)$in['title']) ?: null;
+        if (array_key_exists('athlete_instructions', $in)) $cols['athlete_instructions'] = trim((string)$in['athlete_instructions']) ?: null;
+        if (array_key_exists('coach_notes', $in))          $cols['notes']                = trim((string)$in['coach_notes']) ?: null;
+        // No stale duration text: regenerate the one-line summary when duration/type changed.
+        if ($newDur !== $oldDur || $type !== $oldType) {
+            $cols['display_summary'] = format_duration($newDur) . ' · ' . pill_label($type, $oldArch);
+        }
+
+        $changeType = ($type !== $oldType) ? 'archetype_substitution'
+                    : (($newDur !== $oldDur) ? 'duration_change' : 'instructions_edited');
+        return ['change_type' => $changeType, 'columns' => $cols];
+    }
+
+    /** Apply a workout-edit UPDATE: append the lock/edited columns and run it. Editing never
+     *  rewrites added_by_role — that records who ADDED the row; edit attribution is
+     *  coach_edited_by + coach_edited_at. */
+    private static function finishWorkoutEdit(PDO $db, int $workoutId, array $sets, array $vals, int $coachId): void
     {
         $sets[] = 'coach_locked = 1';
         $sets[] = 'coach_edited_by = ?'; $vals[] = $coachId;
         $sets[] = 'coach_edited_at = NOW()';
-        if ($isAssistant) { $sets[] = "added_by_role = 'assistant_coach'"; }
         $vals[] = $workoutId;
         $db->prepare('UPDATE planned_workouts SET ' . implode(', ', $sets) . ' WHERE id = ?')->execute($vals);
     }
