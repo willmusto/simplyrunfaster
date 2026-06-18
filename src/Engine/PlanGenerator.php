@@ -1316,12 +1316,12 @@ class PlanGenerator
         // per-phase ceiling, reaching it only gradually by phase end (the cap is a ceiling,
         // not a per-week target); cutback weeks drop to ~65% of the prior week. 5K/10K/half
         // keep the legacy weekly-volume long-run sizing inside insertWeekWorkouts.
-        $lrProgress     = $isUltra || $distance === 'marathon';
-        $longFloorMins  = (int)(self::settings()['long_run_absolute_floor_minutes'] ?? 60);
-        $lrPrev         = $longestRun;   // previous week's long run
-        $lrPeak         = $longestRun;   // highest non-cutback long run so far
-        $lrPhaseStart   = $longestRun;   // long run entering the current phase
-        $lrCurPhase     = null;
+        $lrProgress      = $isUltra || $distance === 'marathon';
+        $longFloorMins   = (int)(self::settings()['long_run_absolute_floor_minutes'] ?? 60);
+        $lrPrev          = $longestRun;   // previous week's long run
+        $lrPhaseStart    = $longestRun;   // long run entering the current phase
+        $lrCurPhase      = null;
+        $lrPrevPhaseCap  = null;          // ceiling of the phase just completed
 
         // Trail ultras: a one-time info reminder for the coach (Part 12 / Part 15).
         if ($isUltra && $surface === 'trail') {
@@ -1360,21 +1360,30 @@ class PlanGenerator
                 $ultra['week'] = $week;
             }
 
-            // FIX 7: per-week long-run duration for ultra / marathon race cycles.
+            // FIX 7: per-week long-run duration for ultra / marathon race cycles. Each phase
+            // ramps its long run gradually up to that phase's ceiling, reaching it only at the
+            // phase's end. The base phase opens from a reduced long run (so it has room to ramp
+            // even when the athlete's current longest already sits at the base cap, which was
+            // the "flat 4h base" bug); later phases continue from the previous phase's ceiling.
+            // Cutback weeks drop to ~65% of the prior week.
             $longRunOverride = null;
             if ($lrProgress && in_array($phase, ['base', 'build', 'peak'], true)) {
-                if ($phase !== $lrCurPhase) { $lrCurPhase = $phase; $lrPhaseStart = $lrPeak; }
                 $phaseInfo = $phases[$phase] ?? null;
                 $phaseLen  = $phaseInfo ? max(1, $phaseInfo['end_week'] - $phaseInfo['start_week'] + 1) : 1;
                 $phaseCap  = self::raceLongRunPhaseCap($distance, $phase, $peakCeiling) ?? 210;
+                if ($phase !== $lrCurPhase) {
+                    $lrPhaseStart = $lrPrevPhaseCap !== null
+                        ? $lrPrevPhaseCap                                                    // continue from prior phase ceiling
+                        : max($longFloorMins, (int)round(min($longestRun, $phaseCap) * 0.70)); // reduced base opener
+                    $lrCurPhase     = $phase;
+                    $lrPrevPhaseCap = $phaseCap;
+                }
                 if ($isCutback) {
                     $longRunOverride = max($longFloorMins, (int)round($lrPrev * 0.65));
                 } else {
-                    $grown        = (int)round($lrPeak * 1.12);
-                    $frac         = min(1.0, $weekInPhase / $phaseLen); // progress through the phase
-                    $phaseCeiling = (int)round($lrPhaseStart + ($phaseCap - $lrPhaseStart) * $frac);
-                    $longRunOverride = max($longFloorMins, min($phaseCap, $grown, max($lrPhaseStart, $phaseCeiling)));
-                    $lrPeak = max($lrPeak, $longRunOverride);
+                    $frac   = min(1.0, $weekInPhase / $phaseLen);   // progress through the phase
+                    $target = (int)round($lrPhaseStart + ($phaseCap - $lrPhaseStart) * $frac);
+                    $longRunOverride = max($longFloorMins, min($phaseCap, $target));
                 }
                 $lrPrev = $longRunOverride;
             }
