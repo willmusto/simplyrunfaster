@@ -284,10 +284,105 @@ class CoachController
     }
 
     /**
-     * GET /app/coach/athlete/:id/flags — the Flags tab: a read-only surface of this athlete's
-     * open engine flags, reusing the existing flag query + card rendering (no new flag logic,
-     * no dismiss/act controls — those live on the Plan view / Intelligence page). Coach-owns-
-     * athlete scoped.
+     * PURE: the athlete's FULL flag record for the Flags tab — open + resolved history across
+     * BOTH flag tables (engine_flags + coaching_intelligence_flags), normalized to one shape,
+     * within the last $days days, capped at $limit resolved rows. No writes. Returns
+     * ['open'=>[...newest first...], 'resolved'=>[...most-recently-resolved first...]].
+     *
+     * Each normalized row: source, severity, title, message, status, is_open, created_at,
+     * flag_type, details, and (when resolved) resolution => [label, at, by, reason].
+     */
+    public static function athleteFlagRecord(int $athleteId, PDO $db, int $days = 90, int $limit = 50): array
+    {
+        $cutoff = date('Y-m-d H:i:s', strtotime("-{$days} days"));
+        $rows   = [];
+
+        // Engine flags (open / dismissed / acted_on) + the resolving coach's name.
+        try {
+            $es = $db->prepare(
+                'SELECT ef.*, u.name AS reviewer_name
+                 FROM engine_flags ef
+                 LEFT JOIN users u ON u.id = ef.reviewed_by
+                 WHERE ef.athlete_id = ? AND ef.created_at >= ?
+                 ORDER BY ef.created_at DESC'
+            );
+            $es->execute([$athleteId, $cutoff]);
+            foreach ($es->fetchAll(PDO::FETCH_ASSOC) as $f) {
+                $status = (string)$f['status'];
+                $res = null;
+                if ($status === 'dismissed') {
+                    $res = ['label' => 'Dismissed', 'at' => $f['reviewed_at'], 'by' => $f['reviewer_name'] ?: null, 'reason' => ($f['dismiss_reason'] ?: null)];
+                } elseif ($status === 'acted_on') {
+                    $res = ['label' => 'Acted on', 'at' => $f['reviewed_at'], 'by' => $f['reviewer_name'] ?: null, 'reason' => null];
+                }
+                $rows[] = [
+                    'source'     => 'engine',
+                    'severity'   => (string)$f['severity'],
+                    'title'      => (string)$f['flag_type'],
+                    'message'    => (string)($f['message'] ?? ''),
+                    'status'     => $status,
+                    'is_open'    => $status === 'open',
+                    'created_at' => (string)$f['created_at'],
+                    'flag_type'  => (string)$f['flag_type'],
+                    'details'    => $f['details'] ?? null,
+                    'resolution' => $res,
+                ];
+            }
+        } catch (\Throwable $e) { /* table may be absent pre-migration */ }
+
+        // Coaching-intelligence flags (open / actioned / dismissed / superseded).
+        try {
+            $is = $db->prepare(
+                'SELECT * FROM coaching_intelligence_flags
+                 WHERE athlete_id = ? AND created_at >= ?
+                 ORDER BY created_at DESC'
+            );
+            $is->execute([$athleteId, $cutoff]);
+            foreach ($is->fetchAll(PDO::FETCH_ASSOC) as $f) {
+                $status = (string)$f['status'];
+                $res = null;
+                if ($status === 'actioned') {
+                    $res = ['label' => 'Acted on', 'at' => $f['actioned_at'], 'by' => null, 'reason' => null];
+                } elseif ($status === 'superseded') {
+                    // Predictive→reactive handoff: an automatic resolution, never a coach action.
+                    $res = ['label' => 'Auto-resolved', 'at' => $f['dismissed_at'], 'by' => null, 'reason' => ($f['suggested_action'] ?: null)];
+                } elseif ($status === 'dismissed') {
+                    $res = ['label' => 'Dismissed', 'at' => $f['dismissed_at'], 'by' => null, 'reason' => null];
+                }
+                $rows[] = [
+                    'source'     => 'intel',
+                    'severity'   => (string)$f['severity'],
+                    'title'      => (string)($f['title'] ?? $f['flag_type']),
+                    'message'    => (string)($f['detail'] ?? ''),
+                    'status'     => $status,
+                    'is_open'    => $status === 'open',
+                    'created_at' => (string)$f['created_at'],
+                    'flag_type'  => (string)$f['flag_type'],
+                    'details'    => null,
+                    'resolution' => $res,
+                ];
+            }
+        } catch (\Throwable $e) { /* table may be absent pre-migration */ }
+
+        $open = array_values(array_filter($rows, static fn($r) => $r['is_open']));
+        usort($open, static fn($a, $b) => strcmp((string)$b['created_at'], (string)$a['created_at']));
+
+        $resolved = array_values(array_filter($rows, static fn($r) => !$r['is_open']));
+        usort($resolved, static function ($a, $b) {
+            $ax = (string)($a['resolution']['at'] ?? $a['created_at']);
+            $bx = (string)($b['resolution']['at'] ?? $b['created_at']);
+            return strcmp($bx, $ax);
+        });
+        if (count($resolved) > $limit) $resolved = array_slice($resolved, 0, $limit);
+
+        return ['open' => $open, 'resolved' => $resolved];
+    }
+
+    /**
+     * GET /app/coach/athlete/:id/flags — the Flags tab: this athlete's FULL flag record (open +
+     * resolved history across engine_flags + coaching_intelligence_flags), read-only — a distinct
+     * "review everything" surface from the Plan view's actionable OPEN ALERTS. No dismiss/act
+     * controls here. Coach-owns-athlete scoped.
      */
     public static function athleteFlagsPage(array $params): void
     {
@@ -305,7 +400,7 @@ class CoachController
             return;
         }
 
-        $athleteFlags = self::getAthleteFlags($athleteId, $db, 50);
+        $flagRecord   = self::athleteFlagRecord($athleteId, $db);
         $chrome       = self::athleteChromeData($athleteId, $db);
         $chromeActive = 'flags';
 
