@@ -731,7 +731,15 @@ class PlanGenerator
      * Generate a plan for an athlete.
      * Returns plan_id on success, null on failure.
      */
-    public static function generate(int $athleteId, string $trigger = 'onboarding'): ?int
+    /**
+     * @param bool $fullWipe When true, the legacy full-rebuild: archive the prior plan,
+     *   delete ALL its Intervals events, regenerate from scratch with no carry-over.
+     *   When false (DEFAULT), a regen over an ACTIVE prior plan with athlete-exposed weeks
+     *   PRESERVES those whole weeks (and any coach_locked row) by carrying them into the new
+     *   plan untouched; generation math is unchanged (full-span), the carried dates are then
+     *   restored from the prior plan.
+     */
+    public static function generate(int $athleteId, string $trigger = 'onboarding', bool $fullWipe = false): ?int
     {
         $db      = Database::get();
         $profile = self::loadProfile($athleteId, $db);
@@ -778,10 +786,28 @@ class PlanGenerator
             }
         }
 
-        self::archivePreviousPlans($athleteId, $db);
+        // Regen carry-over (default): capture the athlete-exposed whole weeks + any
+        // coach_locked rows from the prior ACTIVE plan BEFORE archiving, so the archive
+        // can spare their Intervals events and we can carry them into the new plan after
+        // generation. $fullWipe skips this entirely (legacy full rebuild).
+        $preserve = $fullWipe ? null : self::capturePreservation($athleteId, $db);
+
+        self::archivePreviousPlans($athleteId, $db, $preserve['row_ids'] ?? []);
 
         $selector          = new ArchetypeSelector($db);
         $antiRepeatHistory = self::loadAntiRepeatHistory($athleteId, $db);
+
+        // Seed anti-repeat with the carried signatures/codes: the carried rows live in the
+        // new plan but are swapped in only after generation, so the fresh remainder must be
+        // told about them here to avoid duplicating them within the hard-block window.
+        if ($preserve !== null) {
+            foreach ($preserve['signatures'] as $sig => $dates) {
+                $antiRepeatHistory['signatures'][$sig] = array_merge($antiRepeatHistory['signatures'][$sig] ?? [], $dates);
+            }
+            foreach ($preserve['codes'] as $code => $dates) {
+                $antiRepeatHistory['codes'][$code] = array_merge($antiRepeatHistory['codes'][$code] ?? [], $dates);
+            }
+        }
 
         $planId = match ($planType) {
             'race_cycle'        => self::generateRaceCycle($athleteId, $profile, $trigger, $db, $selector, $antiRepeatHistory),
@@ -802,6 +828,12 @@ class PlanGenerator
             // within 3 days, race-day skip, post-race recovery) — §26 / ultra-spec Part 5.
             self::applyRaceAdjustments($athleteId, $db);
             self::validateGeneratedDisplays($planId, $athleteId, $db);
+            // Carry the preserved (exposed-week + coach_locked) rows into the new plan,
+            // replacing the freshly-generated rows on those dates. Done last so race
+            // adjustments / day-1 easy / display validation run on the fresh region only.
+            if ($preserve !== null) {
+                self::applyPreservation($planId, $preserve, $db);
+            }
             self::finalizeCoachingDecisions($planId, $db);
             self::createApprovalQueueEntry($planId, $athleteId, $trigger, $db);
         }
@@ -4193,10 +4225,11 @@ class PlanGenerator
         return Timezone::dateInZone(self::athleteTimezone($athleteId, $db), '+1 day');
     }
 
-    private static function archivePreviousPlans(int $athleteId, PDO $db): void
+    private static function archivePreviousPlans(int $athleteId, PDO $db, array $preserveWorkoutIds = []): void
     {
         // Capture the plans being archived so their Intervals.icu calendar events can
-        // be deleted (otherwise old workouts linger on the athlete's watch).
+        // be deleted (otherwise old workouts linger on the athlete's watch). Carry-over
+        // workout ids are spared so their events survive for the new plan.
         $sel = $db->prepare(
             'SELECT id FROM training_plans
              WHERE athlete_id = ? AND status IN ("active", "pending_approval")'
@@ -4215,8 +4248,132 @@ class PlanGenerator
         )->execute([$athleteId]);
 
         foreach ($planIds as $pid) {
-            self::deleteArchivedPlanEvents((int)$pid, $db);
+            self::deleteArchivedPlanEvents((int)$pid, $db, $preserveWorkoutIds);
         }
+    }
+
+    /**
+     * Capture the carry-over set for a regen over an ACTIVE prior plan: every row in an
+     * athlete-EXPOSED whole week (≥1 visible_to_athlete row that week), plus any
+     * coach_locked row, restricted to the new plan's forward span (>= tomorrow). Returns
+     * null when there is nothing to preserve (no active prior plan, or no exposed weeks),
+     * in which case the regen behaves exactly as before.
+     *
+     * @return array{prior_plan_id:int, row_ids:int[], dates:string[], signatures:array, codes:array}|null
+     */
+    private static function capturePreservation(int $athleteId, PDO $db): ?array
+    {
+        $planStmt = $db->prepare(
+            "SELECT id FROM training_plans WHERE athlete_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1"
+        );
+        $planStmt->execute([$athleteId]);
+        $priorPlanId = (int)($planStmt->fetchColumn() ?: 0);
+        if ($priorPlanId < 1) return null;
+
+        $planStart = self::planStartDate($athleteId, $db); // tomorrow (athlete tz)
+
+        // Forward-span rows of the prior plan (anything the new plan could overlap).
+        $rowsStmt = $db->prepare(
+            "SELECT id, scheduled_date, visible_to_athlete, coach_locked, instance_signature, archetype_code
+             FROM planned_workouts
+             WHERE plan_id = ? AND scheduled_date >= ?"
+        );
+        $rowsStmt->execute([$priorPlanId, $planStart]);
+        $rows = $rowsStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        if (!$rows) return null;
+
+        // Mondays of weeks that contain >=1 visible row (the exposed whole weeks).
+        $exposedMondays = [];
+        foreach ($rows as $r) {
+            if ((int)$r['visible_to_athlete'] === 1) {
+                $exposedMondays[self::mondayOf((string)$r['scheduled_date'])] = true;
+            }
+        }
+
+        $rowIds = [];
+        $dates  = [];   // dates whose freshly-generated rows must be removed (carried instead)
+        $sigs   = [];
+        $codes  = [];
+
+        // Carried rows: every row in an exposed week, plus any coach_locked row.
+        foreach ($rows as $r) {
+            $date     = (string)$r['scheduled_date'];
+            $inExposed = isset($exposedMondays[self::mondayOf($date)]);
+            $locked    = (int)$r['coach_locked'] === 1;
+            if (!$inExposed && !$locked) continue;
+
+            $rowIds[]      = (int)$r['id'];
+            $dates[$date]  = true;
+            if (!empty($r['instance_signature'])) $sigs[(string)$r['instance_signature']][] = $date;
+            if (!empty($r['archetype_code']))     $codes[(string)$r['archetype_code']][]   = $date;
+        }
+
+        // Exposed weeks are carried as WHOLE weeks: clear every fresh row across the full
+        // Mon–Sun span of each exposed week (>= planStart), so a date with no prior row
+        // (a seen rest day) carries as rest rather than keeping a fresh workout.
+        foreach (array_keys($exposedMondays) as $monday) {
+            for ($i = 0; $i < 7; $i++) {
+                $d = date('Y-m-d', strtotime($monday . ' +' . $i . ' days'));
+                if ($d >= $planStart) $dates[$d] = true;
+            }
+        }
+
+        if (!$rowIds) return null; // active prior plan but nothing exposed/locked → full regen
+
+        return [
+            'prior_plan_id' => $priorPlanId,
+            'row_ids'       => $rowIds,
+            'dates'         => array_keys($dates),
+            'signatures'    => $sigs,
+            'codes'         => $codes,
+        ];
+    }
+
+    /**
+     * Swap the carried rows into the freshly-generated plan: delete the fresh rows on the
+     * carried dates, then MOVE the preserved prior rows into the new plan (keeping their id,
+     * intervals_event_id, content, coach_locked, and visibility) marked carried. Moving
+     * (not copying) keeps the srf_{id} Intervals event intact — never delete+recreate.
+     */
+    private static function applyPreservation(int $newPlanId, array $preserve, PDO $db): void
+    {
+        $endStmt = $db->prepare('SELECT plan_end_date FROM training_plans WHERE id = ? LIMIT 1');
+        $endStmt->execute([$newPlanId]);
+        $planEnd = (string)($endStmt->fetchColumn() ?: '');
+        if ($planEnd === '') return;
+
+        // Carried rows / dates that actually fall within the new plan's span.
+        $rowDateStmt = $db->prepare('SELECT scheduled_date FROM planned_workouts WHERE id = ? LIMIT 1');
+        $carryIds = [];
+        foreach ($preserve['row_ids'] as $id) {
+            $rowDateStmt->execute([(int)$id]);
+            $d = (string)($rowDateStmt->fetchColumn() ?: '');
+            if ($d !== '' && $d <= $planEnd) $carryIds[] = (int)$id;
+        }
+        $dates = array_values(array_filter($preserve['dates'], static fn($d) => $d <= $planEnd));
+        if (!$carryIds || !$dates) return;
+
+        // 1) Remove the freshly-generated rows on the carried dates.
+        $place = implode(',', array_fill(0, count($dates), '?'));
+        $db->prepare("DELETE FROM planned_workouts WHERE plan_id = ? AND scheduled_date IN ($place)")
+           ->execute(array_merge([$newPlanId], $dates));
+
+        // 2) Move the preserved prior rows into the new plan, marked carried.
+        $idPlace = implode(',', array_fill(0, count($carryIds), '?'));
+        $db->prepare(
+            "UPDATE planned_workouts
+             SET plan_id = ?, carried_over_from_plan_id = ?, carried_over_at = NOW()
+             WHERE id IN ($idPlace)"
+        )->execute(array_merge([$newPlanId, (int)$preserve['prior_plan_id']], $carryIds));
+    }
+
+    /** The Monday (Y-m-d) of the ISO week containing $date. */
+    private static function mondayOf(string $date): string
+    {
+        $t = strtotime($date);
+        if ($t === false) return $date;
+        $dow = (int)date('N', $t); // 1=Mon..7=Sun
+        return date('Y-m-d', $t - ($dow - 1) * 86400);
     }
 
     /**
@@ -4224,7 +4381,7 @@ class PlanGenerator
      * loads IntervalsService so this works from every regeneration path (web + cron),
      * and is a silent no-op when the athlete isn't connected.
      */
-    private static function deleteArchivedPlanEvents(int $planId, PDO $db): void
+    private static function deleteArchivedPlanEvents(int $planId, PDO $db, array $excludeWorkoutIds = []): void
     {
         if (!class_exists('IntervalsService')) {
             $crypto  = __DIR__ . '/../Crypto.php';
@@ -4234,7 +4391,7 @@ class PlanGenerator
         }
         if (class_exists('IntervalsService')) {
             try {
-                IntervalsService::deleteEventsForPlan($planId, $db);
+                IntervalsService::deleteEventsForPlan($planId, $db, $excludeWorkoutIds);
             } catch (\Throwable $e) {
                 error_log('PlanGenerator::deleteArchivedPlanEvents: ' . $e->getMessage());
             }

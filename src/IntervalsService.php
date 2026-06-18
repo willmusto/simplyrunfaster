@@ -788,7 +788,7 @@ class IntervalsService
      * the athlete's watch). One bulk-delete by external_id. No-op (silent) when the
      * athlete isn't connected. Returns the number of events removed.
      */
-    public static function deleteEventsForPlan(int $planId, PDO $db): int
+    public static function deleteEventsForPlan(int $planId, PDO $db, array $excludeWorkoutIds = []): int
     {
         try {
             $stmt = $db->prepare('SELECT athlete_id FROM training_plans WHERE id = ? LIMIT 1');
@@ -799,7 +799,12 @@ class IntervalsService
             $conn = self::connectionForAthlete($athleteId, $db);
             if (!$conn) return 0; // not connected — skip silently
 
-            $w = $db->prepare('SELECT id FROM planned_workouts WHERE plan_id = ? AND intervals_event_id IS NOT NULL');
+            // Spare carried-over workouts (regen preserve path): their srf_{id} events must
+            // survive into the new plan — never delete+recreate.
+            $exclude = array_values(array_unique(array_map('intval', $excludeWorkoutIds)));
+            $excludeSql = $exclude ? (' AND id NOT IN (' . implode(',', $exclude) . ')') : '';
+
+            $w = $db->prepare('SELECT id FROM planned_workouts WHERE plan_id = ? AND intervals_event_id IS NOT NULL' . $excludeSql);
             $w->execute([$planId]);
             $ids = $w->fetchAll(PDO::FETCH_COLUMN) ?: [];
             if (!$ids) return 0;
@@ -814,10 +819,10 @@ class IntervalsService
             }
             [$status] = self::http('PUT', self::API_BASE . '/athlete/0/events/bulk-delete', $headers, json_encode($body));
 
-            // Clear local pointers regardless — these workouts are being archived.
+            // Clear local pointers for the deleted (non-excluded) workouts only.
             $db->prepare(
                 'UPDATE planned_workouts SET intervals_event_id = NULL, pushed_to_watch = 0
-                 WHERE plan_id = ? AND intervals_event_id IS NOT NULL'
+                 WHERE plan_id = ? AND intervals_event_id IS NOT NULL' . $excludeSql
             )->execute([$planId]);
 
             return ($status >= 200 && $status < 300) ? count($ids) : 0;
