@@ -14,6 +14,42 @@
     window.addEventListener('offline', updateOnlineStatus);
     updateOnlineStatus();
 
+    // ── Onboarding "Continue" buttons (outside-form submit fix) ──────────────
+    // The onboarding footer buttons live OUTSIDE their <form> and are associated
+    // via the form= attribute. iOS standalone PWA WebKit does not submit a form
+    // through such a button — the tap registers but nothing navigates, with no
+    // error. Drive submission from script instead. Only type="submit" buttons are
+    // matched, so any step that already manages its own submit (a type="button"
+    // with a bespoke handler, e.g. step 1) is intentionally skipped.
+    function wireOnboardingSubmits() {
+        var btns = document.querySelectorAll('.onboarding-footer button[type="submit"][form]');
+        Array.prototype.forEach.call(btns, function (btn) {
+            var form = document.getElementById(btn.getAttribute('form'));
+            if (!form) return;
+            btn.type = 'button';
+            btn.addEventListener('click', function () {
+                try {
+                    if (typeof form.requestSubmit === 'function') {
+                        form.requestSubmit(); // runs validation + submit handlers, then posts
+                    } else {
+                        if (typeof form.checkValidity === 'function' && !form.checkValidity()) {
+                            if (typeof form.reportValidity === 'function') form.reportValidity();
+                            return;
+                        }
+                        form.submit();
+                    }
+                } catch (e) {
+                    alert('Something went wrong. Please refresh and try again.');
+                }
+            });
+        });
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', wireOnboardingSubmits);
+    } else {
+        wireOnboardingSubmits();
+    }
+
     // ── Service Worker registration ──────────────────────────
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', function () {

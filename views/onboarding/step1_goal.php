@@ -195,9 +195,15 @@ include __DIR__ . '/../../views/layout/html_open.php';
         </div>
     </form>
 
+    <div id="step1Error" class="flash flash-error" style="display:none;margin:0 0 12px;"></div>
+
     <div class="onboarding-footer">
         <div></div>
-        <button type="submit" form="step1Form" class="btn btn-primary">
+        <!-- type="button": the button lives OUTSIDE #step1Form and submission is driven
+             explicitly in JS. iOS standalone PWA WebKit will not submit a form via a
+             submit button's form= attribute, which left the button depressing but never
+             navigating. requestSubmit() (below) submits reliably and still runs validation. -->
+        <button type="button" id="step1Continue" form="step1Form" class="btn btn-primary">
             Continue →
         </button>
     </div>
@@ -255,6 +261,57 @@ include __DIR__ . '/../../views/layout/html_open.php';
             if (dateInput) { dateInput.focus(); dateInput.scrollIntoView({block: 'center'}); }
         }
     });
+
+    // ── Continue button ──────────────────────────────────────────────────────
+    // The button is outside the form, so iOS standalone PWA WebKit will not submit
+    // via the form= attribute (tap registers, nothing happens, no error). Submit
+    // explicitly in JS, surface a visible error on any failure instead of failing
+    // silently, and confirm the CSRF token is present before attempting to navigate.
+    var continueBtn  = document.getElementById('step1Continue');
+    var generalError = document.getElementById('step1Error');
+
+    function showError(msg) {
+        if (generalError) {
+            generalError.textContent = msg;
+            generalError.style.display = '';
+            generalError.scrollIntoView({block: 'center'});
+        } else {
+            alert(msg);
+        }
+    }
+
+    if (continueBtn) {
+        continueBtn.addEventListener('click', function () {
+            try {
+                if (generalError) generalError.style.display = 'none';
+
+                // Standard POST (not AJAX): the CSRF field must be present and non-empty,
+                // otherwise the server rejects the post and the navigation appears to do
+                // nothing. Surface a clear, recoverable message rather than failing silently.
+                var csrf = form.querySelector('input[name="srf_csrf"]');
+                if (!csrf || !csrf.value) {
+                    showError('Something went wrong. Please refresh and try again.');
+                    return;
+                }
+
+                if (typeof form.requestSubmit === 'function') {
+                    // Runs HTML5 validation + the submit handler above (date check), then submits.
+                    form.requestSubmit();
+                } else {
+                    // Older WebKit fallback: replicate the guards, then submit directly.
+                    if (!form.checkValidity()) { form.reportValidity(); return; }
+                    if (isRaceCycle() && (!dateInput || !dateInput.value)) {
+                        if (dateError) dateError.style.display = '';
+                        if (dateInput) { dateInput.focus(); dateInput.scrollIntoView({block: 'center'}); }
+                        return;
+                    }
+                    form.submit();
+                }
+            } catch (err) {
+                showError('Something went wrong. Please refresh and try again.');
+            }
+        });
+    }
 
     update();
 })();
