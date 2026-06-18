@@ -26,8 +26,10 @@ $lastMessageId = $messages ? (int)end($messages)['id'] : 0;
                     <?php endif; ?>
                 </div>
             </div>
-            <a href="/app/coach/athlete/<?= $athleteId ?>" class="msg-header-link">Profile →</a>
         </div>
+        <?php if (!empty($chromeActive)): /* Athlete sub-nav strip (same as the other sub-pages) */ ?>
+        <?php include __DIR__ . '/partials/athlete_tabs.php'; ?>
+        <?php endif; ?>
     </div>
 
     <div class="msg-thread-scroll" id="msgScroll">

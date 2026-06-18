@@ -149,6 +149,9 @@ class CoachController
         $flashError   = $_SESSION['flash_error']   ?? null;
         unset($_SESSION['flash_success'], $_SESSION['flash_error']);
 
+        $chrome       = self::athleteChromeData($athleteId, $db);
+        $chromeActive = 'plan';
+
         $pageTitle = h($athlete['name']);
         $activeNav = 'athletes';
         include __DIR__ . '/../../views/layout/html_open.php';
@@ -187,6 +190,9 @@ class CoachController
         $tz      = $athlete['timezone'] ?: 'America/New_York';
         $page    = max(0, (int)($_GET['page'] ?? 0));
         $log     = self::athleteLogData($athleteId, $page, $tz, $db);
+
+        $chrome       = self::athleteChromeData($athleteId, $db);
+        $chromeActive = 'log';
 
         $athletes         = self::getRosterAthletes($coachId, $db);
         $openFlags        = self::getOpenFlagsCount($coachId, $db);
@@ -277,6 +283,44 @@ class CoachController
         ];
     }
 
+    /**
+     * GET /app/coach/athlete/:id/flags — the Flags tab: a read-only surface of this athlete's
+     * open engine flags, reusing the existing flag query + card rendering (no new flag logic,
+     * no dismiss/act controls — those live on the Plan view / Intelligence page). Coach-owns-
+     * athlete scoped.
+     */
+    public static function athleteFlagsPage(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db        = Database::get();
+        $coachId   = (int)Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) {
+            http_response_code(404);
+            include __DIR__ . '/../../views/errors/404.php';
+            return;
+        }
+
+        $athleteFlags = self::getAthleteFlags($athleteId, $db, 50);
+        $chrome       = self::athleteChromeData($athleteId, $db);
+        $chromeActive = 'flags';
+
+        $athletes         = self::getRosterAthletes($coachId, $db);
+        $openFlags        = self::getOpenFlagsCount($coachId, $db);
+        $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
+
+        $pageTitle = 'Flags: ' . h($athlete['name']);
+        $activeNav = 'athletes';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_coach.php';
+        include __DIR__ . '/../../views/coach/athlete_flags.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
     public static function editProfile(array $params): void
     {
         Auth::requireRole(['coach','assistant_coach','admin']);
@@ -306,6 +350,9 @@ class CoachController
         $isCoach    = true;
         $formAction = '/app/coach/athlete/' . $athleteId . '/edit';
         $cancelUrl  = '/app/coach/athlete/' . $athleteId;
+
+        $chrome       = self::athleteChromeData($athleteId, $db);
+        $chromeActive = 'profile';
 
         $pageTitle = 'Edit Profile: ' . h($athlete['name']);
         $activeNav = 'athletes';
@@ -2724,6 +2771,9 @@ class CoachController
         // Mark read + fetch the thread (shared with the unified inbox panels).
         [$messages, $planPhase] = self::loadThreadForPanel($db, $athleteId);
 
+        $chrome       = self::athleteChromeData($athleteId, $db);
+        $chromeActive = 'messages';
+
         $athletes         = self::getRosterAthletes($coachId, $db);
         $openFlags        = self::getOpenFlagsCount($coachId, $db);
         $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
@@ -3327,6 +3377,57 @@ class CoachController
         if ($frac >= 0.60) return 'Peak';
         if ($frac >= 0.30) return 'Build';
         return 'Base';
+    }
+
+    /**
+     * PURE meta for the shared athlete-view chrome (header + tab strip): current phase,
+     * plan week, next race, open-flag count, and the on-track dot colour (by top open-flag
+     * severity). Reuses the existing getters — no new business logic. Identical on every
+     * sub-page so the header/strip render the same everywhere.
+     *
+     * @return array{phase:?string, week:?int, total_weeks:?int, race:?array, flag_count:int, on_track:string}
+     */
+    public static function athleteChromeData(int $athleteId, PDO $db): array
+    {
+        $plan  = self::getActivePlanDetail($athleteId, $db);
+        $phase = self::currentPlanPhase($plan);
+
+        $week = null; $totalWeeks = null;
+        if ($plan) {
+            $start = strtotime((string)($plan['plan_start_date'] ?? ''));
+            $end   = strtotime((string)($plan['plan_end_date'] ?? ''));
+            if ($start !== false) {
+                $w = (int)floor((time() - $start) / (7 * 86400)) + 1;
+                if ($end !== false && $end > $start) {
+                    $totalWeeks = (int)ceil(($end - $start) / (7 * 86400));
+                    $w = max(1, min($w, $totalWeeks));
+                } else {
+                    $w = max(1, $w);
+                }
+                $week = $w;
+            }
+        }
+
+        $fc = $db->prepare('SELECT COUNT(*) FROM engine_flags WHERE athlete_id = ? AND status = "open"');
+        $fc->execute([$athleteId]);
+        $flagCount = (int)$fc->fetchColumn();
+
+        $sv = $db->prepare(
+            'SELECT severity FROM engine_flags WHERE athlete_id = ? AND status = "open"
+             ORDER BY FIELD(severity,"critical","warning","info") LIMIT 1'
+        );
+        $sv->execute([$athleteId]);
+        $top = (string)($sv->fetchColumn() ?: '');
+        $dot = $top === 'critical' ? 'red' : ($top === 'warning' ? 'amber' : 'green');
+
+        return [
+            'phase'       => $phase,
+            'week'        => $week,
+            'total_weeks' => $totalWeeks,
+            'race'        => self::getNextRace($athleteId, $db),
+            'flag_count'  => $flagCount,
+            'on_track'    => $dot,
+        ];
     }
 
     // ── Data helpers ───────────────────────────────────────────

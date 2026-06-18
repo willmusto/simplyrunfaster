@@ -179,6 +179,7 @@ $router->get('/coach',                    [CoachController::class, 'dashboard'])
 $router->get('/coach/athletes',           [CoachController::class, 'roster']);
 $router->get('/coach/athlete/:id',             [CoachController::class, 'athleteView']);
 $router->get('/coach/athlete/:id/log',          [CoachController::class, 'athleteLog']);
+$router->get('/coach/athlete/:id/flags',        [CoachController::class, 'athleteFlagsPage']);
 $router->get('/coach/athlete/:id/edit',         [CoachController::class, 'editProfile']);
 $router->post('/coach/athlete/:id/edit',        [CoachController::class, 'editProfileSave']);
 $router->get('/coach/messages',                      [CoachController::class, 'unifiedMessages']);

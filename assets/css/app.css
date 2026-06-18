@@ -1797,3 +1797,41 @@ body.is-offline .offline-banner { display: block; }
     background: #eef7f2;
     color: #1D9E75;
 }
+
+/* ── Coach athlete-view shared chrome: header + sub-nav tab strip ───────────── */
+.av-chrome { margin-bottom: 18px; }
+.av-chrome-back {
+    display: inline-block; font-size: 13px; color: var(--text-muted);
+    text-decoration: none; margin-bottom: 10px;
+}
+.av-chrome-back:hover { color: var(--text-primary); }
+.av-chrome-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.av-chrome-id { min-width: 0; }
+.av-chrome-name {
+    font-size: 20px; font-weight: 700; color: var(--text-primary);
+    display: flex; align-items: center; gap: 8px; line-height: 1.2;
+}
+.av-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.av-chrome-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+/* Sub-nav tab strip — distinct from the app's mobile bottom tab bar. */
+.av-tabs {
+    display: flex; gap: 2px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    border-bottom: 1px solid var(--border-color, rgba(0,0,0,.08));
+}
+.av-tabs::-webkit-scrollbar { height: 0; }
+.av-tab {
+    flex: 0 0 auto; padding: 9px 14px; font-size: 14px; font-weight: 400;
+    text-decoration: none; color: var(--text-secondary); white-space: nowrap;
+    border-bottom: 2px solid transparent; display: inline-flex; align-items: center; gap: 6px;
+}
+.av-tab:hover { color: var(--text-primary); }
+.av-tab.is-active { color: #0F6E56; font-weight: 500; border-bottom-color: #1D9E75; }
+[data-theme="dark"] .av-tab.is-active { color: #5DCAA5; }
+@media (prefers-color-scheme: dark) { [data-theme="system"] .av-tab.is-active { color: #5DCAA5; } }
+.av-tab-badge {
+    font-size: 10px; font-weight: 700; line-height: 1; padding: 2px 6px;
+    border-radius: 9px; background: #F59E0B; color: #fff;
+}
+/* Messages chat keeps its own compact header — the strip sits under it, full-bleed. */
+.msg-header .av-tabs { margin-top: 8px; }

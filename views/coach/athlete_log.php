@@ -25,17 +25,9 @@ $rowDate = static fn(string $d): string => date('D M j', strtotime($d));
 ?>
 <div class="page-content av-log" style="max-width:780px;">
 
-    <!-- Header -->
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap;">
-        <a href="/app/coach/athlete/<?= $athleteId ?>" style="color:var(--text-muted);text-decoration:none;font-size:20px;">←</a>
-        <div class="athlete-avatar"><?= h(avatar_initials($athlete['name'])) ?></div>
-        <div style="flex:1;min-width:140px;">
-            <div class="page-heading" style="margin-bottom:0;">Training log</div>
-            <div style="font-size:12px;color:var(--text-muted);"><?= h($athlete['name']) ?></div>
-        </div>
-        <a href="/app/coach/athlete/<?= $athleteId ?>" class="btn btn-secondary btn-sm">Profile →</a>
-    </div>
-    <p class="body-text" style="margin:0 0 18px;color:var(--text-muted);font-size:13px;">
+    <!-- Shared chrome: back + header + sub-nav tab strip -->
+    <?php include __DIR__ . '/partials/athlete_chrome.php'; ?>
+    <p class="body-text" style="margin:-6px 0 18px;color:var(--text-muted);font-size:13px;">
         What this athlete actually did, newest first. Read-only.
     </p>
 

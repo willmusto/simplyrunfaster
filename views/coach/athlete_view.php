@@ -618,16 +618,8 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
     </div>
     <?php endif; ?>
 
-    <!-- Header -->
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-        <a href="/app/coach/athletes" style="color:var(--text-muted);text-decoration:none;font-size:20px;">←</a>
-        <div class="athlete-avatar"><?= h(avatar_initials($athlete['name'])) ?></div>
-        <div class="av-header-text">
-            <div class="page-heading" style="margin-bottom:0;"><?= h($athlete['name']) ?></div>
-            <div class="av-header-email" style="font-size:12px;color:var(--text-muted);"><?= h($athlete['email']) ?></div>
-        </div>
-        <a href="/app/coach/athlete/<?= (int)$athlete['id'] ?>/log" class="btn btn-secondary btn-sm" style="margin-left:auto;flex-shrink:0;">Training log →</a>
-    </div>
+    <!-- Shared chrome: back + header + sub-nav tab strip -->
+    <?php include __DIR__ . '/partials/athlete_chrome.php'; ?>
 
     <div class="av-grid">
 
@@ -960,10 +952,6 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 </button>
             </form>
             <?php endif; ?>
-            <a href="/app/coach/athlete/<?= (int)$athlete['id'] ?>/edit"
-               class="btn btn-secondary btn-full" style="margin-top:8px;">
-                Edit Training Profile
-            </a>
         </div>
 
         <?php if (!empty($pendingRegen)): ?>

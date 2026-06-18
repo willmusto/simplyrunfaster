@@ -5,11 +5,16 @@ $pzHasZones = PaceZones::isPopulated($profile['pace_zones'] ?? null);
 $pzVisible  = !isset($profile['pace_zones_visible']) || (int)$profile['pace_zones_visible'] === 1;
 ?>
 <div class="page-content">
+    <?php if (!empty($chrome)): ?>
+    <!-- Shared chrome: back + header + sub-nav tab strip -->
+    <?php include __DIR__ . '/partials/athlete_chrome.php'; ?>
+    <?php else: ?>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
         <a href="<?= h($cancelUrl) ?>" style="color:var(--text-muted);text-decoration:none;font-size:20px;">←</a>
         <div class="page-heading" style="margin-bottom:0;">Edit Profile: <?= h($athlete['name']) ?></div>
     </div>
-    <p class="body-text" style="margin-bottom:20px;color:var(--text-muted);">
+    <?php endif; ?>
+    <p class="body-text" style="margin:-6px 0 20px;color:var(--text-muted);">
         Editing saves the athlete's profile for the next plan generation. It does not rebuild the active plan.
     </p>
 
