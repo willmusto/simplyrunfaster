@@ -1786,3 +1786,14 @@ body.is-offline .offline-banner { display: block; }
     background: var(--recessed-bg);
     color: var(--text-secondary);
 }
+/* Coach-only badge on a workout carried over from the prior plan during a regen
+   (a week the athlete had already seen). Mirrors .macro-ac-badge. */
+.macro-carried-badge {
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    background: #eef7f2;
+    color: #1D9E75;
+}

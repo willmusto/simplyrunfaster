@@ -877,6 +877,9 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                                     <?php if (($w['added_by_role'] ?? '') === 'assistant_coach'): ?>
                                     <span class="macro-ac-badge" title="Added by assistant coach (not shown to the athlete)">AC</span>
                                     <?php endif; ?>
+                                    <?php if (!empty($w['carried_over_from_plan_id'])): ?>
+                                    <span class="macro-carried-badge" title="Carried over from the prior plan (week already seen by the athlete)">↻</span>
+                                    <?php endif; ?>
                                     <?php if ($isPastWorkout): ?>
                                     <span class="compliance-dot <?= $complianceClass ?> macro-compliance"
                                           title="<?= h($complianceTitle) ?>"></span>
@@ -927,6 +930,10 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             <form method="POST" action="/app/coach/athlete/<?= (int)$athlete['id'] ?>/generate-plan"
                   onsubmit="return confirm('Generate a new plan for <?= h(addslashes($athlete['name'])) ?>? Any pending plan in the queue will be replaced.');">
                 <?= Auth::csrfField() ?>
+                <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.35;">
+                    <input type="checkbox" name="full_wipe" value="1" style="margin-top:2px;flex-shrink:0;">
+                    <span>Regenerate entire plan including days that have been exposed to the athlete.</span>
+                </label>
                 <button type="submit" class="btn btn-primary btn-full">
                     Generate Plan
                 </button>
@@ -946,17 +953,19 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 <strong><?= h($pendingRegen['requester_name'] ?? 'an assistant coach') ?></strong>
                 &middot; <?= h(date('M j', strtotime((string)$pendingRegen['requested_at']))) ?>
             </div>
-            <div style="display:flex;gap:8px;">
-                <form method="POST" action="/app/coach/regeneration/<?= (int)$pendingRegen['id'] ?>/approve" style="flex:1;"
-                      onsubmit="return confirm('Approve and regenerate this plan now? Any pending plan in the queue will be replaced.');">
-                    <?= Auth::csrfField() ?>
-                    <button type="submit" class="btn btn-primary btn-full btn-sm">Approve</button>
-                </form>
-                <form method="POST" action="/app/coach/regeneration/<?= (int)$pendingRegen['id'] ?>/dismiss" style="flex:1;">
-                    <?= Auth::csrfField() ?>
-                    <button type="submit" class="btn btn-secondary btn-full btn-sm">Dismiss</button>
-                </form>
-            </div>
+            <form method="POST" action="/app/coach/regeneration/<?= (int)$pendingRegen['id'] ?>/approve"
+                  onsubmit="return confirm('Approve and regenerate this plan now? Any pending plan in the queue will be replaced.');">
+                <?= Auth::csrfField() ?>
+                <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.35;">
+                    <input type="checkbox" name="full_wipe" value="1" style="margin-top:2px;flex-shrink:0;">
+                    <span>Regenerate entire plan including days that have been exposed to the athlete.</span>
+                </label>
+                <button type="submit" class="btn btn-primary btn-full btn-sm">Approve &amp; regenerate</button>
+            </form>
+            <form method="POST" action="/app/coach/regeneration/<?= (int)$pendingRegen['id'] ?>/dismiss" style="margin-top:8px;">
+                <?= Auth::csrfField() ?>
+                <button type="submit" class="btn btn-secondary btn-full btn-sm">Dismiss</button>
+            </form>
         </div>
         <?php endif; ?>
 

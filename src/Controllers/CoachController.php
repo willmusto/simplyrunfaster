@@ -286,10 +286,14 @@ class CoachController
             exit;
         }
 
+        // Default preserves athlete-exposed weeks; the required checkbox forces a full wipe.
+        $fullWipe = !empty($_POST['full_wipe']);
         try {
-            $planId = PlanGenerator::generate($athleteId, 'coach_manual');
+            $planId = PlanGenerator::generate($athleteId, 'coach_manual', $fullWipe);
             if ($planId) {
-                $_SESSION['flash_success'] = 'New plan generated and added to the approval queue.';
+                $_SESSION['flash_success'] = $fullWipe
+                    ? 'New plan generated (full rebuild) and added to the approval queue.'
+                    : 'New plan generated and added to the approval queue. Weeks the athlete has already seen were carried over.';
             } else {
                 $_SESSION['flash_error'] = 'Plan generation returned no result. Check athlete profile data.';
             }
@@ -388,8 +392,9 @@ class CoachController
 
         if ($req && self::getAthleteForCoach((int)$req['athlete_id'], $uid, $db)) {
             $athleteId = (int)$req['athlete_id'];
+            $fullWipe  = !empty($_POST['full_wipe']);
             try {
-                PlanGenerator::generate($athleteId, 'coach_manual');
+                PlanGenerator::generate($athleteId, 'coach_manual', $fullWipe);
                 $_SESSION['flash_success'] = 'Plan regenerated and added to the approval queue.';
             } catch (Throwable $e) {
                 error_log('approveRegeneration generate failed for athlete ' . $athleteId . ': ' . $e->getMessage());
@@ -3194,7 +3199,7 @@ class CoachController
                     pw.display_title                                          AS template_name,
                     COALESCE(pw.athlete_instructions, pw.description, pw.display_summary, \'\') AS description,
                     pw.structure, pw.target_duration, pw.intensity_load,
-                    pw.coach_locked, pw.visible_to_athlete, pw.added_by_role,
+                    pw.coach_locked, pw.visible_to_athlete, pw.added_by_role, pw.carried_over_from_plan_id,
                     (
                         SELECT cw.compliance_score
                         FROM completed_workouts cw
