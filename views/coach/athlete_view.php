@@ -717,8 +717,8 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                     <span style="font-size:11px;color:var(--text-muted);min-width:60px;">
                         <?= date('D M j', strtotime($w['scheduled_date'])) ?>
                     </span>
-                    <span class="pill <?= pill_class($w['workout_type']) ?>">
-                        <?= pill_label($w['workout_type']) ?>
+                    <span class="pill <?= pill_class($w['workout_type'], $w['archetype_code'] ?? null) ?>">
+                        <?= pill_label($w['workout_type'], $w['archetype_code'] ?? null) ?>
                     </span>
                     <?php if ($w['target_duration']): ?>
                     <span style="font-size:12px;color:var(--text-muted);"><?= format_duration((int)$w['target_duration']) ?></span>
@@ -833,7 +833,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                                         $complianceTitle = 'Compliance ' . round($score * 100) . '%';
                                     }
                                 }
-                                $title = $w['display_title'] ?: ($w['template_name'] ?: pill_label($w['workout_type']));
+                                $title = $w['display_title'] ?: ($w['template_name'] ?: pill_label($w['workout_type'], $w['archetype_code'] ?? null));
                                 $description = (string)($w['description'] ?? '');
                                 // Race conflict border: quality session close to an upcoming race.
                                 $conflictRM = in_array($w['workout_type'], $qualityTypesRM, true)
@@ -843,8 +843,8 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                             $mwData = htmlspecialchars(json_encode([
                                 'id'              => (int)$w['id'],
                                 'workout_type'    => (string)$w['workout_type'],
-                                'type_label'      => pill_label($w['workout_type']),
-                                'type_class'      => pill_class($w['workout_type']),
+                                'type_label'      => pill_label($w['workout_type'], $w['archetype_code'] ?? null),
+                                'type_class'      => pill_class($w['workout_type'], $w['archetype_code'] ?? null),
                                 'title'           => (string)$title,
                                 'date'            => (string)$date,
                                 'target_duration' => (int)($w['target_duration'] ?? 0),
@@ -860,8 +860,8 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                                     <?= $conflictRM ? 'title="' . ($conflictRM === 'red' ? 'Quality session within 3 days of a race' : 'Quality session within 7 days of a race') . '" ' : '' ?>
                                     data-workout-id="<?= (int)$w['id'] ?>" data-mw="<?= $mwData ?>">
                                 <div class="macro-workout-row">
-                                    <span class="pill <?= pill_class($w['workout_type']) ?>">
-                                        <?= pill_label($w['workout_type']) ?>
+                                    <span class="pill <?= pill_class($w['workout_type'], $w['archetype_code'] ?? null) ?>">
+                                        <?= pill_label($w['workout_type'], $w['archetype_code'] ?? null) ?>
                                     </span>
                                     <?php if ($w['target_duration']): ?>
                                     <span class="macro-duration"><?= format_duration((int)$w['target_duration']) ?></span>
