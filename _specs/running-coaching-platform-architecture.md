@@ -1159,6 +1159,8 @@ All races are treated as full effort by the engine. No target effort distinction
   is resolved by proximity to the race — **days 1–3 rest, days 4–7 easy 30 min, days 8–N
   recovery 40 min** — overwriting any surviving quality/long workout, capped at `plan_end_date`,
   never touching coach-locked rows. See engine spec §9 (Post-Race Recovery) for the full table.
+  The `races` query is **strictly scoped to the current `athlete_id`**, with a belt-and-suspenders
+  per-row `athlete_id` filter (FIX 9) so one athlete's race can never patch another athlete's plan.
 - **Recalibration:** logging a result stores `result_time` (seconds) + `result_notes`, sets
   `recalibration_proposed`, computes `proposed_pace_zones` via `PaceZones::fromRace`, and
   raises a `pace_recalibration` flag carrying the `race_id`. The Alerts view renders a

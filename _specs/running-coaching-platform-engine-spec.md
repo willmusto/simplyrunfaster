@@ -471,8 +471,21 @@ volume still ramps with the standard week-over-week logic up to it.
 | 100K | 210 | 270 | 360 |
 | 100 Miler | 240 | 330 | 420 |
 
-The long run is `min(phase cap, prior-long × 1.15)` so it ramps via the 15%/week
-individual-run ceiling and is displayed as "Xh Ymin", never miles.
+The long run **ramps gradually within each phase** rather than jumping to the cap (FIX 7,
+applies to all ultras **and marathon**). Each phase ramps from a phase-start value up to
+that phase's ceiling, reaching the ceiling only at the phase's last (non-cutback) week:
+the **base phase opens from a reduced long run** — `max(longFloor, round(min(current
+longest, base cap) × 0.70))` — so it has room to climb even when the athlete's current
+longest already sits at the base cap; **build and peak continue from the previous phase's
+ceiling**. The per-week target is `phaseStart + (phaseCap − phaseStart) × (weekInPhase /
+phaseWeeks)`, clamped to `[longFloor, phaseCap]`. **Cutback weeks** drop the long run to
+**~65 % of the prior week**. The cap is a ceiling, not a per-week target. Computed in
+`generateRaceCycle` and passed to `insertWeekWorkouts` as a `longRunOverride`; 5K/10K/half
+keep the legacy weekly-volume long-run sizing. Displayed as "Xh Ymin", never miles.
+
+*Example (Matthew, 100-miler):* base ramps 175 → 182 → 197 → 204 → 218 → 226 → 240 with
+cutback dips (118 / 133 / 147), then build continues 253 → 279 → 291 toward its 330 cap —
+no flat 4 h base and no sudden jump.
 
 ### Back-to-back long runs
 A Saturday long run + Sunday **medium-long run** on tired legs is the primary ultra
@@ -495,9 +508,25 @@ priority and the conflicting quality slot is demoted to easy.
 - 50K — ~1.5/week (alternating 1/2, development-style).
 - 50 Miler — 1/week throughout.
 - 100K — 1/week base/build; 0–1 in peak (volume + back-to-backs take priority).
-- 100 Miler — 0–1/week in base/build, **0 in peak**. When quality is scheduled it
-  favours aerobic threshold work (tempo_intervals, structured_fartlek_ladder) over
-  track-style speed (the speed/rep archetypes are excluded from selection).
+- 100 Miler — 0–1/week in base/build, **0 in peak**.
+
+### Quality archetype selection for 100K / 100 Miler (FIX 3 / FIX 10)
+The two longest distances steer quality work toward aerobic power + threshold and away
+from track-style speed:
+- **Excluded** `short_speed_repeats`, `equal_distance_repeats`, `mixed_distance_repeats`
+  in **base** and **peak** entirely; allowed **sparingly in build** (one week in four).
+  100 Miler additionally excludes `high_volume_time_intervals` in every phase.
+- **Weighted ×3** `sustained_hill_repeats`, `structured_fartlek_ladder`, `tempo_intervals`.
+- **Threshold/tempo stay available and favoured in base/build** (FIX 10A): `tempo_intervals`
+  and `continuous_progression_tempo` are weighted up (≥×2) for **all** ultras in base/build,
+  and all ultras favour the new `hill_sprint_ladder` (×2). Ultra athletes benefit from
+  threshold work for running economy even though race pace is far slower.
+- **Ultra effort framing (FIX 10B):** tempo/threshold instructions append *"This effort is
+  significantly faster than your goal race pace, and that is intentional…"*.
+- **Goal-pace long segments (FIX 10C):** `goal_pace_long_segments` is weighted higher (×2.5)
+  for ultras in **build/peak**; its instructions append a clarification that the segments are
+  run at ~marathon effort (faster than goal ultra pace, which would be indistinguishable from
+  easy) to build aerobic capacity and economy.
 
 ### Pace citations
 50K / 50 Miler cite pace zones on quality sessions exactly like marathon (when zones
@@ -509,7 +538,7 @@ When `ultra_surface = 'trail'`:
 - Archetype scoring is multiplied: sustained_hill_repeats ×2, hill_sprints ×2,
   structured_fartlek_ladder ×1.5, equal_distance_repeats ×0.5.
 - Long-run (and medium-long) instructions append: *"Focus on time on feet rather than
-  pace. Walk the uphills when needed — power hiking is a legitimate race strategy…"*.
+  pace. Walk the uphills when needed: power hiking is a legitimate race strategy…"*.
 - Power-hiking practice guidance is added for 50 Miler / 100K / 100 Miler in every
   phase, and for 50K in the peak phase only.
 - A one-time info flag **`ultra_surface_reminder`** is raised at plan generation
@@ -840,7 +869,7 @@ This is a simplified custom model appropriate for v1. It does not require power 
 
 Factors are stored in each archetype's `generation.intensity_factor` field in the `workout_archetypes` table. They are configurable per archetype — changing a factor in the database takes effect on the next plan generation without touching engine logic.
 
-**Archetype intensity factors (all 19 system archetypes):**
+**Archetype intensity factors (all 20 system archetypes):**
 
 | Archetype code | Intensity factor | Notes |
 |---|---|---|
@@ -851,7 +880,8 @@ Factors are stored in each archetype's `generation.intensity_factor` field in th
 | `plyometric_hill_circuits` | 0.60 | Short plyometric efforts, full circuit recovery |
 | `structured_fartlek_ladder` | 0.70 | Mixed intensity — ladder structure |
 | `hill_sprints` | 0.70 | Neuromuscular — short all-out efforts, full walk-back recovery |
-| `sustained_hill_repeats` | 0.70 | Sustained uphill efforts, jog recovery |
+| `sustained_hill_repeats` | 0.70 | Sustained uphill efforts, jog recovery (rep duration capped 30–90 sec) |
+| `hill_sprint_ladder` | 0.70 | Neuromuscular ladder of hill sprints (descending / pyramid / double-descending), jog back to the bottom between every rep |
 | `continuous_long` | 0.80 | Duration does most of the work |
 | `tempo_intervals` | 0.85 | Sustained threshold effort with recovery |
 | `long_run_with_pickups` | 0.85 | Easy long run with embedded speed pickups |
@@ -998,6 +1028,14 @@ The minimum viable gate is downstream of the duration eligibility gate: the dura
 | > 90 s | 30 s |
 
 Example: `rep_duration_seconds` for `sustained_hill_repeats`, workable classification, {45, 120} range → midpoint 83 → rounds to **90 sec**.
+
+**`sustained_hill_repeats` rep-duration cap (FIX 1):** after resolution, `addDerivedParams`
+**clamps `rep_duration_seconds` to 30–90 sec** (the well-trained {45, 240} range otherwise
+resolves to a 150-sec midpoint, which is outside the intended sustained-hill band). The
+value is also formatted for display via `formatSecondsLabel()`: **under a minute → "X sec"
+(e.g. "45 sec"); a minute and above → "Xm YYs" (e.g. "1m 30s")** — never raw seconds above
+60. The DB title/description templates are overridden at generation time to use the
+`{{rep_duration_display}}` label, so a 90-sec rep renders "6 × 1m 30s Hill Repeats".
 
 Integer parameters without the `_seconds` suffix are resolved to the raw nearest-integer midpoint. Float parameters round to 2 decimal places.
 
@@ -1202,7 +1240,7 @@ The transition flag deliberately reuses the existing `plan_rebuild_needed` type 
 
 These items are intentionally deferred and must be resolved before the relevant engine components are built:
 
-1. **Workout library content** — ✅ Resolved. 23 templates documented in workout library document; archetype system (17 archetypes) is the active prescription layer as of Milestone 3.
+1. **Workout library content** — ✅ Resolved. 23 templates documented in workout library document; the archetype system (now **20 archetypes** — `hill_sprint_ladder` added in this session, see item 18) is the active prescription layer as of Milestone 3.
 
 2. **Tune-up race handling** — ✅ Resolved. See Section 26 of Architecture document.
 
@@ -1253,6 +1291,19 @@ These items are intentionally deferred and must be resolved before the relevant 
     - **Saturday rest bias (6-day & 7-day cutback):** with one rest day the largest-rest-block tiebreaker is degenerate, so it defaulted to the highest-numbered day (Saturday). A secondary tiebreaker now keeps the post-long-run recovery slot `(longDay+1) mod 7` as the rest day (suppressed on ultra back-to-back weeks).
     - **Dateless race cycle:** `generateRaceCycle` previously fell back to a development plan when `goal_race_date` was NULL. It now raises a critical `missing_goal_race_date` flag and returns early; onboarding requires the date for race-cycle goals (§6 "Missing Goal Race Date").
     - Verified by regenerating Matthew Jenkins (100-miler, 7 days/wk): `base_classification = well_trained`, regular weeks 7 train / 0 rest, cutback weeks (every 3rd) 6 train with Monday (post-Sunday-long-run) rest.
+
+18. **Plan-generation quality fixes — hill caps, ultra archetypes, long-run + easy-run progression, em dashes** — ✅ **Resolved** (this session). Ten engine fixes, verified by regenerating Matthew Jenkins (100-miler) and Liam, with `validateGeneratedDisplays()` clean and `php -l` clean on all changed files:
+    - **FIX 1 — sustained hill rep duration.** `rep_duration_seconds` is clamped to **30–90 sec** in `addDerivedParams` (the well-trained {45, 240} midpoint resolved to 150 sec). Durations render via `formatSecondsLabel()` — "X sec" under a minute, **"Xm YYs"** at/above (90 → "1m 30s") — never raw seconds above 60. Title/description templates are overridden at generation time to use `{{rep_duration_display}}`. See §13 (Parameter Resolution).
+    - **FIX 2 — phase rep-count caps.** `short_speed_repeats`, `equal_distance_repeats`, `mixed_distance_repeats` cap `rep_count` by phase: **base 8, build 12, peak 16** (`phaseRepCap`), applied after fit-to-slot and before `total_distance`, so base carries less volume than build/peak.
+    - **FIX 3 — 100K / 100 Miler base archetypes.** Speed/equal/mixed repeats are excluded in base + peak entirely and allowed only sparingly in build (one week in four); 100 Miler also excludes `high_volume_time_intervals` in every phase. `sustained_hill_repeats`, `structured_fartlek_ladder`, `tempo_intervals` are weighted ×3. See §9b Quality cadence.
+    - **FIX 4 — Wave Progression Tempo description.** The `wave_progression` variant of `continuous_progression_tempo` now describes a genuine wave pattern (base moderate effort with 30–60 sec surges to tempo and floats back to moderate, trending upward), distinct from the `linear_progression` 3-segment build.
+    - **FIX 5 — em-dash convention.** No em dash (U+2014) appears in any generated workout text. Source string literals in `PlanGenerator` were corrected, and `normalizeInstructionText()` carries a final pass that collapses any em dash sourced from a DB-seeded `description_template` to a comma (en dashes in distance/time ranges are intentionally preserved). The seed JSON/seeder templates were also corrected at source.
+    - **FIX 6 — `hill_sprint_ladder` archetype (NEW).** A neuromuscular ladder of near-maximal hill sprints with **jog back to the bottom between every rep** in every variant. Variants: **descending** (60-50-40-30-20-10), **pyramid** (10-20-30-40-50-60-50-40-30-20-10), **double descending** (60-50-40-30-20-10-50-40-30-20-10). `workout_type: hill` (the `planned_workouts`/`workout_archetypes` ENUMs have no `hill_session`); slot type quality; 15-min warmup with 4×15 sec strides + 10-min cooldown; `requires: hill_access`. Weighted highly for ultras (×2) and base/build, low for 5K/10K/mile. Seeded to the DB via `scripts/run_migration_026_hill_sprint_ladder.php` (idempotent INSERT IGNORE from the seed JSON); the ladder sequence + rep count are derived in `addDerivedParams`.
+    - **FIX 7 — long-run weekly progression.** Per-phase gradual ramp for all ultras **and marathon**; see §9b Long-run caps (replaces the old `min(phase cap, prior × 1.15)` formula). Base opens from a reduced long run and climbs to its cap by phase end; cutbacks at ~65 % of the prior week. Fixes the "flat 4 h base then jump to 5 h 30" case.
+    - **FIX 8 — easy-run duration progression.** Easy-run duration is the weekly remainder (`weeklyMins − long − quality − medium`) ÷ easy-day count, clamped `[floor, cap]`, so it tracks volume (already true for most distances). The **ultra easy-run cap is lifted to ~110 min** so ultra easy runs are no longer pinned at the 70-min road cap and vary across phases as the long run grows.
+    - **FIX 9 — cross-athlete race scoping.** `applyRaceAdjustments` already scopes the `races` query to `athlete_id`; a belt-and-suspenders **per-row `athlete_id` filter** was added so no other athlete's race can ever patch this athlete's plan even under bad data. (Matthew has no races on file; his prior "Aug-31 30-min recovery" rows were stale artifacts of an earlier generation and do not reappear on regeneration.)
+    - **FIX 10 — ultra threshold/tempo + goal-pace framing.** Tempo/threshold archetypes stay available and favoured in ultra base/build (FIX 10A); tempo/threshold instructions append ultra effort framing (FIX 10B); `goal_pace_long_segments` is weighted higher in build/peak for ultras with a marathon-effort clarification (FIX 10C). See §9b Quality archetype selection.
+    - Verification scripts: `scripts/verify_plan_quality_fixes.php` (regenerates both athletes and reports long-run progression, easy durations, archetype mix, em-dash scan, race window, and the hill-ladder library/preview).
 
 ---
 
