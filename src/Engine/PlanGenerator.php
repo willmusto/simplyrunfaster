@@ -1662,59 +1662,76 @@ class PlanGenerator
     }
 
     /**
-     * Return-to-running: a STATIC initial rolling window (next 10 days) at run/walk
-     * stage 1. Run days use the run_walk_intervals archetype (stage 1) on an
-     * every-other-day cadence, capped by the athlete's training_days_per_week as an
-     * UPPER BOUND and never on must-off days. Non-run days are low-impact cross-
-     * training (if equipment) or rest, both carrying a coach-drill note (rehab
-     * Phases I–III are handled by the coach off-platform).
+     * Return-to-running: pre-generate the FULL expected progression upfront so the coach
+     * sees every planned session in the macro view. All RTR_MAX_STAGE (10) run/walk
+     * sessions are created at stage 1 on an every-other-day cadence (≥2-day gap, never on
+     * must-off days, ~20 days total), with rest / cross-training filling every day in
+     * between. plan_end_date spans the whole progression.
      *
-     * rtr_current_stage is set to 1 at creation. plan_end_date is the window end
-     * (start + 9 days); the adaptive stage-progression follow-on (engine spec §19
-     * item 6) extends the plan as the athlete advances through the stages.
+     * Visibility mirrors a normal plan: the initial rolling window (first RTR_WINDOW_DAYS
+     * days) is opened (visible_to_athlete=1); sessions beyond it stay visible_to_athlete=0
+     * — the coach sees them, the athlete does not yet. rtr_current_stage is set to 1.
+     *
+     * The adaptive progression (onRunWalkCompletion) re-stages the NEXT pending session in
+     * place as the athlete advances, rather than inserting sessions one at a time.
      */
     private static function generateReturnToRunning(
         int $athleteId, array $profile, string $trigger, PDO $db
     ): ?int {
         $selector = new ArchetypeSelector($db);
 
-        $stage      = 1;
-        $windowDays = 10;
-        $startDate  = self::planStartDate($athleteId, $db); // "tomorrow" in the athlete's timezone
-        $endDate    = date('Y-m-d', strtotime($startDate . ' +' . ($windowDays - 1) . ' days'));
+        $stage          = 1;
+        $sessionsTarget = self::RTR_MAX_STAGE;                 // 10 sessions = stages 1..10
+        $startDate      = self::planStartDate($athleteId, $db); // "tomorrow" in athlete tz
 
-        $planId = self::createPlanRecord($athleteId, 'return_to_running', $startDate, $endDate, null, $trigger, $db);
+        // Create the plan first (inserts need the id); plan_end_date is finalized below
+        // once the last session's date is known.
+        $planId = self::createPlanRecord($athleteId, 'return_to_running', $startDate, $startDate, null, $trigger, $db);
         $db->prepare('UPDATE training_plans SET rtr_current_stage = ? WHERE id = ?')->execute([$stage, $planId]);
 
-        $cap          = max(1, min(7, (int)($profile['training_days_per_week'] ?? 3)));
-        $mustOff      = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
+        $mustOff = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
+        $insert  = self::rtrInsertStatement($db);
 
-        $insert = self::rtrInsertStatement($db);
+        $placed        = 0;
+        $lastRunOffset = -2;   // allow day 0 to be a run day (every-other-day spacing)
+        $offset        = 0;
+        $lastDate      = $startDate;
+        $maxOffset     = 60;   // safety bound
 
-        $runDaysUsed   = 0;
-        $lastRunOffset = -2; // allow day 0 to be a run day (every-other-day spacing)
-
-        for ($d = 0; $d < $windowDays; $d++) {
-            $date = date('Y-m-d', strtotime($startDate . " +{$d} days"));
+        while ($placed < $sessionsTarget && $offset <= $maxOffset) {
+            $date = date('Y-m-d', strtotime($startDate . " +{$offset} days"));
             $dow  = (int)date('w', strtotime($date));
 
-            $isRunDay = !in_array($dow, $mustOff, true)
-                && $runDaysUsed < $cap
-                && ($d - $lastRunOffset) >= 2;
+            $isRunDay = !in_array($dow, $mustOff, true) && ($offset - $lastRunOffset) >= 2;
 
             if ($isRunDay) {
                 $instance = self::resolveRunWalkStage($selector, $stage, 0, 'base', '5K', 'insufficient');
                 if ($instance !== null) {
                     self::insertResolvedWorkout($insert, $planId, $athleteId, $date, 'easy', $instance);
-                    $runDaysUsed++;
-                    $lastRunOffset = $d;
+                    $placed++;
+                    $lastRunOffset = $offset;
+                    $lastDate      = $date;
+                    $offset++;
                     continue;
                 }
             }
 
             // Non-run day: cross-train (matched to equipment) or a generic rest day.
             self::insertReturnToRunningOffDay($insert, $planId, $athleteId, $date, $profile);
+            $lastDate = $date;
+            $offset++;
         }
+
+        // plan_end_date spans the full pre-generated progression (the last session's date).
+        $db->prepare('UPDATE training_plans SET plan_end_date = ? WHERE id = ?')->execute([$lastDate, $planId]);
+
+        // Open the initial rolling window (first RTR_WINDOW_DAYS days); everything beyond
+        // it stays visible_to_athlete=0 until the rolling-window cron / approval reaches it.
+        $windowEnd = date('Y-m-d', strtotime($startDate . ' +' . (self::RTR_WINDOW_DAYS - 1) . ' days'));
+        $db->prepare(
+            'UPDATE planned_workouts SET visible_to_athlete = 1
+             WHERE plan_id = ? AND scheduled_date BETWEEN ? AND ?'
+        )->execute([$planId, $startDate, $windowEnd]);
 
         return $planId;
     }
@@ -1789,8 +1806,8 @@ class PlanGenerator
      *   - clean, current stage == 10       → do NOT advance; raise a plan_rebuild_needed
      *                                         (info) flag so the coach transitions the
      *                                         athlete out of return_to_running
-     * It then patches the next scheduled run/walk session to the new stage and keeps the
-     * rolling visibility window populated (see regenerateReturnToRunningWindow), and runs
+     * It then re-stages the next pending run/walk session in place to the new stage (see
+     * restageNextRunWalk; sessions are pre-generated at stage 1) and runs
      * validateGeneratedDisplays() on the patched plan.
      *
      * Returns a short status string for logging, or null when the workout is not a
@@ -1871,9 +1888,10 @@ class PlanGenerator
                ->execute([$newStage, $planId]);
         }
 
-        // Patch the next scheduled run/walk session to the new stage and keep the
-        // rolling window populated (extends the plan as the athlete climbs the stages).
-        self::regenerateReturnToRunningWindow($planId, $athleteId, $newStage, $completedDate, $scheduleNext, $db);
+        // Re-stage the next pending run/walk session in place to the new stage (sessions
+        // are pre-generated at stage 1 by generateReturnToRunning), keeping the rest of the
+        // pre-generated progression intact.
+        self::restageNextRunWalk($planId, $athleteId, $newStage, $completedDate, $scheduleNext, $db);
 
         // The patch wrote fresh display fields — re-validate, mirroring generate().
         self::validateGeneratedDisplays($planId, $athleteId, $db);
@@ -1882,121 +1900,113 @@ class PlanGenerator
     }
 
     /**
-     * Rebuild the forward (future) portion of a return_to_running plan's rolling
-     * window after a stage change. Wipes uncompleted planned workouts dated after the
-     * just-completed session, then regenerates: the NEXT eligible run day becomes a
-     * single run_walk_intervals session at $stage (every-other-day cadence from the
-     * completed session, never on must-off days), and all other days in the window are
-     * cross-training/rest with the coach drill note. Exactly one pending run/walk
-     * session is kept ahead at any time — when the athlete completes it, the stage
-     * updates again and the window is rebuilt from there.
+     * Re-stage the NEXT pending run/walk session to $newStage after a completion. Sessions
+     * are pre-generated at stage 1 by generateReturnToRunning, so the common path is an
+     * in-place UPDATE of the next pending session's archetype + display fields — no
+     * delete/insert. Coach-locked sessions are preserved (the coach's explicit override
+     * wins, §24).
      *
-     * When $scheduleRun is false (clean stage-10 completion), no further run is
-     * scheduled — the window holds only gentle cross/rest days until the coach
-     * transitions the athlete to a new plan type.
-     *
-     * Newly generated days inside the live [today, horizon] window are made visible
-     * immediately (the same window the daily cron / approval opens), so the athlete
-     * sees their next session without waiting for the nightly cron.
+     * When $scheduleRun is false (clean stage-10 completion), nothing is scheduled — the
+     * progression is complete. As a safety net (e.g. when discomfort regressions have
+     * consumed the pre-generated set), if no pending session remains a new one is appended
+     * on the next every-other-day slot, extending the plan and opening the live window.
      */
-    private static function regenerateReturnToRunningWindow(
-        int $planId, int $athleteId, int $stage, string $fromDate, bool $scheduleRun, PDO $db
+    private static function restageNextRunWalk(
+        int $planId, int $athleteId, int $newStage, string $afterDate, bool $scheduleRun, PDO $db
     ): void {
-        $profile = self::loadProfile($athleteId, $db);
-        if (!$profile) return;
+        if (!$scheduleRun) return;
 
-        $selector     = new ArchetypeSelector($db);
-        $mustOff      = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
+        $selector = new ArchetypeSelector($db);
+        $instance = self::resolveRunWalkStage($selector, $newStage, 0, 'base', '5K', 'insufficient');
+        if ($instance === null) return;
 
-        $tz       = self::athleteTimezone($athleteId, $db);
-        $today    = Timezone::dateInZone($tz, 'now');
-        $todayTs  = strtotime($today);
-        $fromTs   = strtotime($fromDate);
-
-        // Regenerate from the day after the completed session, but never into the past.
-        $startTs = strtotime('+1 day', $fromTs);
-        if ($startTs < $todayTs) $startTs = $todayTs;
-        $startGen = date('Y-m-d', $startTs);
-
-        // Wipe future, uncompleted planned workouts so we never leave a stale-stage run
-        // or a duplicate day — but PRESERVE coach-locked sessions (explicit overrides;
-        // §24 lets the coach hold/advance/regress stages). The completed session (on
-        // $fromDate) and everything before $startGen are untouched.
-        $db->prepare('DELETE FROM planned_workouts WHERE plan_id = ? AND scheduled_date >= ? AND coach_locked = 0')
-           ->execute([$planId, $startGen]);
-
-        $insert = self::rtrInsertStatement($db);
-
-        // The completed session anchors the every-other-day cadence for the next run.
-        $lastRunTs  = $fromTs;
-        $runPlaced  = false;
-
-        // Dates still holding a surviving (coach-locked) workout: don't double up on
-        // them, and if one is a run/walk session, treat the next-run slot as already
-        // filled so we respect the coach's pinned session instead of competing with it.
-        $locked = $db->prepare(
-            'SELECT scheduled_date, archetype_code FROM planned_workouts
-             WHERE plan_id = ? AND scheduled_date >= ?'
+        // Next uncompleted run/walk session after the just-completed one (skip coach-locked).
+        $next = $db->prepare(
+            'SELECT id FROM planned_workouts
+             WHERE plan_id = ? AND athlete_id = ? AND archetype_code = "run_walk_intervals"
+               AND scheduled_date > ? AND coach_locked = 0
+             ORDER BY scheduled_date ASC LIMIT 1'
         );
-        $locked->execute([$planId, $startGen]);
-        $lockedDates = [];
-        foreach ($locked->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            $lockedDates[$r['scheduled_date']] = true;
-            if (($r['archetype_code'] ?? '') === 'run_walk_intervals') {
-                $runPlaced = true;
-            }
+        $next->execute([$planId, $athleteId, $afterDate]);
+        $nextId = (int)($next->fetchColumn() ?: 0);
+
+        if ($nextId > 0) {
+            self::updateResolvedRunWalk($nextId, $instance, $db);
+            return;
         }
 
-        $horizonTs  = strtotime('+' . self::RTR_WINDOW_DAYS . ' days', max($todayTs, $fromTs));
-        $hardCapTs  = strtotime('+14 days', $horizonTs); // bound the search for the next run day
-        $lastGenTs  = $startTs;
+        // Safety net: no pending session left — append one on the next every-other-day slot.
+        $profile = self::loadProfile($athleteId, $db);
+        $mustOff = json_decode(($profile['must_off_days'] ?? '[]'), true) ?: [];
+        $afterTs = strtotime($afterDate);
 
-        for ($ts = $startTs; ; $ts = strtotime('+1 day', $ts)) {
-            $reachedHorizon = $ts > $horizonTs;
-            $stillNeedRun   = $scheduleRun && !$runPlaced;
-            // Run to the horizon; continue past it only until the next run lands (bounded).
-            if ($reachedHorizon && (!$stillNeedRun || $ts > $hardCapTs)) break;
-
+        for ($i = 2; $i <= 30; $i++) {
+            $ts   = strtotime($afterDate . " +{$i} days");
             $date = date('Y-m-d', $ts);
-            $dow  = (int)date('w', $ts);
+            if (in_array((int)date('w', $ts), $mustOff, true)) continue;
 
-            // A surviving coach-locked workout already occupies this date — leave it.
-            if (isset($lockedDates[$date])) {
-                $lastGenTs = $ts;
-                continue;
-            }
+            $occ = $db->prepare('SELECT 1 FROM planned_workouts WHERE plan_id = ? AND scheduled_date = ? LIMIT 1');
+            $occ->execute([$planId, $date]);
+            if ($occ->fetchColumn()) continue;
 
-            $isRunDay = $scheduleRun && !$runPlaced
-                && !in_array($dow, $mustOff, true)
-                && (($ts - $lastRunTs) / 86400) >= 2;
+            $insert = self::rtrInsertStatement($db);
+            self::insertResolvedWorkout($insert, $planId, $athleteId, $date, 'easy', $instance);
 
-            if ($isRunDay) {
-                $instance = self::resolveRunWalkStage($selector, $stage, 0, 'base', '5K', 'insufficient');
-                if ($instance !== null) {
-                    self::insertResolvedWorkout($insert, $planId, $athleteId, $date, 'easy', $instance);
-                    $runPlaced = true;
-                    $lastRunTs = $ts;
-                    $lastGenTs = $ts;
-                    continue;
-                }
-            }
+            $db->prepare('UPDATE training_plans SET plan_end_date = GREATEST(COALESCE(plan_end_date, ?), ?) WHERE id = ?')
+               ->execute([$date, $date, $planId]);
 
-            self::insertReturnToRunningOffDay($insert, $planId, $athleteId, $date, $profile);
-            $lastGenTs = $ts;
+            $tz    = self::athleteTimezone($athleteId, $db);
+            $today = Timezone::dateInZone($tz, 'now');
+            $db->prepare(
+                'UPDATE planned_workouts SET visible_to_athlete = 1
+                 WHERE plan_id = ? AND scheduled_date BETWEEN ? AND ? AND visible_to_athlete = 0'
+            )->execute([$planId, $today, $date]);
+            return;
         }
+    }
 
-        $windowEnd = date('Y-m-d', $lastGenTs);
+    /**
+     * Update a planned run/walk row in place to a freshly resolved instance (re-staging).
+     * Mirrors insertResolvedWorkout's field rendering, but as an UPDATE that preserves the
+     * row's scheduled_date and visibility.
+     */
+    private static function updateResolvedRunWalk(int $workoutId, array $instance, PDO $db): void
+    {
+        $display      = $instance['display'] ?? [];
+        $title        = self::renderTemplate($display['title_template'] ?? '', $instance);
+        $summary      = self::renderTemplate($display['summary_template'] ?? '', $instance);
+        $instructions = self::renderTemplate($display['description_template'] ?? '', $instance);
+        $instructions = self::normalizeInstructionText($instructions, $instance);
+        $instructions = self::wrapWithWarmupCooldown($instructions, $instance['resolved_params'] ?? [], $instance['code'] ?? '');
+        $instructions = self::appendPaceCitation($instructions, $instance);
 
-        // Extend the plan to cover the new window end (never shrink it).
+        $sig             = self::computeInstanceSignature($instance);
+        $variantCode     = $instance['resolved_variant']['code'] ?? null;
+        $params          = $instance['resolved_params'] ?? [];
+        $structure       = self::resolveStructure($instance);
+        $variantWorkout  = $instance['resolved_variant']['workout_type'] ?? null;
+        $metadataWorkout = $instance['metadata']['workout_type'] ?? $instance['workout_type'] ?? null;
+        $workoutType     = $variantWorkout ?? $metadataWorkout ?? 'easy';
+        $variantIF       = $instance['resolved_variant']['intensity_factor'] ?? null;
+        $intensityFactor = (float)($variantIF ?? $instance['generation']['intensity_factor'] ?? 0.5);
+        $storedDuration  = self::computeActualDuration($instance) ?? (int)($params['duration_minutes'] ?? 0);
+        $load            = round($storedDuration * $intensityFactor, 2);
+
         $db->prepare(
-            'UPDATE training_plans SET plan_end_date = GREATEST(COALESCE(plan_end_date, ?), ?) WHERE id = ?'
-        )->execute([$windowEnd, $windowEnd, $planId]);
-
-        // Open visibility for the live window immediately (same horizon the cron uses).
-        $db->prepare(
-            'UPDATE planned_workouts SET visible_to_athlete = 1
-             WHERE plan_id = ? AND scheduled_date BETWEEN ? AND ? AND visible_to_athlete = 0'
-        )->execute([$planId, $today, $windowEnd]);
+            'UPDATE planned_workouts SET
+                workout_type = ?, archetype_code = ?, archetype_variant = ?, archetype_params = ?,
+                description = ?, target_duration = ?, intensity_load = ?,
+                workout_archetype_id = ?, archetype_version_snapshot = ?, instance_signature = ?,
+                structure = ?, display_title = ?, display_summary = ?, athlete_instructions = ?
+             WHERE id = ?'
+        )->execute([
+            $workoutType, $instance['code'], $variantCode, json_encode($params),
+            $instructions ?: null, $storedDuration, $load,
+            $instance['id'] ?? null, $instance['version'] ?? null, $sig ?: null,
+            $structure ? json_encode($structure) : null,
+            $title ?: null, $summary ?: null, $instructions ?: null,
+            $workoutId,
+        ]);
     }
 
     /**

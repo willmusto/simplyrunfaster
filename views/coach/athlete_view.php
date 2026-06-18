@@ -151,6 +151,10 @@ if ($activePlan && !empty($allWorkouts)) {
     $lastSundayTs  = strtotime('+' . (7 - $lastDow) . ' days', $planEndTs);
     $macroTotalWeeks = (int)floor(($lastSundayTs - $firstMondayTs) / (7 * 86400)) + 1;
     $planType = (string)($activePlan['plan_type'] ?? '');
+    // Return-to-running has no code-week phase structure; it is labeled by sequential
+    // calendar week. Code-week numbering (min overlapping code-week) would repeat
+    // "Week 1" across calendar weeks for a mid-week-start plan.
+    $isRtrPlan = $planType === 'return_to_running';
     $calendarAlignedTypes = ['development_plan', 'maintenance_plan', 'recovery_block'];
     $codeWeekStartTs = $planStartTs;
 
@@ -194,13 +198,14 @@ if ($activePlan && !empty($allWorkouts)) {
         }
 
         $macroWeeks[] = [
-            'number' => $phaseWeek ?? $weekIndex,
+            // RTR: sequential calendar-week numbering out of the calendar total.
+            'number' => $isRtrPlan ? $weekIndex : ($phaseWeek ?? $weekIndex),
             'calendar_number' => $weekIndex,
-            'total' => $codeTotalWeeks,
+            'total' => $isRtrPlan ? $macroTotalWeeks : $codeTotalWeeks,
             'calendar_total' => $macroTotalWeeks,
             'phase' => $phase,
             'cutback' => $cutback,
-            'lead_in' => $phaseWeek === null,
+            'lead_in' => $isRtrPlan ? false : ($phaseWeek === null),
             'days' => $days,
         ];
     }
