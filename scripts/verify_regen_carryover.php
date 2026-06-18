@@ -170,7 +170,7 @@ try {
 
     // Anti-repeat: no carried QUALITY/long instance_signature duplicated in the fresh remainder
     // (easy/recovery runs repeat every week by design and are not anti-repeat-governed).
-    $qualTypes = ['long','tempo','interval','hill','fartlek','speed','race_pace'];
+    $qualTypes = ['tempo','interval','hill','fartlek','speed','race_pace'];
     $carriedSigs = [];
     foreach ($capById as $r) {
         if (!empty($r['instance_signature']) && in_array((string)$r['workout_type'], $qualTypes, true)) {
