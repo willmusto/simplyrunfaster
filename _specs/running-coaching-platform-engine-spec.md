@@ -188,6 +188,8 @@ The engine evaluates classification on time-on-feet (runs/week + weekly minutes 
 | 100K | 6 / 480 / 150 | 5 / 360 / 105 |
 | 100 Miler | 6 / 600 / 180 | 5 / 420 / 120 |
 
+**Persistence.** The computed classification is cached on `athlete_profiles.base_classification` on every plan generation (`PlanGenerator::generate`), derived from the athlete's goal distance + current volume profile, so the coach UI and later regenerations read it without recomputing. (Previously it was computed transiently inside each generator and never written back, leaving the column NULL.) A profile edit followed by a regenerate refreshes it.
+
 ### Engine Response by Classification
 
 **Well Trained**
@@ -269,7 +271,19 @@ supportedDays(weeklyMins) = 1 + floor((weeklyMins − longFloor) / easyFloor)
 numDays = max(2, min(requested training_days_per_week, supportedDays))
 ```
 
-With `longFloor = 60`, `easyFloor = 30`: 120 min → 3 days, 150 → 4, 180 → 5. As `weeklyMins` grows week-over-week (build progression), `numDays` ramps toward the requested value; cutback/taper weeks may dip it back. **Why:** forcing 5 days at 120 min/week reserves `60 (long) + 4×30 (easy floors) = 180 > 120`, leaving the per-slot quality budget negative, so every quality slot fell back to `continuous_easy` (Liam's all-easy plans). Running fewer days at low volume restores a positive quality budget. **Interaction with §7 scheduling:** `numDays` is the *target* count; `must_off_days` independently constrains the available pool, so the actual scheduled count is `min(numDays, available_days)`. Fixed/flex anchor logic (long-run day, primary-workout day, 2-day separation, ≥1 rest) is unchanged — the ramp only lowers how many of the available days get filled. Computed in `buildDaySchedule` from the per-week `weeklyMins` it already receives.
+With `longFloor = 60`, `easyFloor = 30`: 120 min → 3 days, 150 → 4, 180 → 5. As `weeklyMins` grows week-over-week (build progression), `numDays` ramps toward the requested value; cutback/taper weeks may dip it back. **Why:** forcing 5 days at 120 min/week reserves `60 (long) + 4×30 (easy floors) = 180 > 120`, leaving the per-slot quality budget negative, so every quality slot fell back to `continuous_easy` (Liam's all-easy plans). Running fewer days at low volume restores a positive quality budget. **Interaction with §7 scheduling:** `numDays` is the *target* count; `must_off_days` independently constrains the available pool, so the actual scheduled count is `min(numDays, available_days)`. Fixed/flex anchor logic (long-run day, primary-workout day, 2-day separation) is otherwise unchanged — the ramp only lowers how many of the available days get filled. Computed in `buildDaySchedule` from the per-week `weeklyMins` it already receives.
+
+### Rest-Day Placement & the 7-Day Athlete
+
+The legacy "force at least one rest day" guardrail and its rest-day placement were both refined (bug fixes):
+
+- **7 days/week, regular weeks → 0 rest days.** When the athlete genuinely requested 7 training days and the week's volume supports them (`numDays == 7`), the force-≥1-rest guardrail is **skipped** — a true 7-day athlete trains all 7 days. (Previously the guardrail forced a rest day even on a 7-day athlete, and its reverse scan always landed on Saturday.)
+- **7 days/week, cutback weeks → 6 training days, 1 rest day.** Even a 7-day athlete needs periodic recovery, so a cutback week drops a `numDays == 7` week to 6 (`if (isCutback && numDays >= 7) numDays = 6`). Athletes who already carry rest days on normal weeks keep their existing cutback shape (only the all-7 case is reduced).
+- **Post-long-run recovery placement (replaces the Saturday bias).** When a single rest day is needed (a 6-day athlete, or a 7-day athlete's cutback), the day-selection greedy minimizes the largest contiguous rest block; with only one rest day that score is degenerate (always 1), so a **secondary tiebreaker** keeps the day immediately **after the long run** free as the rest/recovery day instead of letting the residual rest default to the highest-numbered day (which deterministically produced Saturday). The recovery slot is `(longDay + 1) mod 7`; it is **not** applied on ultra back-to-back weeks, where that day is reserved for the Sunday medium-long run.
+
+### Missing Goal Race Date (critical guard)
+
+A `race_cycle` is structurally undefined without a goal race date — phase lengths, taper, and total weeks all derive from it. `generateRaceCycle` therefore refuses to generate when `goal_race_date` is NULL: it raises a **critical** `missing_goal_race_date` flag (*"Cannot generate a race cycle plan without a goal race date. Please update the athlete's profile."*) and returns early, rather than silently falling back to a development plan (the prior behavior, which produced a mis-typed plan). Onboarding mirrors this — the goal race date is **required** before step 1 can be completed whenever a race-cycle goal is selected (client-side inline validation + server-side check in `OnboardingController::saveStep1`); it stays optional for development / maintenance / return-to-running plans.
 
 ### Schedule-Day-Ramp Flag (item 2)
 
@@ -298,7 +312,7 @@ Maintenance plans are already ceiling-anchored (85% of ceiling, constant), so th
 | Secondary workout or hill session | 0–1x | Proactive if athlete runs 5+ days/week |
 | Easy run with strides | 0–3x | Strides attached as finishing stimulus |
 | Pure easy run | Remainder of running days | |
-| Rest | Minimum 1x/week | |
+| Rest | Minimum 1x/week (0 only for a 7-day athlete on a non-cutback week; cutback weeks restore a recovery rest day) | |
 
 ### Scheduling Logic
 
@@ -307,7 +321,7 @@ Maintenance plans are already ceiling-anchored (85% of ceiling, constant), so th
 **Flex mode:** Engine schedules long run and primary workout based on:
 - Athlete's available days (from onboarding)
 - Minimum 2-day separation between primary workout and long run
-- Minimum 1 rest day per week
+- Minimum 1 rest day per week — except a 7-day athlete on a non-cutback week (0 rest); a 7-day athlete's cutback week still inserts 1 recovery rest day on the day after the long run (see §6 "Rest-Day Placement & the 7-Day Athlete")
 - Secondary workout slotted at least 1 day from any other quality stimulus
 
 ### Second Workout Scheduling
@@ -682,7 +696,7 @@ Hard rules the engine cannot violate autonomously under any circumstances:
 | Quality sessions per week | Max 2 (primary + secondary) |
 | Long run as % of weekly volume | Max 35% |
 | Consecutive hard days | Max 2 before mandatory easy/rest day |
-| Minimum rest days per week | 1 |
+| Minimum rest days per week | 1 (0 permitted only for a 7-day-per-week athlete on a non-cutback week; cutback weeks restore 1, placed the day after the long run) |
 | Taper minimum duration | Per minimum cycle length by distance |
 | Maximum plan length | 24 weeks |
 | Minimum plan length | Per minimum cycle length by distance |
@@ -1231,6 +1245,14 @@ These items are intentionally deferred and must be resolved before the relevant 
     - The coach macro view now derives phase/cutback labels from the Monday code-week anchor. The lead-in calendar row is labeled "Lead-in"; subsequent rows are numbered as code weeks (`Week 1 of 12`, etc.), so development cutbacks map one-to-one to code weeks 4/8/12 with no straddling or doubled "Cutback" labels.
     - Workout type storage now honors archetype metadata before falling back to the slot type (variant `workout_type` still wins when present). This prevents quality-slot hill/tempo/speed archetypes from being stored and badged as generic `interval` workouts in Plan Approvals; the approval calendar also maps all generated workout types (`race_pace`, `speed`, `plyometric`) explicitly.
     - Liam verification after implementation preserves the item 15 progression invariants for the 12 code-weeks: cutbacks remain at code weeks 4/8/12, post-cutback weeks resume above the pre-cutback peak, `validateGeneratedDisplays()` stays clean, and the macro labels map one-to-one to those code weeks. Stored per-week duration sums can vary slightly by weighted archetype/variant selection; the calendar-placement change does not alter the progression formula. Lead-in content verification additionally confirms Liam's lead-in (Jun 16–21) holds real workouts mirroring week 1 after day 1, and day 1 (Jun 16) is forced to `continuous_easy` / `standard_easy`.
+
+17. **Classification persistence, 7-day rest days, Saturday rest bias, and missing-race-date guard** — ✅ **Resolved** (this session). Four engine fixes, documented in **§5** / **§6**:
+    - **NULL `base_classification`:** the classification was computed transiently in each generator and never written back. `PlanGenerator::generate` now caches it on `athlete_profiles.base_classification` at generation (§5 "Persistence").
+    - **7-day athlete forced a rest day:** the force-≥1-rest guardrail fired even when `numDays == 7`, and its reverse scan always picked Saturday. It is now skipped for genuine 7-day weeks → 7 training days, 0 rest (§6 "Rest-Day Placement & the 7-Day Athlete").
+    - **Cutback recovery for 7-day athletes:** a 7-day cutback week now drops to 6 training days with 1 rest day, placed the day after the long run.
+    - **Saturday rest bias (6-day & 7-day cutback):** with one rest day the largest-rest-block tiebreaker is degenerate, so it defaulted to the highest-numbered day (Saturday). A secondary tiebreaker now keeps the post-long-run recovery slot `(longDay+1) mod 7` as the rest day (suppressed on ultra back-to-back weeks).
+    - **Dateless race cycle:** `generateRaceCycle` previously fell back to a development plan when `goal_race_date` was NULL. It now raises a critical `missing_goal_race_date` flag and returns early; onboarding requires the date for race-cycle goals (§6 "Missing Goal Race Date").
+    - Verified by regenerating Matthew Jenkins (100-miler, 7 days/wk): `base_classification = well_trained`, regular weeks 7 train / 0 rest, cutback weeks (every 3rd) 6 train with Monday (post-Sunday-long-run) rest.
 
 ---
 
