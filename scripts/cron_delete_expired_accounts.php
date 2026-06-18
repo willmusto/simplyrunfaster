@@ -37,6 +37,29 @@ $db     = Database::get();
 $mode = $dryRun ? 'DRY RUN (no changes)' : 'LIVE';
 echo date('Y-m-d H:i:s') . " — account retention cron starting [{$mode}]\n";
 
+// ── 90-day athlete_behavior_log retention (Coaching Intelligence Layer) ───────
+// Behavior metrics are a rolling 90-day window; older rows are pruned daily here
+// (the daily cleanup cron). Guarded so it is a no-op before migration_027 runs.
+try {
+    $hasLog = (int)$db->query(
+        "SELECT COUNT(*) FROM information_schema.TABLES
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'athlete_behavior_log'"
+    )->fetchColumn() > 0;
+    if ($hasLog) {
+        if ($dryRun) {
+            $n = (int)$db->query(
+                "SELECT COUNT(*) FROM athlete_behavior_log WHERE logged_at < (NOW() - INTERVAL 90 DAY)"
+            )->fetchColumn();
+            echo "athlete_behavior_log: {$n} row(s) older than 90 days would be deleted.\n";
+        } else {
+            $n = $db->exec("DELETE FROM athlete_behavior_log WHERE logged_at < (NOW() - INTERVAL 90 DAY)");
+            echo "athlete_behavior_log: pruned {$n} row(s) older than 90 days.\n";
+        }
+    }
+} catch (\Throwable $e) {
+    echo "athlete_behavior_log cleanup skipped: " . $e->getMessage() . "\n";
+}
+
 // Statuses that are protected from deletion no matter what.
 $PROTECTED_STATUSES = ['active', 'trialing', 'comped', 'past_due'];
 

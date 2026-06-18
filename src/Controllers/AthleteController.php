@@ -261,6 +261,16 @@ class AthleteController
             error_log('swapWorkout Intervals push failed for athlete ' . $athleteId . ': ' . $e->getMessage());
         }
 
+        // Capture the adjustment (Coaching Intelligence Layer). Athlete-initiated swaps
+        // are still coaching data; attribute to the athlete's assigned (head) coach.
+        $assignedCoachId = CoachAssignments::coachId($athleteId, $db) ?? (int)($athlete['coach_id'] ?? 0);
+        if ($assignedCoachId > 0) {
+            CoachAdjustments::record($workoutId, $athleteId, $assignedCoachId, 'day_swap',
+                ['scheduled_date' => $oldDate, 'workout_type' => (string)$workout['workout_type'], 'duration_mins' => $workout['target_duration'] !== null ? (int)$workout['target_duration'] : null],
+                ['scheduled_date' => $targetDate, 'workout_type' => (string)$workout['workout_type'], 'duration_mins' => $workout['target_duration'] !== null ? (int)$workout['target_duration'] : null],
+                $db);
+        }
+
         // Notify the coach (controllable, default off).
         if (!empty($athlete['coach_id'])) {
             Notifications::send((int)$athlete['coach_id'], 'athlete_day_swap', [

@@ -106,6 +106,15 @@ class Auth
 
     private static function loginUser(array $user): void
     {
+        // Stamp last successful authentication (drives the engagement_score behavior
+        // metric — Coaching Intelligence Layer). Best-effort: never block login on it.
+        try {
+            Database::get()->prepare('UPDATE users SET last_login_at = NOW() WHERE id = ?')
+                ->execute([(int) $user['id']]);
+        } catch (\Throwable $e) {
+            error_log('Auth::loginUser last_login_at update failed: ' . $e->getMessage());
+        }
+
         session_regenerate_id(true);
         $_SESSION['user_id']   = (int) $user['id'];
         $_SESSION['user_role'] = $user['role'];

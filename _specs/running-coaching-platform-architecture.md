@@ -1620,3 +1620,72 @@ Admins create coach / assistant-coach accounts from `/app/admin/users/create`: a
 
 ### Onboarding wiring
 On onboarding completion, `OnboardingController::ensureCoachAssignment()` creates the `coach_assignments` row with `coach_id = invite_links.created_by` (the inviting coach; fallback user 1 for organic/missing invites) and mirrors it to `athletes.coach_id`. The scheduled welcome message resolves its sender from `coach_assignments.coach_id`.
+
+---
+
+## 32. Coaching Intelligence Layer (Milestone — Phase 1 of 4)
+
+A capture-and-surface layer that records how coaches actually adjust plans and how athletes actually behave, turns repeated patterns into reusable coaching rules, and feeds those rules back into the engine. **Phase 1 builds the pipes, not the analysis** — no predictive modeling, no cross-athlete ML. Schema is migration_027 (MyISAM, utf8, no FKs, LONGTEXT for all JSON). The coach **Alerts** page was renamed and expanded into **Intelligence** (`/app/coach/intelligence`; `/app/coach/alerts` and the legacy `/app/coach/flags` redirect/alias to it).
+
+### New tables (migration_027)
+
+**`coach_adjustments`** — one row per planned-workout change (coach or athlete-initiated), with a frozen athlete-context snapshot so patterns stay analyzable after the profile evolves.
+| Column | Type | Notes |
+|---|---|---|
+| id | INT PK | |
+| planned_workout_id | INT | 0 for profile-level edits (pace_zone_edit) |
+| athlete_id / coach_id | INT | coach_id = acting coach; for athlete swaps, the athlete's assigned head coach |
+| adjusted_at | DATETIME | |
+| flagged_for_review | TINYINT(1) | the flag mechanic (Part 3); default 0 |
+| change_type | ENUM | archetype_substitution, duration_change, day_swap, workout_removed, workout_added, instructions_edited, pace_zone_edit |
+| before_* / after_* | archetype_code VARCHAR(64), workout_type VARCHAR(32), duration_mins INT, scheduled_date DATE, instructions LONGTEXT | before/after snapshots; pace_zones JSON is stored in the `*_instructions` slot for pace_zone_edit |
+| ctx_goal_distance / ctx_phase / ctx_week_number / ctx_classification / ctx_weekly_mins / ctx_plan_week | VARCHAR/INT | context snapshot at adjustment time |
+| reason_tag / reason_notes | ENUM / TEXT | optional, added during weekly review (Phase 2) |
+| coaching_decision_id | INT | set when this adjustment is promoted to a rule |
+
+Capture is a pipe that must never break the action it observes: `CoachAdjustments::record()` swallows and logs its own errors. Wired into `CoachController::rescheduleWorkout` (day_swap), `removeWorkout` (workout_removed), `addWorkout` (workout_added), `editPlannedWorkout` (archetype_substitution / duration_change / instructions_edited by what changed), `editProfileSave` (pace_zone_edit, when zones change), and `AthleteController::swapWorkout` (day_swap, attributed to the assigned coach).
+
+**`coaching_decisions`** — coaching rules distilled from flagged adjustments (or authored manually). `status` active/inactive/proposed; `trigger_json` + `action_json` (LONGTEXT); `scope_distances/scope_phases/scope_plan_types`; `times_fired` / `last_fired_at`; `source` manual / proposed_from_adjustment. Rules created from a flagged adjustment are saved **active**.
+
+**`athlete_behavior_log`** — daily behavior metrics; **90-day rolling retention** pruned by the daily cleanup cron (`cron_delete_expired_accounts.php`). `metric_type` ENUM (rpe_vs_target, completion_rate, easy_pace_drift, response_time, engagement_score — only the first, second, and last are produced in Phase 1), `metric_value` FLOAT, `metric_context` LONGTEXT, `plan_week`, `phase`.
+
+**`coaching_intelligence_flags`** — pattern flags surfaced on the Intelligence page. `flag_type` ENUM (rpe_trending_high, rpe_trending_low, compliance_dropping, compliance_streak, engagement_dropping, adaptation_ahead_of_schedule, dropout_risk, plan_adjustment_recommended), `severity` info/warning/opportunity, `title`/`detail`/`suggested_action`/`suggested_adjustment`, `status` open/actioned/dismissed.
+
+Also: **`users.last_login_at`** (set in `Auth::loginUser` on every successful auth; drives engagement scoring) and **`training_plans.coach_generation_notes`** (LONGTEXT; the decision-resolver audit per generation).
+
+### Behavior metrics (daily, `CoachingIntelligence::run`, invoked from `cron_notifications.php`)
+Runs once daily for each active athlete with an active plan, after the existing notification jobs.
+- **completion_rate** = completed workouts (7d) / visible non-cancelled planned workouts (last 7d up to today), capped at 1.0. Skipped when no planned workouts in the window.
+- **rpe_vs_target** = mapped(effort_descriptor) − mapped(expected effort of the planned type), per qualifying completed quality/long session in the last 7 days, deduped by completed-workout id so a session is logged once. Effort map: easy 3 / moderate 5 / hard 7 / very_hard 9 / discomfort 10 (`completed_workouts.effort_descriptor`, not a numeric rpe). Expected map keys both the real `planned_workouts.workout_type` ENUM and the spec aliases (easy_run/long_run/hill_session/workout). Positive = working harder than prescribed.
+- **engagement_score** = 0–100 composite: athlete messages in 7d (3+ → 30, 1-2 → 20, 0 → 0) + days since last completed workout (0-1 → 35, 2-3 → 25, 4-6 → 10, 7+ → 0) + days since `last_login_at` (0-1 → 25, 2-3 → 15, 4-7 → 5, 8+/NULL → 0).
+
+### Intelligence flags (daily, after behavior logging)
+14-day dedup per (athlete, flag_type) regardless of status. A flag needs the athlete's assigned coach to attribute to.
+| Flag | Severity | Condition |
+|---|---|---|
+| rpe_trending_high | warning | avg of last 3 rpe_vs_target entries > +1.5 (≥3 entries) |
+| rpe_trending_low | info | avg of last 3 rpe_vs_target entries < −1.5 (≥3 entries) |
+| compliance_dropping | warning | most-recent completion_rate < 0.60 AND the entry ~7 days prior > 0.75 |
+| compliance_streak | opportunity | last 3 consecutive completion_rate entries all = 1.0 |
+| engagement_dropping | warning | most-recent engagement_score < 40 AND the entry ~7 days prior > 60 |
+| dropout_risk | warning | last 3 consecutive engagement_score entries all < 20 |
+
+### Flag-for-review mechanic (Part 3)
+A flag toggle sits in the coach workout-detail popout header (`#mwd-flag`, teal `#1D9E75` when set). `POST /app/coach/workout/flag {planned_workout_id, flagged}` → `CoachController::flagWorkout()`: updates `flagged_for_review` on the workout's existing `coach_adjustments` rows, or inserts a minimal `instructions_edited` marker row (before == after) when flagging a workout with no prior adjustment. `getPlanWorkouts()` surfaces `MAX(flagged_for_review)` so the calendar renders the current state.
+
+### Intelligence page — three sections (`CoachController::intelligence`, `views/coach/intelligence.php`)
+1. **Athlete Flags** — open `coaching_intelligence_flags` + open `engine_flags` for the coach's athletes, ordered critical → warning → opportunity → info, most-recent first. Left-border color by severity (amber warning, teal opportunity, gray info). Intelligence-flag Action button routes contextually: dropout_risk / engagement_dropping → athlete messages; the rest → athlete plan. Engine flags keep their existing View/Dismiss + pace-recalibration + profile-diff cards. Dismiss → `…/intelligence/flag/:id/dismiss` (intel) or the existing `…/flags/:id/dismiss` (engine).
+2. **Flagged for Review** — `coach_adjustments WHERE flagged_for_review=1 AND coaching_decision_id IS NULL`. Each row shows the human change label, a before → after summary, and **Add as rule** / **Dismiss**. Add-as-rule opens a modal (pre-filled title, required reason, distance + phase scope pre-checked from the captured context) → `…/intelligence/adjustment/:id/rule` (`saveDecision`): auto-generates `trigger_json` `{goal_distance, phase, classification}` and `action_json` (archetype_substitution → exclude before + weight after ×2; duration_change → `duration_adjustment` delta; day_swap → `{}`), inserts the decision active, sets `coaching_decision_id` + clears the flag.
+3. **Decision Library** — the coach's `coaching_decisions` (Title | Scope | Times fired | Last fired | Status); one-click active/inactive toggle (`…/intelligence/decision/:id/toggle`). Empty state prompts flagging adjustments to start.
+
+### Decision resolver (engine, `PlanGenerator` + `src/CoachingDecisions.php`)
+`generate()` loads the active decisions for the athlete's coaches (head + assistant via `coach_assignments`) once. Inside `insertWeekWorkouts`, `applyCoachingDecisions()` builds the per-week context (goal_distance, phase, classification, plan_type), matches each decision's `trigger_json` (absent keys are wildcards; present arrays must contain the context value), and applies `action_json` to the quality selection: `exclude_archetypes` → removed from the candidate pool; `weight_multipliers` → multiplied into the selection weights; `force_archetype` → dominant weight; `max_quality_per_week` → extra quality slots fall back to `continuous_easy`. **Conflict resolution:** when two matching decisions act on the same archetype with conflicting actions (one excludes, one weights), the **higher id (more recent) wins**, and the conflict is logged to `coach_generation_notes` (`"Decision conflict: A vs B on <archetype>. B took precedence."`). After generation, `finalizeCoachingDecisions()` writes `coach_generation_notes` (`"Coaching decisions applied: …"` or `"No coaching decisions matched."`) and bumps `times_fired` / `last_fired_at` on each fired decision. The table starts empty; rules accumulate only from coach review.
+
+### Weekly digest (`scripts/cron_coaching_digest.php` — Monday, hour 8 UTC)
+Per head coach, **only when there is something to report** (≥1 open intelligence flag OR ≥1 flagged adjustment pending) — no empty digests. Four sections: Needs Attention (warning flags, max 5), Opportunities (opportunity flags, max 3), Pending Reviews (count), Roster Health (active athletes + 7-day average completion across the roster). Sent via `Mailer::send` + `EmailTemplates::build('coaching_digest', …)` (teal "Open Intelligence" CTA, no em dashes, no content tables). **Requires a manual NFSN scheduler entry** (SSH cannot add scheduled tasks).
+
+### Roadmap
+- **Phase 1 (this milestone):** capture pipes, behavior metrics, pattern flags, flag-for-review, decision resolver, weekly digest.
+- **Phase 2:** weekly-review UI (reason tags on adjustments) and a pattern proposer that suggests rules from recurring flagged adjustments.
+- **Phase 3:** predictive flags and athlete-response modeling (adaptation_ahead_of_schedule, plan_adjustment_recommended become model-driven; easy_pace_drift / response_time metrics populated).
+- **Phase 4:** multi-coach decision sharing (promote rules across a coaching team / platform-wide).

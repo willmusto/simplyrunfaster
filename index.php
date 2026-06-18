@@ -25,6 +25,9 @@ require_once __DIR__ . '/src/SessionThread.php';
 require_once __DIR__ . '/src/Timezone.php';
 require_once __DIR__ . '/src/Auth.php';
 require_once __DIR__ . '/src/CoachAssignments.php';
+require_once __DIR__ . '/src/CoachAdjustments.php';
+require_once __DIR__ . '/src/CoachingDecisions.php';
+require_once __DIR__ . '/src/CoachingIntelligence.php';
 require_once __DIR__ . '/src/Billing.php';
 require_once __DIR__ . '/src/StripeWebhook.php';
 require_once __DIR__ . '/src/Crypto.php';
@@ -186,12 +189,20 @@ $router->post('/coach/athlete/:id/generate-plan',   [CoachController::class, 'ge
 $router->get('/coach/approvals',                    [CoachController::class, 'approvals']);
 $router->post('/coach/plans/:planId/approve',       [CoachController::class, 'approvePlan']);
 $router->post('/coach/plans/:planId/reject',        [CoachController::class, 'rejectPlan']);
-$router->get('/coach/flags',                        [CoachController::class, 'flags']);
-$router->post('/coach/flags/:id/dismiss',           [CoachController::class, 'dismissFlag']);
+// Coaching Intelligence (renamed + expanded from Alerts)
+$router->get('/coach/intelligence',                          [CoachController::class, 'intelligence']);
+$router->get('/coach/alerts',                                [CoachController::class, 'alertsRedirect']);
+$router->get('/coach/flags',                                 [CoachController::class, 'intelligence']); // legacy alias
+$router->post('/coach/flags/:id/dismiss',                    [CoachController::class, 'dismissFlag']);
+$router->post('/coach/intelligence/flag/:id/dismiss',        [CoachController::class, 'dismissIntelligenceFlag']);
+$router->post('/coach/intelligence/adjustment/:id/dismiss',  [CoachController::class, 'dismissAdjustment']);
+$router->post('/coach/intelligence/adjustment/:id/rule',     [CoachController::class, 'saveDecision']);
+$router->post('/coach/intelligence/decision/:id/toggle',     [CoachController::class, 'toggleDecision']);
 $router->post('/coach/athlete/:id/race/add',        [RaceController::class, 'coachAddRace']);
 $router->get('/coach/athlete/:id/race-conflicts',   [RaceController::class, 'coachConflicts']);
 $router->post('/coach/races/:id/recalibrate/approve',[RaceController::class, 'approveRecalibration']);
 $router->post('/coach/races/:id/recalibrate/dismiss',[RaceController::class, 'dismissRecalibration']);
+$router->post('/coach/workout/flag',                [CoachController::class, 'flagWorkout']);
 $router->get('/coach/workout/:id/thread',           [CoachController::class, 'workoutThread']);
 $router->get('/coach/workout/:id/thread/poll',      [CoachController::class, 'workoutThreadPoll']);
 $router->post('/coach/workout/:id/send',            [CoachController::class, 'sendWorkoutMessage']);

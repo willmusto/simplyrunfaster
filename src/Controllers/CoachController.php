@@ -239,6 +239,19 @@ class CoachController
             Timezone::clearCache((int)$athlete['user_id']);
         }
 
+        // Capture pace-zone edits (Coaching Intelligence Layer). Pace zones are profile-
+        // level, not tied to a planned workout, so planned_workout_id = 0. before/after
+        // hold the pace_zones LONGTEXT value; recorded only when it actually changed.
+        $newProfile = Auth::getAthleteProfile($athleteId) ?? [];
+        $oldZones   = (string)($old['pace_zones'] ?? '');
+        $newZones   = (string)($newProfile['pace_zones'] ?? '');
+        if ($oldZones !== $newZones) {
+            CoachAdjustments::record(0, $athleteId, (int)$coachId, 'pace_zone_edit',
+                ['instructions' => $oldZones !== '' ? $oldZones : null],
+                ['instructions' => $newZones !== '' ? $newZones : null],
+                $db);
+        }
+
         // Assistant coach edits apply immediately but raise an info flag for the head
         // coach to review (pace-zone edits are the headline capability here).
         if (Auth::role() === 'assistant_coach') {
@@ -452,14 +465,18 @@ class CoachController
         $coachId   = Auth::userId();
         $db        = Database::get();
 
-        // Verify workout belongs to one of this coach's athletes
+        // Verify workout belongs to one of this coach's athletes (and grab the current
+        // state so the adjustment capture can snapshot before/after).
         $check = $db->prepare(
-            'SELECT pw.id FROM planned_workouts pw
+            'SELECT pw.id, pw.athlete_id, pw.workout_type, pw.target_duration,
+                    pw.archetype_code, pw.athlete_instructions
+             FROM planned_workouts pw
              JOIN athletes a ON a.id = pw.athlete_id AND a.coach_id = ?
              WHERE pw.id = ? LIMIT 1'
         );
         $check->execute([$coachId, $workoutId]);
-        if (!$check->fetch()) {
+        $before = $check->fetch(PDO::FETCH_ASSOC);
+        if (!$before) {
             http_response_code(403);
             header('Content-Type: application/json');
             echo json_encode(['error' => 'Not found or not authorized']);
@@ -487,6 +504,38 @@ class CoachController
             $vals[] = $workoutId;
             $db->prepare('UPDATE planned_workouts SET ' . implode(', ', $sets) . ' WHERE id = ?')
                ->execute($vals);
+
+            // Capture the coach adjustment (Coaching Intelligence Layer). Classify by
+            // what actually changed: workout type change → archetype_substitution;
+            // else duration change → duration_change; else instructions → instructions_edited.
+            $oldType = (string)($before['workout_type'] ?? '');
+            $oldDur  = $before['target_duration'] !== null ? (int)$before['target_duration'] : null;
+            $oldInst = $before['athlete_instructions'] !== null ? (string)$before['athlete_instructions'] : null;
+            $typeChanged = ($type !== null && $type !== $oldType);
+            $durChanged  = ($duration !== null && $duration !== $oldDur);
+            $instChanged = ($instructions !== false && $instructions !== $oldInst);
+
+            $changeType = null;
+            if ($typeChanged)      $changeType = 'archetype_substitution';
+            elseif ($durChanged)   $changeType = 'duration_change';
+            elseif ($instChanged)  $changeType = 'instructions_edited';
+
+            if ($changeType !== null) {
+                CoachAdjustments::record($workoutId, (int)$before['athlete_id'], (int)$coachId, $changeType,
+                    [
+                        'archetype_code' => $before['archetype_code'] !== null ? (string)$before['archetype_code'] : null,
+                        'workout_type'   => $oldType,
+                        'duration_mins'  => $oldDur,
+                        'instructions'   => $oldInst,
+                    ],
+                    [
+                        'archetype_code' => $before['archetype_code'] !== null ? (string)$before['archetype_code'] : null,
+                        'workout_type'   => $typeChanged ? $type : $oldType,
+                        'duration_mins'  => $durChanged ? $duration : $oldDur,
+                        'instructions'   => $instChanged ? ($instructions ?: null) : $oldInst,
+                    ],
+                    $db);
+            }
         }
 
         $stmt = $db->prepare(
@@ -534,7 +583,8 @@ class CoachController
 
         // Workout being moved must belong to this athlete and not be cancelled.
         $stmt = $db->prepare(
-            'SELECT pw.id, pw.scheduled_date, pw.plan_id, tp.plan_start_date, tp.plan_end_date
+            'SELECT pw.id, pw.scheduled_date, pw.plan_id, pw.workout_type, pw.target_duration,
+                    tp.plan_start_date, tp.plan_end_date
              FROM planned_workouts pw
              JOIN training_plans tp ON tp.id = pw.plan_id
              WHERE pw.id = ? AND pw.athlete_id = ? AND (pw.cancelled = 0 OR pw.cancelled IS NULL)
@@ -573,6 +623,12 @@ class CoachController
             IntervalsService::pushWorkout($athleteId, $workoutId, $db);
             IntervalsService::pushWorkout($athleteId, (int)$otherRow['id'], $db);
 
+            // Capture the coach adjustment (Coaching Intelligence Layer).
+            CoachAdjustments::record($workoutId, $athleteId, (int)$coachId, 'day_swap',
+                ['scheduled_date' => $oldDate, 'workout_type' => (string)$workout['workout_type'], 'duration_mins' => (int)$workout['target_duration']],
+                ['scheduled_date' => $newDate, 'workout_type' => (string)$workout['workout_type'], 'duration_mins' => (int)$workout['target_duration']],
+                $db);
+
             echo json_encode(['success' => true, 'swapped' => true]); exit;
         }
 
@@ -609,6 +665,12 @@ class CoachController
 
         // Re-push the moved workout (upsert by stable srf_{id} moves the event date).
         IntervalsService::pushWorkout($athleteId, $workoutId, $db);
+
+        // Capture the coach adjustment (Coaching Intelligence Layer).
+        CoachAdjustments::record($workoutId, $athleteId, (int)$coachId, 'day_swap',
+            ['scheduled_date' => $oldDate, 'workout_type' => (string)$workout['workout_type'], 'duration_mins' => (int)$workout['target_duration']],
+            ['scheduled_date' => $newDate, 'workout_type' => (string)$workout['workout_type'], 'duration_mins' => (int)$workout['target_duration']],
+            $db);
 
         echo json_encode(['success' => true]); exit;
     }
@@ -709,6 +771,17 @@ class CoachController
             // Push the new workout to Intervals.icu (no-op if the athlete isn't connected).
             IntervalsService::pushWorkout($athleteId, $id, $db);
 
+            // Capture the coach adjustment (Coaching Intelligence Layer): before all null.
+            CoachAdjustments::record($id, $athleteId, (int)$coachId, 'workout_added',
+                [],
+                [
+                    'archetype_code' => $composed['archetype_code'] !== null ? (string)$composed['archetype_code'] : null,
+                    'workout_type'   => (string)$composed['workout_type'],
+                    'duration_mins'  => (int)$composed['target_duration'],
+                    'scheduled_date' => $date,
+                ],
+                $db);
+
             echo json_encode(['success' => true, 'workout' => self::workoutDomPayload(
                 $id, $composed['workout_type'], $composed['display_title'], (int)$composed['target_duration'],
                 $composed['display_summary'], $composed['athlete_instructions'], $date
@@ -757,6 +830,13 @@ class CoachController
         // Push the new workout to Intervals.icu (no-op if the athlete isn't connected).
         IntervalsService::pushWorkout($athleteId, $id, $db);
 
+        // Capture the coach adjustment (Coaching Intelligence Layer): free-form entry has
+        // no archetype_code.
+        CoachAdjustments::record($id, $athleteId, (int)$coachId, 'workout_added',
+            [],
+            ['archetype_code' => null, 'workout_type' => $wt, 'duration_mins' => $duration, 'scheduled_date' => $date],
+            $db);
+
         echo json_encode(['success' => true, 'workout' => self::workoutDomPayload(
             $id, $wt, $title, $duration, null, $instructions ?: null, $date
         )]); exit;
@@ -784,7 +864,8 @@ class CoachController
         $workoutId = (int)($in['workout_id'] ?? 0);
 
         $stmt = $db->prepare(
-            'SELECT id, scheduled_date FROM planned_workouts
+            'SELECT id, scheduled_date, workout_type, target_duration, archetype_code, athlete_instructions
+             FROM planned_workouts
              WHERE id = ? AND athlete_id = ? AND (cancelled = 0 OR cancelled IS NULL) LIMIT 1'
         );
         $stmt->execute([$workoutId, $athleteId]);
@@ -797,7 +878,81 @@ class CoachController
         // Remove the event from Intervals.icu (no-op if the athlete isn't connected).
         IntervalsService::deleteWorkout($athleteId, $workoutId, $db);
 
+        // Capture the coach adjustment (Coaching Intelligence Layer): before = full
+        // snapshot, after = all null.
+        CoachAdjustments::record($workoutId, $athleteId, (int)$coachId, 'workout_removed',
+            [
+                'archetype_code' => $row['archetype_code'] !== null ? (string)$row['archetype_code'] : null,
+                'workout_type'   => (string)$row['workout_type'],
+                'duration_mins'  => $row['target_duration'] !== null ? (int)$row['target_duration'] : null,
+                'scheduled_date' => (string)$row['scheduled_date'],
+                'instructions'   => $row['athlete_instructions'] !== null ? (string)$row['athlete_instructions'] : null,
+            ],
+            [], $db);
+
         echo json_encode(['success' => true, 'date' => (string)$row['scheduled_date']]); exit;
+    }
+
+    /**
+     * Toggle the "flagged for review" marker on a planned workout (Coaching Intelligence
+     * Layer, Part 3). Body (JSON): { planned_workout_id, flagged:bool }.
+     *
+     * If a coach_adjustments row already exists for this workout (any change_type), its
+     * flagged_for_review is updated. If none exists and the coach is flagging it on, a
+     * minimal marker row is inserted (change_type 'instructions_edited', before == after,
+     * no actual change — just marking for attention).
+     */
+    public static function flagWorkout(): void
+    {
+        Auth::requireRole(['coach', 'assistant_coach', 'admin']);
+        Auth::verifyCsrf();
+        header('Content-Type: application/json');
+
+        $coachId = (int)Auth::userId();
+        $db      = Database::get();
+        $in      = self::jsonBody();
+        $pwId    = (int)($in['planned_workout_id'] ?? 0);
+        $flagged = (!empty($in['flagged']) && $in['flagged'] !== 'false') ? 1 : 0;
+
+        $pw = $db->prepare(
+            'SELECT id, athlete_id, scheduled_date, workout_type, target_duration,
+                    archetype_code, athlete_instructions
+             FROM planned_workouts WHERE id = ? LIMIT 1'
+        );
+        $pw->execute([$pwId]);
+        $w = $pw->fetch(PDO::FETCH_ASSOC);
+        if (!$w) { http_response_code(404); echo json_encode(['success' => false, 'error' => 'not_found']); exit; }
+
+        $athleteId = (int)$w['athlete_id'];
+        if (!self::getAthleteForCoach($athleteId, $coachId, $db)) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'forbidden']);
+            exit;
+        }
+
+        $ex = $db->prepare('SELECT id FROM coach_adjustments WHERE planned_workout_id = ? ORDER BY id DESC LIMIT 1');
+        $ex->execute([$pwId]);
+        $existing = (int)($ex->fetchColumn() ?: 0);
+
+        if ($existing > 0) {
+            $db->prepare('UPDATE coach_adjustments SET flagged_for_review = ? WHERE planned_workout_id = ?')
+               ->execute([$flagged, $pwId]);
+        } elseif ($flagged) {
+            $snap = [
+                'archetype_code' => $w['archetype_code'] !== null ? (string)$w['archetype_code'] : null,
+                'workout_type'   => (string)$w['workout_type'],
+                'duration_mins'  => $w['target_duration'] !== null ? (int)$w['target_duration'] : null,
+                'scheduled_date' => (string)$w['scheduled_date'],
+                'instructions'   => $w['athlete_instructions'] !== null ? (string)$w['athlete_instructions'] : null,
+            ];
+            $newId = CoachAdjustments::record($pwId, $athleteId, $coachId, 'instructions_edited', $snap, $snap, $db);
+            if ($newId > 0) {
+                $db->prepare('UPDATE coach_adjustments SET flagged_for_review = 1 WHERE id = ?')->execute([$newId]);
+            }
+        }
+
+        echo json_encode(['success' => true, 'flagged' => $flagged]);
+        exit;
     }
 
     // ── Macro-plan helpers ─────────────────────────────────────────────────────
@@ -997,6 +1152,272 @@ class CoachController
         include __DIR__ . '/../../views/layout/nav_coach.php';
         include __DIR__ . '/../../views/coach/flags.php';
         include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    // ── Intelligence page (Coaching Intelligence Layer, Part 6) ────────────────
+
+    /**
+     * GET /app/coach/intelligence — the renamed + expanded Alerts page. Three sections:
+     * Athlete Flags (coaching_intelligence_flags + engine_flags), Flagged for Review
+     * (coach_adjustments awaiting a rule decision), and the Decision Library.
+     */
+    public static function intelligence(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        require_once __DIR__ . '/../../views/layout/base.php';
+
+        $db      = Database::get();
+        $coachId = (int)Auth::userId();
+
+        $intelFlags  = self::getIntelligenceFlags($coachId, $db);
+        $engineFlags = self::getOpenFlags($coachId, $db, null, 100);
+        // Enrich pace_recalibration engine flags with the side-by-side recal card data.
+        foreach ($engineFlags as &$f) {
+            if (($f['flag_type'] ?? '') !== 'pace_recalibration') continue;
+            $d = json_decode((string)($f['details'] ?? ''), true);
+            $raceId = (int)($d['race_id'] ?? 0);
+            if (!$raceId) continue;
+            $rs = $db->prepare(
+                'SELECT r.id, r.race_distance, r.result_time, r.race_date, r.proposed_pace_zones,
+                        ap.pace_zones AS current_pace_zones
+                 FROM races r JOIN athlete_profiles ap ON ap.athlete_id = r.athlete_id
+                 WHERE r.id = ? LIMIT 1'
+            );
+            $rs->execute([$raceId]);
+            if ($row = $rs->fetch(PDO::FETCH_ASSOC)) $f['recal'] = $row;
+        }
+        unset($f);
+
+        $flaggedAdjustments = self::getFlaggedAdjustments($coachId, $db);
+        $decisions          = self::getCoachDecisions($coachId, $db);
+
+        $athletes         = self::getRosterAthletes($coachId, $db);
+        $openFlags        = count($engineFlags) + count($intelFlags);
+        $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
+
+        $flashSuccess = $_SESSION['flash_success'] ?? null;
+        $flashError   = $_SESSION['flash_error']   ?? null;
+        unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
+        $pageTitle = 'Intelligence';
+        $activeNav = 'intelligence';
+        include __DIR__ . '/../../views/layout/html_open.php';
+        include __DIR__ . '/../../views/layout/nav_coach.php';
+        include __DIR__ . '/../../views/coach/intelligence.php';
+        include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    /** GET /app/coach/alerts — backwards-compatible redirect to the Intelligence page. */
+    public static function alertsRedirect(): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        header('Location: /app/coach/intelligence');
+        exit;
+    }
+
+    /** Open coaching_intelligence_flags for this coach's athletes, severity-ordered. */
+    private static function getIntelligenceFlags(int $coachId, PDO $db): array
+    {
+        [$scope, $sp] = self::athleteScope('a');
+        $stmt = $db->prepare(
+            'SELECT cif.*, u.name AS athlete_name
+             FROM coaching_intelligence_flags cif
+             JOIN athletes a ON a.id = cif.athlete_id AND ' . $scope . '
+             JOIN users u ON u.id = a.user_id
+             WHERE cif.status = "open"
+             ORDER BY FIELD(cif.severity,"warning","opportunity","info"), cif.created_at DESC
+             LIMIT 200'
+        );
+        $stmt->execute($sp);
+        return $stmt->fetchAll();
+    }
+
+    /** coach_adjustments flagged for review and not yet turned into a rule. */
+    private static function getFlaggedAdjustments(int $coachId, PDO $db): array
+    {
+        [$scope, $sp] = self::athleteScope('a');
+        $stmt = $db->prepare(
+            'SELECT ca.*, u.name AS athlete_name
+             FROM coach_adjustments ca
+             JOIN athletes a ON a.id = ca.athlete_id AND ' . $scope . '
+             JOIN users u ON u.id = a.user_id
+             WHERE ca.flagged_for_review = 1 AND ca.coaching_decision_id IS NULL
+             ORDER BY ca.adjusted_at DESC
+             LIMIT 100'
+        );
+        $stmt->execute($sp);
+        return $stmt->fetchAll();
+    }
+
+    /** Coaching decisions authored by this coach (the Decision Library). */
+    private static function getCoachDecisions(int $coachId, PDO $db): array
+    {
+        $stmt = $db->prepare(
+            'SELECT * FROM coaching_decisions WHERE created_by = ? ORDER BY id DESC LIMIT 200'
+        );
+        $stmt->execute([$coachId]);
+        return $stmt->fetchAll();
+    }
+
+    /** POST /app/coach/intelligence/flag/{id}/dismiss — dismiss a coaching_intelligence_flag. */
+    public static function dismissIntelligenceFlag(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId = (int)Auth::userId();
+        $flagId  = (int)($params['id'] ?? 0);
+        $db      = Database::get();
+
+        [$scope, $sp] = self::athleteScope('a');
+        $stmt = $db->prepare(
+            'SELECT cif.id FROM coaching_intelligence_flags cif
+             JOIN athletes a ON a.id = cif.athlete_id AND ' . $scope . '
+             WHERE cif.id = ? LIMIT 1'
+        );
+        $stmt->execute(array_merge($sp, [$flagId]));
+        if ($stmt->fetchColumn()) {
+            $db->prepare('UPDATE coaching_intelligence_flags SET status="dismissed", dismissed_at=NOW() WHERE id=?')
+               ->execute([$flagId]);
+        }
+        header('Location: /app/coach/intelligence');
+        exit;
+    }
+
+    /** POST /app/coach/intelligence/adjustment/{id}/dismiss — unflag without creating a rule. */
+    public static function dismissAdjustment(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId = (int)Auth::userId();
+        $adjId   = (int)($params['id'] ?? 0);
+        $db      = Database::get();
+
+        [$scope, $sp] = self::athleteScope('a');
+        $stmt = $db->prepare(
+            'SELECT ca.id FROM coach_adjustments ca
+             JOIN athletes a ON a.id = ca.athlete_id AND ' . $scope . '
+             WHERE ca.id = ? LIMIT 1'
+        );
+        $stmt->execute(array_merge($sp, [$adjId]));
+        if ($stmt->fetchColumn()) {
+            $db->prepare('UPDATE coach_adjustments SET flagged_for_review = 0 WHERE id = ?')->execute([$adjId]);
+        }
+        header('Location: /app/coach/intelligence');
+        exit;
+    }
+
+    /**
+     * POST /app/coach/intelligence/adjustment/{id}/rule — turn a flagged adjustment into a
+     * coaching decision. trigger_json / action_json are auto-generated from the adjustment;
+     * the coach supplies a title, a reason, and the scope (distances / phases).
+     */
+    public static function saveDecision(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId = (int)Auth::userId();
+        $adjId   = (int)($params['id'] ?? 0);
+        $db      = Database::get();
+
+        [$scope, $sp] = self::athleteScope('a');
+        $stmt = $db->prepare(
+            'SELECT ca.* FROM coach_adjustments ca
+             JOIN athletes a ON a.id = ca.athlete_id AND ' . $scope . '
+             WHERE ca.id = ? LIMIT 1'
+        );
+        $stmt->execute(array_merge($sp, [$adjId]));
+        $adj = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$adj) { header('Location: /app/coach/intelligence'); exit; }
+
+        $title  = trim((string)($_POST['title'] ?? ''));
+        $reason = trim((string)($_POST['reason'] ?? ''));
+        if ($title === '')  $title  = 'Coaching rule';
+        if ($reason === '') {
+            $_SESSION['flash_error'] = 'A reason is required to save a coaching rule.';
+            header('Location: /app/coach/intelligence');
+            exit;
+        }
+
+        // Scope from the modal (fall back to the captured context).
+        $distances = array_values(array_filter(array_map('strval', (array)($_POST['distances'] ?? []))));
+        $phases    = array_values(array_filter(array_map('strval', (array)($_POST['phases'] ?? []))));
+        if (!$distances && $adj['ctx_goal_distance'] !== null && $adj['ctx_goal_distance'] !== '') {
+            $distances = [(string)$adj['ctx_goal_distance']];
+        }
+        if (!$phases && $adj['ctx_phase'] !== null && $adj['ctx_phase'] !== '') {
+            $phases = [(string)$adj['ctx_phase']];
+        }
+
+        // trigger_json — goal_distance + phase + classification (only non-empty keys).
+        $trigger = [];
+        if ($distances) $trigger['goal_distance'] = $distances;
+        if ($phases)    $trigger['phase'] = $phases;
+        if ($adj['ctx_classification'] !== null && $adj['ctx_classification'] !== '') {
+            $trigger['classification'] = [(string)$adj['ctx_classification']];
+        }
+
+        // action_json — derived from the change type.
+        $action = [];
+        switch ((string)$adj['change_type']) {
+            case 'archetype_substitution':
+                if (!empty($adj['before_archetype_code'])) $action['exclude_archetypes'] = [(string)$adj['before_archetype_code']];
+                if (!empty($adj['after_archetype_code']))  $action['weight_multipliers'] = [(string)$adj['after_archetype_code'] => 2];
+                break;
+            case 'duration_change':
+                $delta = (int)($adj['after_duration_mins'] ?? 0) - (int)($adj['before_duration_mins'] ?? 0);
+                $action['duration_adjustment'] = $delta;
+                break;
+            case 'day_swap':
+            default:
+                $action = []; // scheduling/other preference — no archetype-pool effect
+                break;
+        }
+
+        $db->prepare(
+            'INSERT INTO coaching_decisions
+              (created_by, created_at, status, title, reason, trigger_json, action_json,
+               scope_distances, scope_phases, scope_plan_types, source)
+             VALUES (?, NOW(), "active", ?, ?, ?, ?, ?, ?, NULL, "proposed_from_adjustment")'
+        )->execute([
+            $coachId, $title, $reason,
+            json_encode($trigger ?: (object)[]),
+            json_encode($action ?: (object)[]),
+            $distances ? json_encode($distances) : null,
+            $phases ? json_encode($phases) : null,
+        ]);
+        $decisionId = (int)$db->lastInsertId();
+
+        $db->prepare('UPDATE coach_adjustments SET coaching_decision_id = ?, flagged_for_review = 0 WHERE id = ?')
+           ->execute([$decisionId, $adjId]);
+
+        $_SESSION['flash_success'] = 'Coaching rule saved and activated.';
+        header('Location: /app/coach/intelligence');
+        exit;
+    }
+
+    /** POST /app/coach/intelligence/decision/{id}/toggle — flip active ↔ inactive. */
+    public static function toggleDecision(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        Auth::verifyCsrf();
+
+        $coachId    = (int)Auth::userId();
+        $decisionId = (int)($params['id'] ?? 0);
+        $db         = Database::get();
+
+        $stmt = $db->prepare('SELECT status FROM coaching_decisions WHERE id = ? AND created_by = ? LIMIT 1');
+        $stmt->execute([$decisionId, $coachId]);
+        $status = $stmt->fetchColumn();
+        if ($status !== false) {
+            $next = ($status === 'active') ? 'inactive' : 'active';
+            $db->prepare('UPDATE coaching_decisions SET status = ?, updated_at = NOW() WHERE id = ?')
+               ->execute([$next, $decisionId]);
+        }
+        header('Location: /app/coach/intelligence');
+        exit;
     }
 
     public static function dismissFlag(array $params): void
@@ -2244,7 +2665,12 @@ class CoachController
                             CASE WHEN cw.planned_workout_id = pw.id THEN 0 ELSE 1 END,
                             cw.synced_at DESC
                         LIMIT 1
-                    ) AS completed_workout_id
+                    ) AS completed_workout_id,
+                    (
+                        SELECT MAX(ca.flagged_for_review)
+                        FROM coach_adjustments ca
+                        WHERE ca.planned_workout_id = pw.id
+                    ) AS flagged_for_review
              FROM planned_workouts pw
              WHERE pw.plan_id = ?
                AND (pw.cancelled = 0 OR pw.cancelled IS NULL)

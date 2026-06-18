@@ -75,14 +75,12 @@ $navUnread = class_exists('CoachController') ? CoachController::navUnreadCount()
         <span class="pill pill-warning" style="margin-left:auto;"><?= (int)$pendingApprovals ?></span>
         <?php endif; ?>
     </a>
-    <a href="/app/coach/flags" class="sidebar-nav-item <?= $activeNav === 'flags' ? 'active' : '' ?>">
+    <a href="/app/coach/intelligence" class="sidebar-nav-item <?= in_array($activeNav, ['intelligence','flags'], true) ? 'active' : '' ?>">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/>
-            <line x1="12" y1="17" x2="12.01" y2="17"/>
+            <path d="M9.663 17h4.673M12 3v1M12 3a6 6 0 0 0-3.6 10.8c.4.3.6.77.6 1.27V16a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-.93c0-.5.2-.97.6-1.27A6 6 0 0 0 12 3z"/>
         </svg>
-        Alerts
+        Intelligence
         <?php if (!empty($openFlags) && $openFlags > 0): ?>
         <span class="pill pill-critical" style="margin-left:auto;"><?= (int)$openFlags ?></span>
         <?php endif; ?>

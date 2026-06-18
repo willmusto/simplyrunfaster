@@ -477,6 +477,17 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
         color: var(--text-muted);
     }
     #mwd-close:hover { color: var(--text-primary); }
+    /* Flag-for-review toggle — sits just left of the close button in the modal header. */
+    #mwd-flag {
+        position: absolute; top: 12px; right: 44px;
+        background: none; border: none; cursor: pointer;
+        padding: 2px 4px; line-height: 0;
+        color: var(--text-muted);
+    }
+    #mwd-flag svg { display: block; }
+    #mwd-flag:hover { color: var(--text-secondary); }
+    #mwd-flag.is-flagged { color: #1D9E75; }
+    #mwd-flag.is-flagged svg { fill: #1D9E75; stroke: #1D9E75; }
 
     /* ── Plan management: drag-to-reschedule, add, remove ── */
     .macro-workout[draggable="true"] { cursor: grab; }
@@ -841,6 +852,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                                 'description'     => $description,
                                 'coach_locked'    => !empty($w['coach_locked']) ? 1 : 0,
                                 'completed_workout_id' => (int)($w['completed_workout_id'] ?? 0),
+                                'flagged'         => !empty($w['flagged_for_review']) ? 1 : 0,
                             ]), ENT_QUOTES, 'UTF-8');
                             ?>
                             <button type="button" class="macro-workout<?= $conflictRM ? ' macro-conflict-' . $conflictRM : '' ?>"
@@ -1080,6 +1092,13 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
         <div id="mwd-bd"></div>
         <div id="mwd-sheet">
             <button id="mwd-close" aria-label="Close">×</button>
+            <button type="button" id="mwd-flag" aria-label="Flag for review" title="Flag this workout for review" aria-pressed="false">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                     fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+                    <line x1="4" y1="22" x2="4" y2="15"/>
+                </svg>
+            </button>
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-right:28px;">
                 <span id="mwd-type" class="pill"></span>
                 <span id="mwd-date" style="font-size:12px;color:var(--text-muted);"></span>
@@ -1263,10 +1282,39 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 }
             }
 
+            // Flag-for-review toggle: only meaningful for a real planned workout (has id).
+            var flagBtn = $id('mwd-flag');
+            if (flagBtn) {
+                if (d.id) { flagBtn.style.display = ''; setFlagBtn(flagBtn, !!d.flagged); }
+                else { flagBtn.style.display = 'none'; }
+            }
+
             $id('mwd').classList.add('is-open');
             document.body.style.overflow = 'hidden';
         }
         function closeMwd() { $id('mwd').classList.remove('is-open'); document.body.style.overflow = ''; mwdData = null; }
+
+        // ── Flag for review (Coaching Intelligence Layer) ──
+        function setFlagBtn(btn, on) {
+            btn.classList.toggle('is-flagged', !!on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+        function toggleFlag() {
+            if (!mwdData || !mwdData.id) return;
+            var btn  = $id('mwd-flag');
+            var next = !mwdData.flagged;
+            post('/app/coach/workout/flag', {planned_workout_id: mwdData.id, flagged: next})
+              .then(function (res) {
+                  if (!res || !res.success) { alert((res && res.message) || 'Could not update the flag.'); return; }
+                  mwdData.flagged = next ? 1 : 0;
+                  setFlagBtn(btn, next);
+                  // Keep the calendar button's data-mw in sync so reopening shows the right state.
+                  var wbtn = document.querySelector('.macro-workout[data-workout-id="' + mwdData.id + '"]');
+                  if (wbtn) { try { var dd = JSON.parse(wbtn.getAttribute('data-mw')); dd.flagged = next ? 1 : 0; wbtn.setAttribute('data-mw', JSON.stringify(dd)); } catch (e) {} }
+              })
+              .catch(function () { alert('Network error. Please try again.'); });
+        }
+        (function () { var fb = document.getElementById('mwd-flag'); if (fb) fb.addEventListener('click', toggleFlag); })();
 
         function removeWorkout() {
             if (!mwdData || !mwdData.id) return;

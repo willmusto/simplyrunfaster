@@ -108,6 +108,15 @@ class EmailTemplates
                     . 'They have been asked to update their billing information.</p>',
                     'View athlete', '/coach/athlete/' . (int)($data['athlete_id'] ?? 0));
 
+            case 'coaching_digest':
+                // Weekly Coaching Intelligence digest (Part 8). Body is pre-built by the
+                // cron (no em dashes, no content tables); single teal CTA to Intelligence.
+                return self::compose($audience,
+                    $data['subject'] ?? 'Your coaching week',
+                    $data['heading'] ?? 'Your coaching week',
+                    (string)($data['detail_html'] ?? ''),
+                    'Open Intelligence', '/coach/intelligence');
+
             default:
                 // Generic single-CTA fallback for any other emailable type.
                 return self::compose($audience, $data['subject'] ?? 'SimplyRunFaster',

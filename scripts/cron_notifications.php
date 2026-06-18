@@ -30,6 +30,8 @@ require_once SCRIPT_ROOT . '/src/Timezone.php';
 require_once SCRIPT_ROOT . '/src/Mailer.php';
 require_once SCRIPT_ROOT . '/src/EmailTemplates.php';
 require_once SCRIPT_ROOT . '/src/Notifications.php';
+require_once SCRIPT_ROOT . '/src/CoachAdjustments.php';
+require_once SCRIPT_ROOT . '/src/CoachingIntelligence.php';
 
 $verbose = in_array('verbose', $argv ?? [], true);
 $db      = Database::get();
@@ -184,3 +186,23 @@ foreach ($coaches as $c) {
 }
 
 echo date('Y-m-d H:i:s') . ' — cron_notifications complete. Delivered: ' . json_encode($counts) . "\n";
+
+// ── Coaching Intelligence: daily behavior logging + pattern flags (Parts 4 & 5) ──
+// Guarded so a pre-migration run is a clean no-op.
+echo "Job: coaching_intelligence\n";
+try {
+    $hasTbl = (int)$db->query(
+        "SELECT COUNT(*) FROM information_schema.TABLES
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'athlete_behavior_log'"
+    )->fetchColumn() > 0;
+    if ($hasTbl) {
+        $ci = CoachingIntelligence::run($db, $verbose);
+        echo date('Y-m-d H:i:s') . ' — coaching_intelligence complete. '
+            . 'Behavior rows: ' . $ci['behavior'] . ', flags raised: ' . $ci['flags'] . "\n";
+    } else {
+        echo "  athlete_behavior_log missing (migration_027 not run yet) — skipping.\n";
+    }
+} catch (\Throwable $e) {
+    echo '  coaching_intelligence error: ' . $e->getMessage() . "\n";
+    error_log('cron coaching_intelligence failed: ' . $e->getMessage());
+}

@@ -222,6 +222,20 @@ class PlanGenerator
      */
     private static ?string $planDistance = null;
 
+    /**
+     * Coaching Intelligence Layer (Part 7) decision-resolver state for the current
+     * generation. $coachingDecisions holds the active decisions loaded for the athlete's
+     * coaches; the rest accumulate which decisions fired and any conflict notes across
+     * the per-week selection passes, written to training_plans.coach_generation_notes
+     * after generation. Reset at the start of each generate().
+     */
+    private static array $coachingDecisions     = [];
+    private static array $decisionFiredTitles   = [];  // id => title
+    private static array $decisionConflictNotes = [];  // note => true (deduped)
+    private static string $genGoalDistance      = '';
+    private static string $genClassification    = '';
+    private static string $genPlanType          = '';
+
     /** Load and cache engine settings. */
     private static function settings(): array
     {
@@ -745,6 +759,17 @@ class PlanGenerator
 
         $planType = $profile['plan_type'] ?? 'development_plan';
 
+        // Coaching Intelligence decision-resolver context (Part 7). Load the active
+        // decisions for this athlete's coaches once; per-week application + firing
+        // tracking happen inside insertWeekWorkouts, finalized after generation.
+        self::$genGoalDistance       = (string)($profile['goal_race_distance'] ?? '');
+        self::$genClassification     = (string)$baseClassification;
+        self::$genPlanType           = (string)$planType;
+        self::$decisionFiredTitles   = [];
+        self::$decisionConflictNotes = [];
+        self::$coachingDecisions     = class_exists('CoachingDecisions')
+            ? CoachingDecisions::loadActiveForAthlete($athleteId, $db) : [];
+
         // Raise limited development flag for 3-day-per-week athletes (info, not blocking).
         if (!in_array($planType, ['recovery_block', 'return_to_running'])) {
             if ((int)($profile['training_days_per_week'] ?? 0) === 3) {
@@ -772,11 +797,77 @@ class PlanGenerator
             // within 3 days, race-day skip, post-race recovery) — §26 / ultra-spec Part 5.
             self::applyRaceAdjustments($athleteId, $db);
             self::validateGeneratedDisplays($planId, $athleteId, $db);
+            self::finalizeCoachingDecisions($planId, $db);
             self::createApprovalQueueEntry($planId, $athleteId, $trigger, $db);
         }
 
-        self::$planDistance = null;
+        self::$planDistance      = null;
+        self::$coachingDecisions = [];
         return $planId;
+    }
+
+    // ── Coaching Intelligence decision resolver (Part 7) ──────────────────────
+
+    /**
+     * Apply the active coach decisions matching this week's context to the quality
+     * selection inputs, recording which decisions fire and any conflicts. Mutates
+     * $qualWeightAdjust / $qualExcludeCodes in place; returns max_quality_per_week
+     * (null when unconstrained).
+     */
+    private static function applyCoachingDecisions(
+        array &$qualWeightAdjust, array &$qualExcludeCodes,
+        string $phase, string $classification, string $planType
+    ): ?int {
+        if (empty(self::$coachingDecisions) || !class_exists('CoachingDecisions')) return null;
+
+        $ctx = [
+            'goal_distance'  => self::$genGoalDistance,
+            'phase'          => $phase,
+            'classification' => $classification,
+            'plan_type'      => $planType,
+        ];
+        $res = CoachingDecisions::resolve(self::$coachingDecisions, $ctx);
+
+        if (!empty($res['exclude'])) {
+            $qualExcludeCodes = array_values(array_unique(array_merge($qualExcludeCodes, $res['exclude'])));
+        }
+        foreach ($res['weights'] as $code => $mult) {
+            $qualWeightAdjust[$code] = (float)($qualWeightAdjust[$code] ?? 1.0) * (float)$mult;
+        }
+        if ($res['force'] !== null && $res['force'] !== '') {
+            // Strongly prefer the forced archetype in the weighted draw.
+            $qualWeightAdjust[$res['force']] = max((float)($qualWeightAdjust[$res['force']] ?? 1.0), 999.0);
+        }
+
+        foreach ($res['fired'] as $f)      self::$decisionFiredTitles[(int)$f['id']] = (string)$f['title'];
+        foreach ($res['conflicts'] as $n)  self::$decisionConflictNotes[$n] = true;
+
+        return $res['max_quality'];
+    }
+
+    /**
+     * Persist the decision-resolver outcome to training_plans.coach_generation_notes and
+     * bump times_fired / last_fired_at on each decision that fired this generation.
+     */
+    private static function finalizeCoachingDecisions(int $planId, PDO $db): void
+    {
+        $lines = [];
+        if (!empty(self::$decisionFiredTitles)) {
+            $lines[] = 'Coaching decisions applied: ' . implode(', ', array_values(self::$decisionFiredTitles));
+            foreach (array_keys(self::$decisionConflictNotes) as $note) $lines[] = $note;
+            if (class_exists('CoachingDecisions')) {
+                CoachingDecisions::recordFired(array_keys(self::$decisionFiredTitles), $db);
+            }
+        } else {
+            $lines[] = 'No coaching decisions matched.';
+        }
+
+        try {
+            $db->prepare('UPDATE training_plans SET coach_generation_notes = ? WHERE id = ?')
+               ->execute([implode("\n", $lines), $planId]);
+        } catch (\Throwable $e) {
+            error_log('finalizeCoachingDecisions failed: ' . $e->getMessage());
+        }
     }
 
     // ── Race-aware plan adjustments (§26 Tune-Up Race Handling) ───────────────
@@ -2528,6 +2619,14 @@ class PlanGenerator
 
         $qualSlots = ['quality_primary', 'quality_secondary'];
 
+        // Coaching Intelligence decision resolver (Part 7): merge active coach decisions'
+        // exclude/weight/force/max-quality actions into the quality selection for this
+        // week's context. No-op when no decisions match.
+        $decisionMaxQuality = self::applyCoachingDecisions(
+            $qualWeightAdjust, $qualExcludeCodes, $phase, $classification, $planType
+        );
+        $qualResolved = 0;
+
         // Pass 1 — resolve quality slots first so their honest sum-of-parts durations are known
         // before easyMins is computed. The max_quality_duration budget keeps each quality
         // session small enough to leave the easy slots at/above their floor. Anti-repeat history
@@ -2536,6 +2635,20 @@ class PlanGenerator
         $actualQualityMins = 0;
         foreach ($days as $day) {
             if (!in_array($day['slot'], $qualSlots, true)) continue;
+
+            // Decision-imposed quality cap: extra quality slots become easy runs.
+            if ($decisionMaxQuality !== null && $qualResolved >= $decisionMaxQuality) {
+                $instance = self::resolveNamedArchetype(
+                    'continuous_easy', $qualTarget, $phase, $goalDistance, $classification,
+                    $day['date'], $antiRepeatHistory, $selector
+                );
+                $qualInstances[$day['date']] = $instance;
+                if ($instance !== null) {
+                    $actualQualityMins += self::computeActualDuration($instance) ?? $qualTarget;
+                }
+                continue;
+            }
+
             $slotConstraints = $constraints + [
                 'weekly_minutes'             => $weeklyMins,
                 'min_duration_week_fraction' => (float)($s['quality_min_duration_week_fraction'] ?? 0.40),
@@ -2548,6 +2661,7 @@ class PlanGenerator
             );
             $qualInstances[$day['date']] = $instance;
             if ($instance !== null) {
+                $qualResolved++;
                 $actualQualityMins += self::computeActualDuration($instance) ?? $qualTarget;
             }
         }
