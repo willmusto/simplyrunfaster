@@ -21,14 +21,12 @@ class AuthController
 
         if (!$email || !$password) {
             $_SESSION['flash_error'] = 'Please enter your email and password.';
-            header('Location: /app/login');
-            exit;
+            Auth::redirect('/app/login');
         }
 
         if (!Auth::attempt($email, $password)) {
             $_SESSION['flash_error'] = 'Invalid email or password.';
-            header('Location: /app/login');
-            exit;
+            Auth::redirect('/app/login');
         }
 
         self::redirectByRole();
@@ -37,8 +35,7 @@ class AuthController
     public static function logout(): void
     {
         Auth::logout();
-        header('Location: /login');
-        exit;
+        Auth::redirect('/login');
     }
 
     public static function registerForm(): void
@@ -63,14 +60,12 @@ class AuthController
         $errors = self::validateRegistration($name, $email, $password, $confirm);
         if ($errors) {
             $_SESSION['flash_error'] = implode(' ', $errors);
-            header('Location: /app/register');
-            exit;
+            Auth::redirect('/app/register');
         }
 
         if (self::emailExists($email)) {
             $_SESSION['flash_error'] = 'An account with that email already exists.';
-            header('Location: /app/register');
-            exit;
+            Auth::redirect('/app/register');
         }
 
         Auth::register([
@@ -81,8 +76,7 @@ class AuthController
             'signup_source' => 'organic',
         ]);
 
-        header('Location: /app/onboarding');
-        exit;
+        Auth::redirect('/app/onboarding');
     }
 
     public static function inviteForm(array $params): void
@@ -118,8 +112,7 @@ class AuthController
 
         $invite = self::getValidInvite($code);
         if (!$invite) {
-            header('Location: /app/login');
-            exit;
+            Auth::redirect('/app/login');
         }
 
         $name     = trim($_POST['name']     ?? '');
@@ -130,14 +123,12 @@ class AuthController
         $errors = self::validateRegistration($name, $email, $password, $confirm);
         if ($errors) {
             $_SESSION['flash_error'] = implode(' ', $errors);
-            header('Location: /app/invite/' . $code);
-            exit;
+            Auth::redirect('/app/invite/' . $code);
         }
 
         if (self::emailExists($email)) {
             $_SESSION['flash_error'] = 'An account with that email already exists.';
-            header('Location: /app/invite/' . $code);
-            exit;
+            Auth::redirect('/app/invite/' . $code);
         }
 
         $userId = Auth::register([
@@ -170,8 +161,7 @@ class AuthController
             )->execute([$userId]);
         }
 
-        header('Location: /app/onboarding');
-        exit;
+        Auth::redirect('/app/onboarding');
     }
 
     // ── Forced password change (admin-created accounts) ────────
@@ -194,13 +184,11 @@ class AuthController
 
         if (strlen($password) < PASSWORD_MIN_LENGTH) {
             $_SESSION['flash_error'] = 'Password must be at least ' . PASSWORD_MIN_LENGTH . ' characters.';
-            header('Location: /app/change-password');
-            exit;
+            Auth::redirect('/app/change-password');
         }
         if ($password !== $confirm) {
             $_SESSION['flash_error'] = 'Passwords do not match.';
-            header('Location: /app/change-password');
-            exit;
+            Auth::redirect('/app/change-password');
         }
 
         $db   = Database::get();
@@ -219,11 +207,10 @@ class AuthController
     {
         $role = Auth::role();
         if (in_array($role, ['coach','assistant_coach','admin'], true)) {
-            header('Location: /app/coach/dashboard');
+            Auth::redirect('/app/coach/dashboard');
         } else {
-            header('Location: /app/dashboard');
+            Auth::redirect('/app/dashboard');
         }
-        exit;
     }
 
     private static function validateRegistration(string $name, string $email, string $password, string $confirm): array
@@ -294,8 +281,7 @@ class AuthController
         $email = strtolower(trim($_POST['email'] ?? ''));
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $_SESSION['flash_error'] = 'Please enter a valid email address.';
-            header('Location: /app/forgot-password');
-            exit;
+            Auth::redirect('/app/forgot-password');
         }
 
         $db   = Database::get();
@@ -319,8 +305,7 @@ class AuthController
 
         // Always show the same message to prevent email enumeration
         $_SESSION['flash_success'] = "If an account exists for that email, you'll receive a reset link shortly.";
-        header('Location: /app/forgot-password');
-        exit;
+        Auth::redirect('/app/forgot-password');
     }
 
     public static function resetForm(): void
@@ -347,20 +332,17 @@ class AuthController
         $record = self::getValidResetToken($token);
         if (!$record) {
             $_SESSION['flash_error'] = 'This reset link is invalid or has expired.';
-            header('Location: /app/forgot-password');
-            exit;
+            Auth::redirect('/app/forgot-password');
         }
 
         if (strlen($password) < PASSWORD_MIN_LENGTH) {
             $_SESSION['flash_error'] = 'Password must be at least ' . PASSWORD_MIN_LENGTH . ' characters.';
-            header('Location: /app/reset-password?token=' . urlencode($token));
-            exit;
+            Auth::redirect('/app/reset-password?token=' . urlencode($token));
         }
 
         if ($password !== $confirm) {
             $_SESSION['flash_error'] = 'Passwords do not match.';
-            header('Location: /app/reset-password?token=' . urlencode($token));
-            exit;
+            Auth::redirect('/app/reset-password?token=' . urlencode($token));
         }
 
         $db   = Database::get();
@@ -369,8 +351,7 @@ class AuthController
         $db->prepare('UPDATE password_reset_tokens SET used_at = NOW() WHERE token = ?')->execute([$token]);
 
         $_SESSION['flash_success'] = 'Password reset successfully. Please sign in with your new password.';
-        header('Location: /login');
-        exit;
+        Auth::redirect('/login');
     }
 
     private static function getValidResetToken(string $token): ?array

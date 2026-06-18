@@ -134,6 +134,24 @@ class Auth
         return !empty($_SESSION['user_id']);
     }
 
+    /**
+     * Redirect after a request that may have mutated the session (login, logout,
+     * registration, onboarding saves, flash messages). Explicitly writes and closes
+     * the session BEFORE sending the Location header, so the session file and the
+     * (possibly regenerated) session cookie are fully committed before the browser
+     * follows the 302. iOS Chrome / WebKit otherwise occasionally drops the just-set
+     * cookie on a redirect response, leaving the next request unauthenticated — the
+     * infinite login loop. Always exits.
+     */
+    public static function redirect(string $url): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+        header('Location: ' . $url);
+        exit;
+    }
+
     public static function requireLogin(string $redirect = '/app/login'): void
     {
         if (!self::check()) {

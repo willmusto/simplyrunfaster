@@ -19,11 +19,9 @@ class OnboardingController
         Auth::requireRole('athlete');
         $athlete = Auth::getAthlete();
         if ($athlete && $athlete['onboarding_completed_at']) {
-            header('Location: /app');
-            exit;
+            Auth::redirect('/app');
         }
-        header('Location: /app/onboarding/1');
-        exit;
+        Auth::redirect('/app/onboarding/1');
     }
 
     public static function step(array $params): void
@@ -34,8 +32,7 @@ class OnboardingController
         // Enforce sequential completion
         $progress = $_SESSION['onboarding_progress'] ?? 1;
         if ($step > $progress) {
-            header('Location: /app/onboarding/' . $progress);
-            exit;
+            Auth::redirect('/app/onboarding/' . $progress);
         }
 
         $error = $_SESSION['flash_error'] ?? null;
@@ -82,8 +79,7 @@ class OnboardingController
         $planType = $_POST['plan_type'] ?? '';
         if (!in_array($planType, ['race_cycle', 'development_plan', 'return_to_running'], true)) {
             $_SESSION['flash_error'] = 'Please select your goal.';
-            header('Location: /app/onboarding/1');
-            exit;
+            Auth::redirect('/app/onboarding/1');
         }
 
         $distance = $_POST['goal_race_distance'] ?? null;
@@ -103,8 +99,7 @@ class OnboardingController
             $_SESSION['onboarding_data']['plan_type']          = $planType;
             $_SESSION['onboarding_data']['goal_race_distance'] = $distance;
             $_SESSION['flash_error'] = 'Please tell us whether this is a trail or road ultra.';
-            header('Location: /app/onboarding/1');
-            exit;
+            Auth::redirect('/app/onboarding/1');
         }
 
         $_SESSION['onboarding_data']['plan_type']      = $planType;
@@ -123,8 +118,7 @@ class OnboardingController
         // Session data above is already stored, so the form repopulates on redirect.
         if ($planType === 'race_cycle' && empty($_SESSION['onboarding_data']['goal_race_date'])) {
             $_SESSION['flash_error'] = 'Please enter your goal race date to continue.';
-            header('Location: /app/onboarding/1');
-            exit;
+            Auth::redirect('/app/onboarding/1');
         }
 
         // Return-to-running: capture time off and medical clearance on step 1
@@ -144,8 +138,7 @@ class OnboardingController
 
         if ($weekly < 1 || $longest < 1 || $months < 0) {
             $_SESSION['flash_error'] = 'Please fill in your current training volume.';
-            header('Location: /app/onboarding/2');
-            exit;
+            Auth::redirect('/app/onboarding/2');
         }
 
         $_SESSION['onboarding_data']['current_weekly_minutes']    = $weekly;
@@ -167,8 +160,7 @@ class OnboardingController
         $years = $_POST['years_running'] ?? '';
         if ($years === '' || $years < 0) {
             $_SESSION['flash_error'] = 'Please enter how long you\'ve been running.';
-            header('Location: /app/onboarding/3');
-            exit;
+            Auth::redirect('/app/onboarding/3');
         }
 
         $_SESSION['onboarding_data']['years_running']       = (float)$years;
@@ -184,8 +176,7 @@ class OnboardingController
         $days = (int)($_POST['training_days_per_week'] ?? 0);
         if ($days < 1 || $days > 7) {
             $_SESSION['flash_error'] = 'Please select how many days per week you\'re running.';
-            header('Location: /app/onboarding/4');
-            exit;
+            Auth::redirect('/app/onboarding/4');
         }
 
         $mustOffRaw = $_POST['must_off_days'] ?? '[]';
@@ -238,8 +229,7 @@ class OnboardingController
             if (in_array($_POST['units'] ?? '', ['miles','km'], true)) {
                 $_SESSION['onboarding_data']['units'] = $_POST['units'];
             }
-            header('Location: /app/onboarding/6');
-            exit;
+            Auth::redirect('/app/onboarding/6');
         }
 
         $units = in_array($_POST['units'] ?? '', ['miles','km'], true) ? $_POST['units'] : 'miles';
@@ -281,8 +271,7 @@ class OnboardingController
         // Billing: comped athletes (and any non-Stripe environment) go straight
         // to the app; everyone else is sent to Stripe Checkout to subscribe.
         $checkoutUrl = self::checkoutRedirectUrl();
-        header('Location: ' . ($checkoutUrl ?: '/app'));
-        exit;
+        Auth::redirect($checkoutUrl ?: '/app');
     }
 
     /**
@@ -525,8 +514,7 @@ class OnboardingController
     {
         $next = $step + 1;
         $_SESSION['onboarding_progress'] = max($_SESSION['onboarding_progress'] ?? 1, $next);
-        header('Location: /app/onboarding/' . $next);
-        exit;
+        Auth::redirect('/app/onboarding/' . $next);
     }
 
     private static function parseTimeToSeconds(string $time): ?int
