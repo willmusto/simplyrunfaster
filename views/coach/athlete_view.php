@@ -589,6 +589,20 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
         background: none; color: #b91c1c; font-size: 13px; cursor: pointer;
     }
     #mwd-remove:hover { background: #fdecea; }
+    /* Edit-workout modal reuses the .awd-* element styles; only its container differs. */
+    #ewd { display: none; position: fixed; inset: 0; z-index: 9999; align-items: center; justify-content: center; }
+    #ewd.is-open { display: flex; }
+    #ewd-bd { position: absolute; inset: 0; background: rgba(0,0,0,.45); }
+    #ewd-sheet {
+        position: relative; z-index: 1; width: min(540px, calc(100vw - 32px)); max-height: 90vh; overflow-y: auto;
+        background: var(--card-bg); border: var(--card-border); border-radius: var(--radius-card);
+        padding: 20px 20px 24px; box-shadow: 0 20px 60px rgba(0,0,0,.25);
+    }
+    #ewd-close {
+        position: absolute; top: 12px; right: 14px; background: none; border: none; cursor: pointer;
+        font-size: 22px; line-height: 1; padding: 2px 4px; color: var(--text-muted);
+    }
+    #ewd-close:hover { color: var(--text-primary); }
     </style>
 
     <?php if (!empty($flashSuccess)): ?>
@@ -858,6 +872,12 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                                 'coach_locked'    => !empty($w['coach_locked']) ? 1 : 0,
                                 'completed_workout_id' => (int)($w['completed_workout_id'] ?? 0),
                                 'flagged'         => !empty($w['flagged_for_review']) ? 1 : 0,
+                                // Edit affordance: future + uncompleted only.
+                                'editable'        => ($date >= $today && empty($w['completed_workout_id'])) ? 1 : 0,
+                                'archetype_code'  => $w['archetype_code'] !== null ? (string)$w['archetype_code'] : '',
+                                'archetype_variant' => $w['archetype_variant'] !== null ? (string)$w['archetype_variant'] : '',
+                                'instructions'    => (string)($w['athlete_instructions'] ?? ''),
+                                'coach_notes'     => (string)($w['notes'] ?? ''),
                             ]), ENT_QUOTES, 'UTF-8');
                             ?>
                             <button type="button" class="macro-workout<?= $conflictRM ? ' macro-conflict-' . $conflictRM : '' ?>"
@@ -1175,7 +1195,10 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 </form>
             </div>
 
-            <button type="button" id="mwd-remove">Remove workout</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" id="mwd-edit" class="btn btn-secondary btn-sm" style="display:none;">Edit workout</button>
+                <button type="button" id="mwd-remove">Remove workout</button>
+            </div>
         </div>
     </div>
 
@@ -1269,11 +1292,123 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
         </div>
     </div>
 
+    <!-- Edit-workout modal (coach plan management) — mirrors #awd, three modes -->
+    <div id="ewd" role="dialog" aria-modal="true" aria-label="Edit workout">
+        <div id="ewd-bd"></div>
+        <div id="ewd-sheet">
+            <button id="ewd-close" aria-label="Close">×</button>
+            <div style="font-size:15px;font-weight:600;margin-bottom:2px;padding-right:28px;">Edit workout</div>
+            <div id="ewd-date-label" style="font-size:12px;color:var(--text-muted);margin-bottom:12px;"></div>
+
+            <div class="awd-tabs">
+                <button type="button" class="awd-tab is-active" data-ewd-tab="surface">Tweak</button>
+                <button type="button" class="awd-tab" data-ewd-tab="archetype">Replace from library</button>
+                <button type="button" class="awd-tab" data-ewd-tab="freeform" id="ewd-tab-freeform">Replace (custom)</button>
+            </div>
+
+            <!-- MODE 1 — surface tweak -->
+            <div id="ewd-pane-surface">
+                <div class="form-group">
+                    <label class="form-label" for="ewd-s-title">Title</label>
+                    <input type="text" id="ewd-s-title" class="form-input" maxlength="255">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="ewd-s-type">Workout type</label>
+                    <select id="ewd-s-type" class="form-input">
+                        <option value="easy">Easy run</option><option value="long">Long run</option>
+                        <option value="tempo">Tempo</option><option value="interval">Workout</option>
+                        <option value="recovery">Recovery</option><option value="race_pace">Race pace</option>
+                        <option value="hill">Hill session</option><option value="fartlek">Fartlek</option>
+                        <option value="speed">Speed</option><option value="cross_train">Cross-train</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="ewd-s-dur">Duration (minutes)</label>
+                    <input type="number" id="ewd-s-dur" class="form-input" min="1" max="600" style="max-width:120px;">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="ewd-s-instr">Instructions <span style="font-weight:400;color:var(--text-muted);">(shown to athlete)</span></label>
+                    <textarea id="ewd-s-instr" class="form-textarea" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="ewd-s-notes">Coach notes <span style="font-weight:400;color:var(--text-muted);">(coach-only)</span></label>
+                    <textarea id="ewd-s-notes" class="form-textarea" rows="2"></textarea>
+                </div>
+                <div class="awd-actions"><button type="button" id="ewd-save-surface" class="btn btn-primary btn-sm">Save changes</button></div>
+            </div>
+
+            <!-- MODE 2 — archetype picker -->
+            <div id="ewd-pane-archetype" style="display:none;">
+                <div class="awd-filter" id="ewd-filter">
+                    <button type="button" class="awd-filter-btn is-active" data-ecat="all">All</button>
+                    <button type="button" class="awd-filter-btn" data-ecat="easy">Easy run</button>
+                    <button type="button" class="awd-filter-btn" data-ecat="long">Long run</button>
+                    <button type="button" class="awd-filter-btn" data-ecat="quality">Quality</button>
+                    <button type="button" class="awd-filter-btn" data-ecat="recovery">Recovery</button>
+                </div>
+                <div class="awd-arch-list" id="ewd-arch-list"></div>
+                <div id="ewd-config" style="display:none;margin-top:14px;">
+                    <div class="form-group" id="ewd-variant-group" style="display:none;">
+                        <label class="form-label" for="ewd-variant">Variant</label>
+                        <select id="ewd-variant" class="form-input"></select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="ewd-duration">Duration (minutes)</label>
+                        <input type="number" id="ewd-duration" class="form-input" min="1" max="600" style="max-width:120px;">
+                    </div>
+                    <button type="button" id="ewd-preview-btn" class="btn btn-secondary btn-sm">Preview</button>
+                </div>
+                <div id="ewd-preview-wrap" style="display:none;margin-top:14px;">
+                    <div class="awd-preview">
+                        <div class="awd-preview-title" id="ewd-preview-title"></div>
+                        <div class="awd-preview-summary" id="ewd-preview-summary"></div>
+                        <div class="awd-preview-instr" id="ewd-preview-instr"></div>
+                    </div>
+                    <div class="awd-actions"><button type="button" id="ewd-save-arch" class="btn btn-primary btn-sm">Replace workout</button></div>
+                </div>
+            </div>
+
+            <!-- MODE 3 — free-form -->
+            <div id="ewd-pane-freeform" style="display:none;">
+                <div class="form-group">
+                    <label class="form-label" for="ewd-ff-title">Title</label>
+                    <input type="text" id="ewd-ff-title" class="form-input" maxlength="255">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="ewd-ff-type">Workout type</label>
+                    <select id="ewd-ff-type" class="form-input">
+                        <option value="easy">Easy run</option><option value="long">Long run</option>
+                        <option value="tempo">Tempo</option><option value="interval">Workout</option>
+                        <option value="recovery">Recovery</option><option value="race_pace">Race pace</option>
+                        <option value="hill">Hill session</option><option value="fartlek">Fartlek</option>
+                        <option value="speed">Speed</option><option value="rest">Rest</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="ewd-ff-dur">Duration (minutes)</label>
+                    <input type="number" id="ewd-ff-dur" class="form-input" min="1" max="600" style="max-width:120px;">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="ewd-ff-instr">Instructions <span style="font-weight:400;color:var(--text-muted);">(shown to athlete)</span></label>
+                    <textarea id="ewd-ff-instr" class="form-textarea" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="ewd-ff-notes">Coach notes <span style="font-weight:400;color:var(--text-muted);">(coach-only)</span></label>
+                    <textarea id="ewd-ff-notes" class="form-textarea" rows="2"></textarea>
+                </div>
+                <div class="awd-actions"><button type="button" id="ewd-save-ff" class="btn btn-primary btn-sm">Replace workout</button></div>
+            </div>
+
+            <div class="awd-err" id="ewd-err"></div>
+        </div>
+    </div>
+
     <script>
     (function () {
         var CFG = {
             athleteId:  <?= (int)$athlete['id'] ?>,
             archetypes: <?= json_encode($archetypeLibrary, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
+            isAssistant: <?= (Auth::role() === 'assistant_coach') ? 'true' : 'false' ?>,
             csrf:       <?= json_encode(Auth::csrfToken()) ?>
         };
 
@@ -1333,6 +1468,10 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 else { flagBtn.style.display = 'none'; }
             }
 
+            // Edit affordance: future + uncompleted workouts only.
+            var editBtn = $id('mwd-edit');
+            if (editBtn) editBtn.style.display = (d.id && d.editable) ? '' : 'none';
+
             $id('mwd').classList.add('is-open');
             document.body.style.overflow = 'hidden';
         }
@@ -1372,6 +1511,128 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                   closeMwd();
               })
               .catch(function () { alert('Network error. Please try again.'); });
+        }
+
+        // ── Edit-workout modal (surface / archetype / free-form) ──
+        var editData = null, selectedEArch = null;
+        function setSelect(id, val) { var s = $id(id); if (!s) return; for (var i = 0; i < s.options.length; i++) { if (s.options[i].value === val) { s.selectedIndex = i; return; } } }
+        function showEErr(m) { var e = $id('ewd-err'); e.textContent = m; e.style.display = ''; }
+        function hideEErr() { $id('ewd-err').style.display = 'none'; }
+        function closeEwd() { $id('ewd').classList.remove('is-open'); document.body.style.overflow = ''; editData = null; }
+
+        function openEwd() {
+            if (!mwdData || !mwdData.id || !mwdData.editable) return;
+            editData = mwdData;
+            $id('ewd-date-label').textContent = editData.date ? dateLabel(editData.date) : '';
+            $id('ewd-tab-freeform').style.display = CFG.isAssistant ? 'none' : '';
+            // Prefill surface + free-form panes from the current workout.
+            $id('ewd-s-title').value = editData.title || '';
+            setSelect('ewd-s-type', editData.workout_type);
+            $id('ewd-s-dur').value = editData.target_duration || '';
+            $id('ewd-s-instr').value = editData.instructions || '';
+            $id('ewd-s-notes').value = editData.coach_notes || '';
+            $id('ewd-ff-title').value = editData.title || '';
+            setSelect('ewd-ff-type', editData.workout_type);
+            $id('ewd-ff-dur').value = editData.target_duration || '';
+            $id('ewd-ff-instr').value = editData.instructions || '';
+            $id('ewd-ff-notes').value = editData.coach_notes || '';
+            setEwdTab('surface');
+            renderEArchList('all');
+            hideEErr();
+            closeMwd();
+            $id('ewd').classList.add('is-open'); document.body.style.overflow = 'hidden';
+        }
+        function setEwdTab(tab) {
+            document.querySelectorAll('#ewd .awd-tab').forEach(function (t) { t.classList.toggle('is-active', t.getAttribute('data-ewd-tab') === tab); });
+            $id('ewd-pane-surface').style.display   = tab === 'surface'   ? '' : 'none';
+            $id('ewd-pane-archetype').style.display = tab === 'archetype' ? '' : 'none';
+            $id('ewd-pane-freeform').style.display  = tab === 'freeform'  ? '' : 'none';
+            hideEErr();
+        }
+        function renderEArchList(cat) {
+            document.querySelectorAll('#ewd-filter .awd-filter-btn').forEach(function (b) { b.classList.toggle('is-active', b.getAttribute('data-ecat') === cat); });
+            var list = $id('ewd-arch-list'); list.innerHTML = '';
+            CFG.archetypes.filter(function (a) { return cat === 'all' || a.category === cat; }).forEach(function (a) {
+                var b = document.createElement('button');
+                b.type = 'button'; b.className = 'awd-arch'; b.setAttribute('data-earch-code', a.code);
+                b.innerHTML = '<div class="awd-arch-name"></div><div class="awd-arch-desc"></div>';
+                b.querySelector('.awd-arch-name').textContent = a.name;
+                b.querySelector('.awd-arch-desc').textContent = a.description || '';
+                list.appendChild(b);
+            });
+            $id('ewd-config').style.display = 'none';
+            $id('ewd-preview-wrap').style.display = 'none';
+            selectedEArch = null;
+        }
+        function selectEArch(code) {
+            selectedEArch = CFG.archetypes.filter(function (a) { return a.code === code; })[0] || null;
+            document.querySelectorAll('#ewd-arch-list .awd-arch').forEach(function (b) { b.classList.toggle('is-selected', b.getAttribute('data-earch-code') === code); });
+            if (!selectedEArch) return;
+            var vg = $id('ewd-variant-group'), vs = $id('ewd-variant');
+            if (selectedEArch.variants && selectedEArch.variants.length > 1) {
+                vs.innerHTML = '';
+                selectedEArch.variants.forEach(function (v) { var o = document.createElement('option'); o.value = v.code; o.textContent = v.name; vs.appendChild(o); });
+                vg.style.display = '';
+            } else { vg.style.display = 'none'; vs.innerHTML = ''; }
+            $id('ewd-duration').value = editData && editData.target_duration ? editData.target_duration : (selectedEArch.default_duration || 45);
+            $id('ewd-config').style.display = '';
+            $id('ewd-preview-wrap').style.display = 'none';
+            hideEErr();
+        }
+        function chosenEVariant() {
+            if ($id('ewd-variant-group').style.display !== 'none') return $id('ewd-variant').value;
+            return (selectedEArch && selectedEArch.variants && selectedEArch.variants[0]) ? selectedEArch.variants[0].code : null;
+        }
+        function chosenEDuration() { return parseInt($id('ewd-duration').value, 10) || (selectedEArch && selectedEArch.default_duration) || 45; }
+        function editUrl() { return '/app/coach/workouts/' + editData.id + '/edit'; }
+        function previewEArch() {
+            if (!selectedEArch) return;
+            hideEErr();
+            post(editUrl(), { mode: 'archetype', preview: true, archetype_code: selectedEArch.code, archetype_variant: chosenEVariant(), duration: chosenEDuration() })
+              .then(function (res) {
+                  if (!res || !res.ok) { showEErr((res && res.message) || 'Could not build preview.'); return; }
+                  var p = res.preview;
+                  $id('ewd-preview-title').textContent = p.display_title || '';
+                  setBlock('ewd-preview-summary', p.display_summary);
+                  $id('ewd-preview-instr').textContent = p.athlete_instructions || '';
+                  $id('ewd-preview-wrap').style.display = '';
+              }).catch(function () { showEErr('Network error. Please try again.'); });
+        }
+        function saveEdit(body, btn) {
+            if (btn) btn.disabled = true;
+            post(editUrl(), body)
+              .then(function (res) { if (btn) btn.disabled = false; onEdited(res); })
+              .catch(function () { if (btn) btn.disabled = false; showEErr('Network error. Please try again.'); });
+        }
+        function onEdited(res) {
+            if (!res || !res.ok) { showEErr((res && res.message) || 'Could not save the workout.'); return; }
+            applyEditResult(res.workout);
+            closeEwd();
+        }
+        function applyEditResult(w) {
+            if (!w) return;
+            var btn = document.querySelector('.macro-workout[data-workout-id="' + w.id + '"]');
+            if (btn) {
+                var row  = btn.querySelector('.macro-workout-row');
+                var pill = btn.querySelector('.pill');
+                if (pill) { pill.className = 'pill ' + (w.type_class || ''); pill.textContent = w.type_label || ''; }
+                var dur = btn.querySelector('.macro-duration');
+                if (w.target_duration) {
+                    if (!dur && pill) { dur = document.createElement('span'); dur.className = 'macro-duration'; pill.parentNode.insertBefore(dur, pill.nextSibling); }
+                    if (dur) dur.textContent = w.duration_label || fmtDur(w.target_duration);
+                } else if (dur) { dur.remove(); }
+                if (row && !row.querySelector('.macro-lock')) {
+                    var lk = document.createElement('span'); lk.className = 'macro-lock'; lk.title = 'Coach-locked'; lk.innerHTML = '&#128274;'; row.appendChild(lk);
+                }
+                try {
+                    var d = JSON.parse(btn.getAttribute('data-mw'));
+                    d.workout_type = w.workout_type; d.type_label = w.type_label; d.type_class = w.type_class;
+                    d.title = w.title; d.target_duration = w.target_duration; d.summary = w.summary || ''; d.description = w.description || '';
+                    d.coach_locked = 1; d.instructions = w.athlete_instructions || ''; d.coach_notes = w.coach_notes || '';
+                    d.archetype_code = w.archetype_code || ''; d.archetype_variant = w.archetype_variant || '';
+                    btn.setAttribute('data-mw', JSON.stringify(d));
+                } catch (e) {}
+            }
         }
 
         // ── Calendar DOM helpers ──
@@ -1630,6 +1891,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             if (wbtn) { openMwd(wbtn); return; }
             if (e.target.id === 'mwd-bd' || e.target.id === 'mwd-close') { closeMwd(); return; }
             if (e.target.id === 'mwd-remove') { removeWorkout(); return; }
+            if (e.target.id === 'mwd-edit') { openEwd(); return; }
             if (e.target.id === 'mwd-comment-btn') {
                 $id('mwd-comment-btn').style.display  = 'none';
                 $id('mwd-comment-form').style.display = '';
@@ -1652,11 +1914,43 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             if (e.target.id === 'awd-preview-btn') { previewArch(); return; }
             if (e.target.id === 'awd-add-arch') { addArch(); return; }
             if (e.target.id === 'awd-add-ff') { addFreeform(); return; }
+
+            // Edit-workout modal.
+            if (e.target.id === 'ewd-bd' || e.target.id === 'ewd-close') { closeEwd(); return; }
+            var etab = e.target.closest('#ewd .awd-tab'); if (etab) { setEwdTab(etab.getAttribute('data-ewd-tab')); return; }
+            var efb = e.target.closest('#ewd-filter .awd-filter-btn'); if (efb) { renderEArchList(efb.getAttribute('data-ecat')); return; }
+            var earch = e.target.closest('#ewd-arch-list .awd-arch'); if (earch) { selectEArch(earch.getAttribute('data-earch-code')); return; }
+            if (e.target.id === 'ewd-preview-btn') { previewEArch(); return; }
+            if (e.target.id === 'ewd-save-arch') {
+                if (!selectedEArch) { showEErr('Choose a workout from the library first.'); return; }
+                saveEdit({ mode: 'archetype', archetype_code: selectedEArch.code, archetype_variant: chosenEVariant(), duration: chosenEDuration() }, e.target);
+                return;
+            }
+            if (e.target.id === 'ewd-save-surface') {
+                saveEdit({
+                    mode: 'surface', workout_type: $id('ewd-s-type').value,
+                    target_duration: parseInt($id('ewd-s-dur').value, 10) || 0,
+                    title: $id('ewd-s-title').value.trim(),
+                    athlete_instructions: $id('ewd-s-instr').value.trim(),
+                    coach_notes: $id('ewd-s-notes').value.trim()
+                }, e.target);
+                return;
+            }
+            if (e.target.id === 'ewd-save-ff') {
+                var ft = $id('ewd-ff-title').value.trim(), fd = parseInt($id('ewd-ff-dur').value, 10) || 0;
+                if (!ft || fd < 1) { showEErr('Title and a duration of at least 1 minute are required.'); return; }
+                saveEdit({
+                    mode: 'freeform', title: ft, workout_type: $id('ewd-ff-type').value, duration: fd,
+                    instructions: $id('ewd-ff-instr').value.trim(), coach_notes: $id('ewd-ff-notes').value.trim()
+                }, e.target);
+                return;
+            }
         });
         document.addEventListener('keydown', function (e) {
             if (e.key !== 'Escape') return;
             if ($id('mwd').classList.contains('is-open')) closeMwd();
             if ($id('awd').classList.contains('is-open')) closeAwd();
+            if ($id('ewd').classList.contains('is-open')) closeEwd();
         });
     })();
     </script>
