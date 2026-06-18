@@ -916,7 +916,7 @@ $archetypes = [
             'show_time_range'      => true,
             'title_template'       => '{{rep_count}} × {{rep_distance_meters}}m',
             'summary_template'     => '{{total_distance}} miles · {{time_range}}',
-            'description_template' => '{{rep_count}} × {{rep_distance_meters}}m at near-sprint effort. Run each rep fast and controlled — powerful but not falling apart. Take full walk-back recovery between reps to preserve speed and mechanics on every one.',
+            'description_template' => '{{rep_count}} × {{rep_distance_meters}}m at near-sprint effort. Run each rep fast and controlled, powerful but not falling apart. Take full walk-back recovery between reps to preserve speed and mechanics on every one.',
         ],
         'instance_signature' => ['fields' => ['code', 'variant', 'rep_distance_meters', 'rep_count', 'effort_zone']],
         'coach_notes' => [
@@ -1460,7 +1460,7 @@ $archetypes = [
             'show_time_range'      => false,
             'title_template'       => 'Standalone Strides',
             'summary_template'     => '{{duration_minutes}} min · {{stride_count}} strides',
-            'description_template' => 'A short, easy session focused on form. Warm up with {{warmup_minutes}} minutes of easy jogging or brisk walking, then run {{stride_count}} relaxed strides of about {{stride_duration_seconds}} seconds each, taking full recovery between every one. Cool down with {{cooldown_minutes}} minutes easy. Strides are smooth controlled accelerations, never sprints — focus on quick, relaxed turnover.',
+            'description_template' => 'A short, easy session focused on form. Warm up with {{warmup_minutes}} minutes of easy jogging or brisk walking, then run {{stride_count}} relaxed strides of about {{stride_duration_seconds}} seconds each, taking full recovery between every one. Cool down with {{cooldown_minutes}} minutes easy. Strides are smooth controlled accelerations, never sprints: focus on quick, relaxed turnover.',
         ],
         'instance_signature' => ['fields' => ['code', 'stride_count', 'stride_duration_seconds']],
         'coach_notes' => [
@@ -1469,6 +1469,89 @@ $archetypes = [
                 'Effort language only — no pace prescription.',
                 'Full recovery between strides.',
                 'Distinct from easy_with_strides.',
+            ],
+        ],
+    ],
+
+    // ----------------------------------------------------------
+    // hill_sprint_ladder  (FIX 6 — neuromuscular hill-sprint ladder)
+    // ----------------------------------------------------------
+    [
+        'code'    => 'hill_sprint_ladder',
+        'version' => 1,
+        'status'  => 'active',
+        'metadata' => [
+            'name'             => 'Hill Sprint Ladder',
+            'workout_type'     => 'hill',
+            'mapped_templates' => [],
+            'description'      => 'A descending or pyramid ladder of near-maximal hill sprints, each rep a different duration, with a jog back to the bottom between every rep for neuromuscular variety in one session.',
+        ],
+        'selection' => [
+            'slot_types'               => ['quality_primary', 'quality_secondary'],
+            'phases'                   => ['base', 'build', 'peak'],
+            'plan_types'               => ['race_cycle', 'development_plan', 'maintenance_plan'],
+            'goal_distances'           => ['5K', '10K', 'half', 'marathon'],
+            'min_classification'       => 'workable',
+            'track_requirement'        => 'none',
+            'coach_clearance_required' => false,
+            'requires'                 => ['hill_access'],
+            'excludes'                 => ['day_after_workout', 'day_before_race'],
+        ],
+        'weights' => [
+            // marathon carries the highest goal-distance weight because ultras map to the
+            // marathon archetype layer; ultras are further boosted at generation time.
+            'phase'          => ['base' => 10, 'build' => 8, 'peak' => 3, 'taper' => 0],
+            'goal_distance'  => ['5K' => 2, '10K' => 3, 'half' => 5, 'marathon' => 8],
+            'classification' => ['workable' => 8, 'well_trained' => 10],
+            'plan_type'      => ['race_cycle' => 8, 'development_plan' => 8, 'maintenance_plan' => 6, 'recovery_block' => 0, 'return_to_running' => 0],
+        ],
+        'generation' => [
+            'prescription_model' => 'time_based',
+            'duration_source'    => 'quality_session_duration',
+            'progression_model'  => 'ladder_variant',
+            'recovery_model'     => 'jog_back_recovery',
+            'intensity_factor'   => 0.7,
+            'minimum_session_duration_minutes' => 35,
+            'minimum_duration_notes' => 'Fixed ladder session: 15 min warmup with strides + ladder sprints with jog-back recovery + 10 min cooldown.',
+        ],
+        'effort_mapping' => [
+            'model'             => 'neuromuscular',
+            'duration_dependent'=> false,
+            'target_stimulus'   => 'maximal_hill_power',
+        ],
+        'variants' => [
+            ['code' => 'descending',        'name' => 'Hill Sprint Descending Ladder'],
+            ['code' => 'pyramid',           'name' => 'Hill Sprint Pyramid'],
+            ['code' => 'double_descending', 'name' => 'Hill Sprint Double Descending'],
+        ],
+        'parameters' => [
+            'warmup_minutes'   => ['type' => 'integer', 'default' => 15],
+            'cooldown_minutes' => ['type' => 'integer', 'default' => 10],
+        ],
+        'structure_template' => [
+            'segments' => [
+                ['segment_type' => 'warmup',   'duration_minutes' => '{{warmup_minutes}}', 'effort' => 'easy', 'strides' => '4x15s'],
+                ['segment_type' => 'hill_sprint_ladder', 'variant' => '{{variant}}', 'sequence_seconds' => '{{hill_sprint_sequence}}', 'effort' => 'near_maximal', 'recovery' => 'jog_back_to_bottom'],
+                ['segment_type' => 'cooldown', 'duration_minutes' => '{{cooldown_minutes}}', 'effort' => 'easy'],
+            ],
+        ],
+        'display' => [
+            'lead_with'            => 'duration',
+            'show_distance_range'  => true,
+            'show_time_range'      => false,
+            'title_template'       => '{{variant_name}}',
+            'summary_template'     => '{{duration_minutes}} min · {{distance_range}}',
+            'description_template' => '{{hill_sprint_sequence}} hill sprints. Jog back to the bottom between each rep. Each sprint is near-maximal effort regardless of duration. The variety in rep length builds neuromuscular adaptability and keeps the session engaging.',
+        ],
+        'instance_signature' => ['fields' => ['code', 'variant', 'rep_count']],
+        'coach_notes' => [
+            'intended_use'  => 'Neuromuscular power and running economy with rep-length variety. Heavily weighted for ultra-distance and strength-focused athletes; light for 5K/10K/mile who already get plenty of fast work.',
+            'special_rules' => [
+                'Jog back to the bottom of the hill between every rep, in every variant. Never walk back, never stand and rest.',
+                'Every sprint is near-maximal effort regardless of duration.',
+                'Sequence is determined by variant (descending, pyramid, double descending).',
+                'Warmup includes 4 x 15 sec strides; cooldown is 10 min easy.',
+                'Requires hill access; substitute a safe steep hill if needed.',
             ],
         ],
     ],

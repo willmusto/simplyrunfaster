@@ -187,7 +187,7 @@ class PlanGenerator
     // {{progression_instruction}} Cool down N min easy.").
     const WARMUP_WITH_STRIDES_ARCHETYPES = [
         'equal_distance_repeats', 'short_speed_repeats', 'sustained_hill_repeats',
-        'hill_sprints', 'plyometric_hill_circuits',
+        'hill_sprints', 'plyometric_hill_circuits', 'hill_sprint_ladder',
     ];
     const WARMUP_NO_STRIDES_ARCHETYPES = [
         'tempo_intervals', 'high_volume_time_intervals',
@@ -453,13 +453,13 @@ class PlanGenerator
         $d = self::normalizeDistance($distance);
         if (!in_array($d, self::ULTRA_DISTANCES, true)) return '';
 
-        $cue = 'Focus on time on feet rather than pace. Walk the uphills when needed — power hiking '
+        $cue = 'Focus on time on feet rather than pace. Walk the uphills when needed: power hiking '
              . 'is a legitimate race strategy and saves your legs for the downhills.';
 
         $powerHike = ($d !== '50k') || ($phase === 'peak');
         if ($powerHike) {
             $cue .= ' On any significant climbs, transition to a strong power hike rather than running. '
-                  . 'Focus on maintaining consistent effort, not pace. Practice this in training — '
+                  . 'Focus on maintaining consistent effort, not pace. Practice this in training: '
                   . "it's a race skill, not a sign of weakness.";
         }
         return $cue;
@@ -483,14 +483,95 @@ class PlanGenerator
         return self::MILE_WEIGHT_ADJUST;
     }
 
-    /** Quality archetype codes to exclude for an ultra (100-miler favours aerobic threshold work). */
-    private static function ultraQualityExcludeCodes(string $distance): array
+    /**
+     * Quality archetype codes to exclude for an ultra, by phase/week (FIX 3).
+     *   100-miler / 100K — track-style speed and equal/mixed-distance repeats are wrong
+     *     for ultra training: excluded in base and peak entirely, allowed only sparingly
+     *     in build (≤ one week in four). 100-miler additionally never runs high-volume
+     *     track intervals in any phase.
+     * Other ultras (50K / 50 miler) keep the full quality pool.
+     */
+    private static function ultraQualityExcludeCodes(string $distance, string $phase = 'base', int $week = 1): array
     {
-        if (self::normalizeDistance($distance) === '100_miler') {
-            // Prefer tempo_intervals / structured_fartlek_ladder over track-style speed work.
-            return ['equal_distance_repeats', 'short_speed_repeats', 'high_volume_time_intervals'];
+        $d = self::normalizeDistance($distance);
+        if (!in_array($d, ['100_miler', '100k'], true)) {
+            return [];
         }
-        return [];
+        $speedTrio = ['short_speed_repeats', 'equal_distance_repeats', 'mixed_distance_repeats'];
+        // 100-miler favours aerobic threshold work over any track-style speed session.
+        $always = $d === '100_miler' ? ['high_volume_time_intervals'] : [];
+
+        // build: allow the speed trio sparingly (one week in four); base/peak/taper: never.
+        if ($phase === 'build' && $week % 4 === 0) {
+            return $always;
+        }
+        return array_merge($always, $speedTrio);
+    }
+
+    /**
+     * Quality-archetype score multipliers for ultras (FIX 3 / FIX 10A). All ultras favour
+     * the hill-sprint ladder; 100-miler / 100K additionally weight sustained hill repeats,
+     * the structured fartlek ladder, and tempo intervals 3× (aerobic-power + threshold bias).
+     */
+    private static function ultraThresholdWeightAdjust(string $distance): array
+    {
+        $d   = self::normalizeDistance($distance);
+        $adj = [];
+        if (in_array($d, self::ULTRA_DISTANCES, true)) {
+            $adj['hill_sprint_ladder'] = 2.0;
+        }
+        if (in_array($d, ['100_miler', '100k'], true)) {
+            $adj['sustained_hill_repeats']    = 3.0;
+            $adj['structured_fartlek_ladder'] = 3.0;
+            $adj['tempo_intervals']           = 3.0;
+        }
+        return $adj;
+    }
+
+    /**
+     * Per-phase long-run duration ceiling (minutes) for a race cycle (FIX 7). Ultras use the
+     * explicit per-phase caps; marathon derives a cap from the peak weekly-volume ceiling
+     * (clamped to a sane 75–210 min band). Returns null for distances that keep the legacy
+     * weekly-volume long-run sizing (5K / 10K / half).
+     */
+    private static function raceLongRunPhaseCap(string $distance, string $phase, int $peakCeiling): ?int
+    {
+        $ultraCap = self::ultraLongRunCap($distance, $phase);
+        if ($ultraCap !== null) return $ultraCap;
+
+        if (self::normalizeDistance($distance) === 'marathon') {
+            $frac = match ($phase) {
+                'base'  => 0.30,
+                'build' => 0.33,
+                'peak'  => 0.35,
+                'taper' => 0.30,
+                default => 0.30,
+            };
+            return min(210, max(75, (int)round($peakCeiling * $frac)));
+        }
+        return null;
+    }
+
+    /** Per-phase rep-count cap for short/distance repeat archetypes (FIX 2). */
+    private static function phaseRepCap(string $phase): int
+    {
+        return match ($phase) {
+            'base'  => 8,
+            'build' => 12,
+            'peak'  => 16,
+            default => 16,
+        };
+    }
+
+    /**
+     * Coach-friendly label for a rep/interval duration in seconds (FIX 1):
+     * under a minute → "X sec"; a minute and above → "Xm YYs" (e.g. 90 → "1m 30s").
+     */
+    private static function formatSecondsLabel(int $seconds): string
+    {
+        $seconds = max(0, $seconds);
+        if ($seconds < 60) return $seconds . ' sec';
+        return sprintf('%dm %02ds', intdiv($seconds, 60), $seconds % 60);
     }
 
     /** Compact duration label ("Xh Ymin" / "Xh" / "X min"), mirroring the view helper. */
@@ -745,6 +826,15 @@ class PlanGenerator
         $racesStmt = $db->prepare('SELECT * FROM races WHERE athlete_id = ? ORDER BY race_date');
         $racesStmt->execute([$athleteId]);
         $races = $racesStmt->fetchAll(PDO::FETCH_ASSOC);
+        // FIX 9: defend against cross-athlete race contamination. The query is already
+        // scoped to athlete_id; this belt-and-suspenders filter guarantees a race row
+        // belonging to a different athlete can never patch this athlete's plan, even if
+        // a future query change or bad row slipped through. Only this athlete's races
+        // adjust this athlete's plan.
+        $races = array_values(array_filter(
+            $races,
+            static fn(array $r): bool => (int)($r['athlete_id'] ?? 0) === $athleteId
+        ));
         if (!$races) return;
 
         // Stable "normal long run" reference (max long in the plan) so the 60% cap never
@@ -819,8 +909,8 @@ class PlanGenerator
             if (!$touched) continue;
 
             $desc = $daysOut <= 2
-                ? 'Pre-race shakeout — very easy and short. Stay loose and save your legs for race day.'
-                : 'Pre-race aerobic run — keep it relaxed and purely aerobic. No fast running or workouts this close to your race.';
+                ? 'Pre-race shakeout: very easy and short. Stay loose and save your legs for race day.'
+                : 'Pre-race aerobic run: keep it relaxed and purely aerobic. No fast running or workouts this close to your race.';
             $title   = $newType === 'long' ? 'Long Run (pre-race)' : 'Easy Run (pre-race)';
             $loadIf  = $newType === 'recovery' ? 0.3 : 0.5;
             $upd->execute([
@@ -853,7 +943,7 @@ class PlanGenerator
             if ($d <= 3) {
                 $type = 'rest'; $dur = null; $load = 0;
                 $title = 'Rest'; $summary = 'Rest + recover';
-                $desc  = 'Post-race rest day. Let your body recover — gentle movement only.';
+                $desc  = 'Post-race rest day. Let your body recover with gentle movement only.';
             } elseif ($d <= 7) {
                 $type = 'easy'; $dur = 30; $load = round(30 * 0.5, 2);
                 $title = 'Easy Run'; $summary = '30 min · easy';
@@ -861,7 +951,7 @@ class PlanGenerator
             } else {
                 $type = 'recovery'; $dur = 40; $load = round(40 * 0.3, 2);
                 $title = 'Recovery Run'; $summary = '40 min · recovery';
-                $desc  = 'Easy recovery run — gentle and aerobic while you continue to recover from your race.';
+                $desc  = 'Easy recovery run, gentle and aerobic while you continue to recover from your race.';
             }
 
             $ex = $db->prepare('SELECT id, coach_locked FROM planned_workouts WHERE plan_id = ? AND scheduled_date = ? LIMIT 1');
@@ -1221,6 +1311,18 @@ class PlanGenerator
         $maxLongRun     = $longestRun;
         $constraints    = self::buildConstraints($profile);
 
+        // FIX 7: long-run weekly-progression state (ultra + marathon race cycles). The long
+        // run ramps ~12% per non-cutback week from the athlete's current longest toward the
+        // per-phase ceiling, reaching it only gradually by phase end (the cap is a ceiling,
+        // not a per-week target); cutback weeks drop to ~65% of the prior week. 5K/10K/half
+        // keep the legacy weekly-volume long-run sizing inside insertWeekWorkouts.
+        $lrProgress     = $isUltra || $distance === 'marathon';
+        $longFloorMins  = (int)(self::settings()['long_run_absolute_floor_minutes'] ?? 60);
+        $lrPrev         = $longestRun;   // previous week's long run
+        $lrPeak         = $longestRun;   // highest non-cutback long run so far
+        $lrPhaseStart   = $longestRun;   // long run entering the current phase
+        $lrCurPhase     = null;
+
         // Trail ultras: a one-time info reminder for the coach (Part 12 / Part 15).
         if ($isUltra && $surface === 'trail') {
             self::raiseFlag(
@@ -1235,7 +1337,7 @@ class PlanGenerator
         if ($distance === 'mile' && !empty($profile['is_hyrox'])) {
             self::raiseFlag(
                 $athleteId, 'hyrox_supplement_reminder', 'info',
-                'Hyrox athlete — running plan only. The running plan develops the speed and threshold '
+                'Hyrox athlete, running plan only. The running plan develops the speed and threshold '
                 . 'fitness needed for the 8 x 1km running segments. Athlete has been advised to supplement '
                 . 'with functional fitness training (rowing, sleds, burpees, sandbags, wall balls, lunges) '
                 . 'at a CrossFit box or functional fitness gym.',
@@ -1250,10 +1352,31 @@ class PlanGenerator
             $isRaceWeek    = ($week === $totalWeeks);
             $isPreRaceWeek = ($week === $totalWeeks - 1 && $totalWeeks > 2);
 
-            // Per-week back-to-back flag (ultra only); threaded to schedule + insertion.
+            // Per-week back-to-back flag + week number (ultra only); threaded to schedule,
+            // insertion, and the phase/week-aware quality exclusions (FIX 3).
             if ($ultra !== null) {
                 $ultra['back_to_back'] =
                     self::ultraBackToBackWeek($distance, $week, $phase, $isCutback, $phases);
+                $ultra['week'] = $week;
+            }
+
+            // FIX 7: per-week long-run duration for ultra / marathon race cycles.
+            $longRunOverride = null;
+            if ($lrProgress && in_array($phase, ['base', 'build', 'peak'], true)) {
+                if ($phase !== $lrCurPhase) { $lrCurPhase = $phase; $lrPhaseStart = $lrPeak; }
+                $phaseInfo = $phases[$phase] ?? null;
+                $phaseLen  = $phaseInfo ? max(1, $phaseInfo['end_week'] - $phaseInfo['start_week'] + 1) : 1;
+                $phaseCap  = self::raceLongRunPhaseCap($distance, $phase, $peakCeiling) ?? 210;
+                if ($isCutback) {
+                    $longRunOverride = max($longFloorMins, (int)round($lrPrev * 0.65));
+                } else {
+                    $grown        = (int)round($lrPeak * 1.12);
+                    $frac         = min(1.0, $weekInPhase / $phaseLen); // progress through the phase
+                    $phaseCeiling = (int)round($lrPhaseStart + ($phaseCap - $lrPhaseStart) * $frac);
+                    $longRunOverride = max($longFloorMins, min($phaseCap, $grown, max($lrPhaseStart, $phaseCeiling)));
+                    $lrPeak = max($lrPeak, $longRunOverride);
+                }
+                $lrPrev = $longRunOverride;
             }
 
             // Taper and race week derive from the ceiling (not the build base); cutback
@@ -1283,7 +1406,7 @@ class PlanGenerator
                 $planId, $athleteId, $weekStart, $endDate,
                 $schedule, $phase, $selDist, $classification, 'race_cycle',
                 $weeklyMins, $maxLongRun, $constraints, $db, $selector, $antiRepeatHistory,
-                null, null, $ultra
+                null, null, $ultra, $longRunOverride
             );
         }
 
@@ -1533,7 +1656,7 @@ class PlanGenerator
                 null, null, null, null, 'Cross-Training', '30 min · low impact', $desc,
             ]);
         } else {
-            $desc = 'Rest day — keep movement gentle and let your body recover.' . $drillNote;
+            $desc = 'Rest day. Keep movement gentle and let your body recover.' . $drillNote;
             $insert->execute([
                 $planId, $athleteId, $date, 'rest',
                 null, null, null,
@@ -1618,7 +1741,7 @@ class PlanGenerator
             $scheduleNext = false;
             self::raiseFlag(
                 $athleteId, 'plan_rebuild_needed', 'info',
-                'Athlete has completed the return-to-running progression — the stage 10 first '
+                'Athlete has completed the return-to-running progression. The stage 10 first '
                 . 'continuous run was completed cleanly. Ready for a goal-setting conversation and '
                 . 'transition to the next plan type (development plan, maintenance plan, or race cycle).',
                 $db,
@@ -1934,7 +2057,7 @@ class PlanGenerator
                         'INSERT INTO planned_workouts
                          (plan_id, athlete_id, scheduled_date, workout_type,
                           archetype_code, description, target_duration, intensity_load, visible_to_athlete)
-                         VALUES (?, ?, ?, "recovery", "continuous_easy", "Easy recovery run — short and gentle. Keep the effort very easy.", ?, ?, 0)'
+                         VALUES (?, ?, ?, "recovery", "continuous_easy", "Easy recovery run, short and gentle. Keep the effort very easy.", ?, ?, 0)'
                     )->execute([$planId, $athleteId, $date, $dur, round($dur * 0.3, 2)]);
                 } else {
                     $db->prepare(
@@ -2269,7 +2392,7 @@ class PlanGenerator
         array $constraints, PDO $db,
         ArchetypeSelector $selector, array &$antiRepeatHistory,
         ?string $rangeStart = null, ?string $rangeEnd = null,
-        ?array $ultra = null
+        ?array $ultra = null, ?int $longRunOverride = null
     ): int {
         // Count slot types for volume allocation
         $longCount   = count(array_filter($schedule, fn($t) => $t === 'long_run'));
@@ -2284,7 +2407,11 @@ class PlanGenerator
         $longFloor = $s['long_run_absolute_floor_minutes'] ?? 60;
         if ($longCount > 0) {
             $progressiveCeiling = (int)round($maxLongRun * 1.15);
-            if ($ultra !== null) {
+            if ($longRunOverride !== null) {
+                // FIX 7: caller-computed weekly long-run progression (ultra / marathon race
+                // cycles) takes precedence over the legacy weekly-volume sizing.
+                $longMins = max($longFloor, $longRunOverride);
+            } elseif ($ultra !== null) {
                 // Ultra long runs are prescribed by time on feet, capped per phase, and
                 // ramped via the 15%/week individual-run ceiling (ultra spec Part 8).
                 $phaseCap = self::ultraLongRunCap($ultra['distance'], $phase) ?? 210;
@@ -2313,13 +2440,30 @@ class PlanGenerator
         $qualExcludeCodes = [];
         if ($ultra !== null) {
             $qualWeightAdjust = self::ultraWeightAdjust($ultra['surface'] ?? null);
-            $qualExcludeCodes = self::ultraQualityExcludeCodes($ultra['distance']);
+            // FIX 3: 100mi/100k favour hill/fartlek/tempo; all ultras favour the hill-sprint ladder.
+            $qualWeightAdjust = array_merge($qualWeightAdjust, self::ultraThresholdWeightAdjust($ultra['distance']));
+            // FIX 10A: keep threshold/tempo work available and favoured in ultra base/build.
+            if (in_array($phase, ['base', 'build'], true)) {
+                $qualWeightAdjust['tempo_intervals']              = max((float)($qualWeightAdjust['tempo_intervals'] ?? 1), 2.0);
+                $qualWeightAdjust['continuous_progression_tempo'] = max((float)($qualWeightAdjust['continuous_progression_tempo'] ?? 1), 2.0);
+            }
+            $qualExcludeCodes = self::ultraQualityExcludeCodes($ultra['distance'], $phase, (int)($ultra['week'] ?? 1));
         } elseif (self::$planDistance === 'mile') {
             $qualWeightAdjust = self::mileWeightAdjust();
         }
 
+        // FIX 10C: weight goal-pace long-run segments higher for ultras in build/peak.
+        $longWeightAdjust = ($ultra !== null && in_array($phase, ['build', 'peak'], true))
+            ? ['goal_pace_long_segments' => 2.5]
+            : [];
+
         $easyFloor = $s['easy_run_min_minutes'] ?? 20;
         $easyCap   = $s['easy_run_max_minutes'] ?? 70;
+        // FIX 8: ultras sustain materially longer easy runs; lift the cap so easy-run
+        // duration tracks weekly-volume growth instead of pinning at the road cap.
+        if ($ultra !== null) {
+            $easyCap = max($easyCap, 110);
+        }
 
         // Per-quality-slot duration budget: the honest session footprint (warmup + main +
         // cooldown) a quality session may occupy while still leaving every easy slot at or
@@ -2484,7 +2628,8 @@ class PlanGenerator
                 $instance = self::resolveSlotInstance(
                     $slotType, $phase, $goalDistance, $classification, $planType,
                     $slotConstraints, $antiRepeatHistory, $targetMinutes, $date,
-                    $db, $selector
+                    $db, $selector,
+                    $slotType === 'long_run' ? $longWeightAdjust : []
                 );
             }
 
@@ -2504,6 +2649,25 @@ class PlanGenerator
                 $cue = self::ultraTrailLongRunCue($ultra['distance'], $ultra['surface'] ?? null, $phase);
                 if ($cue !== '') {
                     $instructions = trim($instructions) === '' ? $cue : rtrim($instructions) . ' ' . $cue;
+                }
+            }
+
+            // FIX 10B/10C: ultra threshold + goal-pace contextual framing. Tempo/threshold
+            // efforts and goal-pace long-run segments run far faster than ultra race pace by
+            // design; spell that out so the athlete trusts the prescription.
+            if ($ultra !== null) {
+                $cFrame = $instance['code'] ?? '';
+                if (in_array($cFrame, ['tempo_intervals', 'continuous_progression_tempo'], true)) {
+                    $frame = 'This effort is significantly faster than your goal race pace, and that is '
+                           . 'intentional. Building your ability to sustain this effort in training makes ultra '
+                           . 'pace feel comfortable by comparison. Run this controlled and strong.';
+                    $instructions = trim($instructions) === '' ? $frame : rtrim($instructions) . ' ' . $frame;
+                } elseif ($cFrame === 'goal_pace_long_segments') {
+                    $frame = 'These segments are run at approximately marathon effort, which is significantly '
+                           . 'faster than your goal race pace. This is intentional: training at marathon effort '
+                           . 'builds the aerobic capacity and running economy that will make ultra pace feel '
+                           . 'sustainable deep into your race.';
+                    $instructions = trim($instructions) === '' ? $frame : rtrim($instructions) . ' ' . $frame;
                 }
             }
 
@@ -2793,6 +2957,19 @@ class PlanGenerator
             $archetype['display']           = $display;
         }
 
+        // FIX 1: render sustained-hill-repeat rep durations with the coach-friendly label
+        // ("45 sec", "1m 30s") rather than raw seconds. The DB-seeded templates use
+        // "{{rep_duration_seconds}} sec", which reads wrong for capped 60-90 sec reps; the
+        // override lives here so it ships with the generator (no DB reseed needed).
+        if (($archetype['code'] ?? '') === 'sustained_hill_repeats') {
+            $display['title_template']       = '{{rep_count}} × {{rep_duration_display}} Hill Repeats';
+            $display['description_template'] =
+                '{{rep_count}} × {{rep_duration_display}} uphill on a runnable 4-8% hill. Run each uphill '
+                . 'repeat at the assigned effort while keeping your mechanics strong. Jog back down easily '
+                . 'after each rep. {{checkpoint_recovery_instruction}}';
+            $archetype['display'] = $display;
+        }
+
         // Volume-derived duration always overrides the archetype midpoint
         $params['duration_minutes'] = $targetMinutes;
 
@@ -2861,6 +3038,25 @@ class PlanGenerator
             }
         }
 
+        // hill_sprint_ladder (FIX 6): a fixed ladder of near-maximal hill sprints with
+        // jog-back recovery between every rep. The variant determines the (descending /
+        // pyramid / double-descending) sequence; build the display sequence + rep count.
+        if (($archetype['code'] ?? '') === 'hill_sprint_ladder') {
+            if (!isset($archetype['resolved_variant'])) {
+                $archetype['resolved_variant'] = self::pickVariant($archetype);
+            }
+            $variantCode = $archetype['resolved_variant']['code'] ?? 'descending';
+            $ladderMap = [
+                'descending'        => [60, 50, 40, 30, 20, 10],
+                'pyramid'           => [10, 20, 30, 40, 50, 60, 50, 40, 30, 20, 10],
+                'double_descending' => [60, 50, 40, 30, 20, 10, 50, 40, 30, 20, 10],
+            ];
+            $seq = $ladderMap[$variantCode] ?? $ladderMap['descending'];
+            $params['ladder_seconds']       = $seq;
+            $params['rep_count']            = count($seq);
+            $params['hill_sprint_sequence'] = implode('-', $seq) . ' sec';
+        }
+
         // Pick a variant if not already set (must happen before fit-to-slot capping
         // so the variant is available, though capping below is param-driven not variant-driven)
         if (!isset($archetype['resolved_variant'])) {
@@ -2920,6 +3116,17 @@ class PlanGenerator
             $params['rep_duration_seconds'] = max(20, (int)round($repDistMiles * (($paces[0] + $paces[1]) / 2) * 60));
         }
 
+        // FIX 1: sustained hill repeats are capped to 30-90 sec per rep (well-trained
+        // midpoints otherwise resolve to ~150 sec). Clamp before fit-to-slot so rep_count
+        // is computed against the capped rep duration, and expose the display label.
+        if (($archetype['code'] ?? '') === 'sustained_hill_repeats') {
+            $rd = (int)($params['rep_duration_seconds'] ?? 0);
+            if ($rd > 0) {
+                $params['rep_duration_seconds'] = max(30, min(90, $rd));
+            }
+            $params['rep_duration_display'] = self::formatSecondsLabel((int)($params['rep_duration_seconds'] ?? 0));
+        }
+
         // Fit-to-slot: cap the scalable dimension so warmup + main + cooldown ≤ targetMinutes.
         // Prevents classification midpoints from producing sessions that far exceed the
         // quality slot's volume allocation. Must run before total_distance and distance_range.
@@ -2973,6 +3180,14 @@ class PlanGenerator
                 break;
         }
 
+        // FIX 2: cap rep counts by phase for short/distance repeat archetypes so base phase
+        // carries less volume than build/peak (base 8, build 12, peak 16). Runs after the
+        // fit-to-slot cap so it is the final word, and before total_distance below.
+        if (in_array($archetype['code'] ?? '', ['short_speed_repeats', 'equal_distance_repeats', 'mixed_distance_repeats'], true)
+            && !empty($params['rep_count'])) {
+            $params['rep_count'] = min((int)$params['rep_count'], self::phaseRepCap($phase));
+        }
+
         $params = self::addConditionalInstructionParams($archetype['code'], $params);
 
         // continuous_progression_tempo: build a structure-aware, instance-specific instruction
@@ -2983,14 +3198,17 @@ class PlanGenerator
             $a = (int)round($w / 3);
             $b = (int)round($w / 3);
             $c = max(1, $w - $a - $b);
-            $tempoEffort = 'tempo effort — comfortably hard, where you could say a few words but not hold a conversation';
+            $tempoEffort = 'tempo effort, comfortably hard, where you could say a few words but not hold a conversation';
             $variantCode = $archetype['resolved_variant']['code'] ?? 'linear_progression';
             if ($variantCode === 'wave_progression') {
+                // FIX 4: a genuine wave pattern, not a 3-segment linear build. Base moderate
+                // effort with short surges to tempo and floats back to moderate, trending up.
                 $params['progression_instruction'] =
-                    "Run continuously for {$w} minutes with no recovery breaks, riding waves of effort that trend "
-                    . "faster overall: roughly the first {$a} minutes easing in from a comfortable to a moderate effort, "
-                    . "the middle {$b} minutes alternating short tempo surges with moderate floats, and the final "
-                    . "{$c} minutes settling into a sustained {$tempoEffort}.";
+                    "Run continuously for {$w} minutes with no recovery breaks. Settle into a base moderate effort, "
+                    . "then ride waves throughout: every couple of minutes surge for 30 to 60 seconds up to a "
+                    . "{$tempoEffort}, then float back down to a moderate effort, not easy, before the next surge. "
+                    . "Keep the floats honest and let the overall effort trend gradually upward, so the final waves "
+                    . "are the strongest, sharpest running of the session.";
             } else {
                 $params['progression_instruction'] =
                     "Run continuously for {$w} minutes with no recovery breaks, building effort steadily: roughly the "
@@ -3265,7 +3483,7 @@ class PlanGenerator
             $params['run_walk_title']   = "Stage {$stage}: {$cont} min continuous run";
             $params['run_walk_instruction'] =
                 "Your first continuous run. Settle into an easy, conversational effort and stay relaxed for the "
-                . "full {$cont} minutes — no walk breaks. Keep it gentle; this is about time on your feet, not pace. "
+                . "full {$cont} minutes with no walk breaks. Keep it gentle; this is about time on your feet, not pace. "
                 . "Stop immediately and note any pain or unusual discomfort, and let your coach know how it felt.";
             return $params;
         }
@@ -3284,7 +3502,7 @@ class PlanGenerator
         $params['run_walk_instruction'] =
             "Warm up with {$warm} minutes of brisk walking. Then run {$run} {$runWord} at an easy, conversational "
             . "effort and walk {$walk} {$walkWord} to recover; repeat that {$reps} times. Cool down with {$cool} "
-            . "minutes of easy walking. Keep every running segment relaxed — effort, not pace. Stop immediately and "
+            . "minutes of easy walking. Keep every running segment relaxed: effort, not pace. Stop immediately and "
             . "note any pain or unusual discomfort, and let your coach know how it felt.";
         return $params;
     }
@@ -3309,6 +3527,11 @@ class PlanGenerator
             // Sprint + ~90 sec walk-back recovery per sprint
             'hill_sprints' =>
                 (int)($params['sprint_count'] ?? 0) * ((int)($params['sprint_duration_seconds'] ?? 0) + 90) / 60.0,
+            // Each ladder rep: sprint up + jog back to the bottom (≈ equal time) → 2× sprint
+            'hill_sprint_ladder' =>
+                !empty($params['ladder_seconds'])
+                    ? 2 * array_sum((array)$params['ladder_seconds']) / 60.0
+                    : null,
             'structured_fartlek_ladder' =>
                 !empty($params['work_intervals_seconds'])
                     ? (int)($params['round_count'] ?? 1) * 2 * array_sum((array)$params['work_intervals_seconds']) / 60.0
@@ -3414,20 +3637,25 @@ class PlanGenerator
 
     private static function normalizeInstructionText(string $instructions, array $archetype): string
     {
-        if (($archetype['code'] ?? '') !== 'sustained_hill_repeats') {
-            return trim($instructions);
+        if (($archetype['code'] ?? '') === 'sustained_hill_repeats') {
+            $params = $archetype['resolved_params'] ?? [];
+            $repCount = (int)($params['rep_count'] ?? 0);
+            $oldQuarterText = 'At the quarter, halfway, and three-quarter points of the workout, take 45-90 seconds standing recovery if you need it.';
+            $oldQuarterTextUtf = 'At the quarter, halfway, and three-quarter points of the workout, take 45–90 seconds standing recovery if you need it.';
+            $replacement = $params['checkpoint_recovery_instruction'] ?? '';
+            if ($repCount < 4) {
+                $instructions = str_replace([$oldQuarterText, $oldQuarterTextUtf], $replacement, $instructions);
+            }
+            $instructions = preg_replace('/\s+/', ' ', $instructions);
         }
 
-        $params = $archetype['resolved_params'] ?? [];
-        $repCount = (int)($params['rep_count'] ?? 0);
-        $oldQuarterText = 'At the quarter, halfway, and three-quarter points of the workout, take 45-90 seconds standing recovery if you need it.';
-        $oldQuarterTextUtf = 'At the quarter, halfway, and three-quarter points of the workout, take 45–90 seconds standing recovery if you need it.';
-        $replacement = $params['checkpoint_recovery_instruction'] ?? '';
-        if ($repCount < 4) {
-            $instructions = str_replace([$oldQuarterText, $oldQuarterTextUtf], $replacement, $instructions);
-        }
+        // FIX 5: no em dashes in generated workout text. Any em dash sourced from a
+        // DB-seeded description_template (rendered before this point) is collapsed to a
+        // comma, keeping athlete instructions clean without a DB reseed. En dashes (used
+        // in distance/time ranges) are intentionally left alone.
+        $instructions = preg_replace('/\s*\x{2014}\s*/u', ', ', $instructions);
 
-        return trim(preg_replace('/\s+/', ' ', $instructions));
+        return trim($instructions);
     }
 
     /**
@@ -3987,14 +4215,14 @@ class PlanGenerator
     private static function getCrossTrainDescription(array $profile): string
     {
         if (($profile['cross_training_bike'] ?? 'none') !== 'none') {
-            return 'Easy cycling — comfortable effort, 30 minutes. Low impact active recovery.';
+            return 'Easy cycling at a comfortable effort, 30 minutes. Low impact active recovery.';
         }
         if (($profile['cross_training_elliptical'] ?? 'none') !== 'none') {
-            return 'Easy elliptical — comfortable effort, 30 minutes. Low impact active recovery.';
+            return 'Easy elliptical at a comfortable effort, 30 minutes. Low impact active recovery.';
         }
         if (!empty($profile['cross_training_pool'])) {
-            return 'Easy pool running or swimming — comfortable effort, 25–30 minutes.';
+            return 'Easy pool running or swimming at a comfortable effort, 25 to 30 minutes.';
         }
-        return 'Rest day or easy walk — keep it gentle and restorative.';
+        return 'Rest day or easy walk. Keep it gentle and restorative.';
     }
 }
