@@ -1861,16 +1861,17 @@ class CoachController
     }
 
     /**
-     * Athlete inbox rows: latest message preview + relative time + unread count,
+     * Athlete inbox rows: latest message preview + smart time label + unread count,
      * scoped to the coach and sorted by most-recent-message DESC (athletes with no
-     * messages sort last, alphabetical). Requires base.php (rel_time/avatar_initials).
+     * messages sort last, alphabetical). Requires base.php (avatar_initials).
      */
     private static function getMessageThreads(int $coachId, PDO $db): array
     {
         [$scope, $sp] = self::athleteScope('a');
         $stmt = $db->prepare(
-            'SELECT a.id AS athlete_id, u.name,
-                    lm.body AS last_body, UNIX_TIMESTAMP(lm.sent_at) AS last_ts, lm.sender_role AS last_role,
+            'SELECT a.id AS athlete_id, a.user_id AS athlete_user_id, u.name,
+                    lm.body AS last_body, lm.sent_at AS last_sent,
+                    UNIX_TIMESTAMP(lm.sent_at) AS last_ts, lm.sender_role AS last_role,
                     (SELECT COUNT(*) FROM messages mu
                        WHERE mu.athlete_id = a.id AND mu.sender_role = "athlete" AND mu.read_at IS NULL) AS unread_count
              FROM athletes a
@@ -1900,12 +1901,36 @@ class CoachController
                 'initials'     => avatar_initials((string)$r['name']),
                 'preview'      => $preview,
                 'ts'           => $ts,
-                'time_label'   => $ts ? rel_time($ts) : '',
+                'time_label'   => self::messageListTimeLabel($r['last_sent'] ?? null, (int)$r['athlete_user_id']),
                 'unread'       => ((int)$r['unread_count']) > 0,
                 'unread_count' => (int)$r['unread_count'],
             ];
         }
         return $out;
+    }
+
+    /**
+     * Inbox time label for a UTC message timestamp, evaluated in the athlete's own
+     * timezone (users.timezone via Timezone): today → time ("2:34 PM"), yesterday →
+     * "Yesterday", within the past week → weekday ("Tuesday"), older → date ("Jun 9").
+     */
+    private static function messageListTimeLabel(?string $sentUtc, int $athleteUserId): string
+    {
+        if ($sentUtc === null || $sentUtc === '') return '';
+        try {
+            $local = Timezone::toLocal($sentUtc, $athleteUserId);
+        } catch (\Throwable $e) {
+            return '';
+        }
+        $tz      = Timezone::tzString($athleteUserId);
+        $msgDate = $local->format('Y-m-d');
+
+        if ($msgDate === Timezone::dateInZone($tz, 'now'))      return $local->format('g:i A');   // today
+        if ($msgDate === Timezone::dateInZone($tz, '-1 day'))   return 'Yesterday';
+        // Last 7 calendar days (today inclusive); today/yesterday already handled, so
+        // the -6 bound keeps weekday names unambiguous (no same-weekday-a-week-ago clash).
+        if ($msgDate >= Timezone::dateInZone($tz, '-6 days'))   return $local->format('l');       // weekday
+        return $local->format('M j');                                                              // older
     }
 
     /**
