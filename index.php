@@ -139,6 +139,7 @@ $router->get('/messages',          [AthleteController::class, 'messages']);
 $router->get('/messages/poll',     [AthleteController::class, 'messagesPoll']);
 $router->post('/messages/send',    [AthleteController::class, 'messagesSend']);
 $router->get('/messages/workout/:id',       [AthleteController::class, 'workoutThread']);
+$router->get('/messages/workout/:id/poll',  [AthleteController::class, 'workoutThreadPoll']);
 $router->post('/messages/workout/:id/send', [AthleteController::class, 'sendWorkoutMessage']);
 $router->post('/log/note',         [AthleteController::class, 'sessionNoteSave']);
 $router->get('/settings',          [AthleteController::class, 'settings']);
@@ -187,6 +188,7 @@ $router->get('/coach/athlete/:id/race-conflicts',   [RaceController::class, 'coa
 $router->post('/coach/races/:id/recalibrate/approve',[RaceController::class, 'approveRecalibration']);
 $router->post('/coach/races/:id/recalibrate/dismiss',[RaceController::class, 'dismissRecalibration']);
 $router->get('/coach/workout/:id/thread',           [CoachController::class, 'workoutThread']);
+$router->get('/coach/workout/:id/thread/poll',      [CoachController::class, 'workoutThreadPoll']);
 $router->post('/coach/workout/:id/send',            [CoachController::class, 'sendWorkoutMessage']);
 $router->post('/coach/workouts/:id/edit',             [CoachController::class, 'editPlannedWorkout']);
 $router->post('/coach/athlete/:id/workout/reschedule', [CoachController::class, 'rescheduleWorkout']);

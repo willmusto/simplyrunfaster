@@ -13,6 +13,7 @@
 $wTitle = trim((string)($workout['display_title'] ?? ''))
     ?: ucfirst(str_replace('_', ' ', (string)($workout['workout_type'] ?? 'Workout')));
 $wDate  = !empty($workout['scheduled_date']) ? date('D, M j', strtotime($workout['scheduled_date'])) : '';
+$lastNoteId = $notes ? (int)end($notes)['id'] : 0;
 ?>
 <div class="page-content" style="padding-bottom:96px;">
 
@@ -31,7 +32,8 @@ $wDate  = !empty($workout['scheduled_date']) ? date('D, M j', strtotime($workout
         <?php endif; ?>
     </div>
 
-    <div class="msg-thread" style="margin-bottom:8px;">
+    <div class="msg-thread" style="margin-bottom:8px;" id="wtThread"
+         data-poll-url="<?= h($pollUrl ?? '') ?>" data-last-id="<?= (int)$lastNoteId ?>">
         <?php if (empty($notes)): ?>
         <div class="empty-state" style="padding:24px 0;">
             <div class="empty-state-title">No messages yet</div>
@@ -46,7 +48,7 @@ $wDate  = !empty($workout['scheduled_date']) ? date('D, M j', strtotime($workout
             $rowClass = $mine ? 'athlete' : 'coach';
             $when     = !empty($n['created_at']) ? Timezone::toLocal($n['created_at'])->format('M j · g:ia') : '';
         ?>
-        <div class="msg-row <?= $rowClass ?>" style="margin-bottom:10px;">
+        <div class="msg-row <?= $rowClass ?>" style="margin-bottom:10px;" data-note-id="<?= (int)$n['id'] ?>">
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:3px;">
                 <?= h($mine ? 'You' : ($n['author_name'] ?? ($isCoach ? 'Coach' : 'Athlete'))) ?>
                 <?php if ($when): ?> · <?= h($when) ?><?php endif; ?>
@@ -78,3 +80,77 @@ $wDate  = !empty($workout['scheduled_date']) ? date('D, M j', strtotime($workout
     </div>
 
 </div>
+
+<script>
+(function () {
+    'use strict';
+    var thread = document.getElementById('wtThread');
+    if (!thread) return;
+    var form  = document.querySelector('.msg-compose-wrap form');
+    var input = form ? form.querySelector('.msg-compose-input') : null;
+
+    // ── Bug 1: Enter-to-send (Shift+Enter = newline) — mirrors the main thread. ──
+    if (form && input) {
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (typeof form.requestSubmit === 'function') form.requestSubmit();
+                else form.submit();
+            }
+        });
+    }
+
+    // ── Bug 2: 10s polling, scoped to this planned_workout_id. ──
+    var pollUrl = thread.getAttribute('data-poll-url');
+    if (!pollUrl) return;
+    var lastId  = parseInt(thread.getAttribute('data-last-id'), 10) || 0;
+    var POLL_MS = 10000;
+    var timer   = null;
+
+    function esc(s) { var d = document.createElement('div'); d.textContent = (s == null ? '' : String(s)); return d.innerHTML; }
+    function nearBottom() { return (document.documentElement.scrollHeight - window.scrollY - window.innerHeight) < 120; }
+    function scrollBottom() { window.scrollTo(0, document.documentElement.scrollHeight); }
+
+    function makeRow(n) {
+        var row = document.createElement('div');
+        row.className = 'msg-row ' + (n.mine ? 'athlete' : 'coach');
+        row.style.marginBottom = '10px';
+        row.setAttribute('data-note-id', n.id);
+        row.innerHTML =
+            '<div style="font-size:11px;color:var(--text-muted);margin-bottom:3px;">' +
+                esc(n.author) + (n.when ? ' · ' + esc(n.when) : '') +
+            '</div>' +
+            '<div class="msg-bubble">' + esc(n.body).replace(/\n/g, '<br>') + '</div>';
+        return row;
+    }
+
+    function poll() {
+        fetch(pollUrl + '?after=' + lastId, { headers: { 'X-Requested-With': 'fetch' } })
+            .then(function (r) { return r.json(); })
+            .then(function (list) {
+                if (!Array.isArray(list) || !list.length) return;
+                var stick = nearBottom();
+                var empty = thread.querySelector('.empty-state');
+                var added = false;
+                list.forEach(function (n) {
+                    if (!n || !n.id) return;
+                    if (thread.querySelector('[data-note-id="' + n.id + '"]')) return;
+                    if (empty) { empty.remove(); empty = null; }
+                    thread.appendChild(makeRow(n));
+                    if (n.id > lastId) lastId = n.id;
+                    added = true;
+                });
+                if (added && stick) scrollBottom();
+            }).catch(function () {});
+    }
+
+    function start() { if (!timer) timer = setInterval(poll, POLL_MS); }
+    function stop()  { if (timer) { clearInterval(timer); timer = null; } }
+
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) { stop(); } else { poll(); start(); }
+    });
+    window.addEventListener('pagehide', stop);
+    start();
+})();
+</script>

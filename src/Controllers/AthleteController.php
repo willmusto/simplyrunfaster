@@ -430,6 +430,7 @@ class AthleteController
         $viewerId      = (int)Auth::userId();
         $viewerRole    = 'athlete';
         $composeAction = '/app/messages/workout/' . $pwId . '/send';
+        $pollUrl       = '/app/messages/workout/' . $pwId . '/poll';
         $backUrl       = '/app/plan';
         $unreadMessages = self::getUnreadCount($athleteId, $db);
 
@@ -543,6 +544,63 @@ class AthleteController
         );
         $stmt->execute([$pwId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** Session-note comments for a planned workout newer than $afterId (poll fetch). */
+    public static function loadWorkoutThreadNotesAfter(PDO $db, int $pwId, int $afterId): array
+    {
+        $stmt = $db->prepare(
+            'SELECT sn.*, u.name AS author_name
+             FROM session_notes sn
+             LEFT JOIN users u ON u.id = sn.author_id
+             WHERE sn.planned_workout_id = ? AND sn.id > ?
+             ORDER BY sn.created_at ASC, sn.id ASC'
+        );
+        $stmt->execute([$pwId, $afterId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Serialize workout-thread session notes for the poll JSON. Mirrors the row
+     * rendering in views/messages/workout_thread.php (author label + local time +
+     * body). `mine` is computed against the viewing user so both athlete and coach
+     * pollers get correct bubble alignment.
+     */
+    public static function serializeWorkoutNotes(array $notes, int $viewerId): array
+    {
+        $out = [];
+        foreach ($notes as $n) {
+            $mine    = ((int)$n['author_id'] === $viewerId);
+            $isCoach = in_array($n['author_role'] ?? '', ['coach', 'assistant_coach'], true);
+            $when    = !empty($n['created_at']) ? Timezone::toLocal($n['created_at'])->format('M j · g:ia') : '';
+            $out[] = [
+                'id'     => (int)$n['id'],
+                'mine'   => $mine,
+                'author' => $mine ? 'You' : ($n['author_name'] ?? ($isCoach ? 'Coach' : 'Athlete')),
+                'when'   => $when,
+                'body'   => (string)$n['body'],
+            ];
+        }
+        return $out;
+    }
+
+    /** GET /app/messages/workout/{id}/poll — new notes for this workout thread (JSON). */
+    public static function workoutThreadPoll(array $params): void
+    {
+        Auth::requireRole('athlete');
+        header('Content-Type: application/json');
+
+        $athlete = Auth::getAthlete();
+        if (!$athlete) { echo json_encode([]); exit; }
+
+        $db   = Database::get();
+        $pwId = (int)($params['id'] ?? 0);
+        if (!self::loadWorkoutForThread($db, $pwId, (int)$athlete['id'])) { echo json_encode([]); exit; }
+
+        $after = (int)($_GET['after'] ?? 0);
+        $notes = self::loadWorkoutThreadNotesAfter($db, $pwId, $after);
+        echo json_encode(self::serializeWorkoutNotes($notes, (int)Auth::userId()));
+        exit;
     }
 
     /** The athlete's coach display name, or a friendly default. */

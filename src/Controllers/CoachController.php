@@ -1625,6 +1625,7 @@ class CoachController
         $viewerId       = $coachId;
         $viewerRole     = 'coach';
         $composeAction  = '/app/coach/workout/' . $pwId . '/send';
+        $pollUrl        = '/app/coach/workout/' . $pwId . '/thread/poll';
         $backUrl        = '/app/coach/athlete/' . $athleteId . '/messages';
 
         $athletes         = self::getRosterAthletes($coachId, $db);
@@ -1637,6 +1638,27 @@ class CoachController
         include __DIR__ . '/../../views/layout/nav_coach.php';
         include __DIR__ . '/../../views/messages/workout_thread.php';
         include __DIR__ . '/../../views/layout/html_close.php';
+    }
+
+    /** GET /app/coach/workout/{id}/thread/poll — new notes for this workout thread (JSON). */
+    public static function workoutThreadPoll(array $params): void
+    {
+        Auth::requireRole(['coach','assistant_coach','admin']);
+        header('Content-Type: application/json');
+
+        $db      = Database::get();
+        $coachId = (int)Auth::userId();
+        $pwId    = (int)($params['id'] ?? 0);
+
+        $pw = $db->prepare('SELECT athlete_id FROM planned_workouts WHERE id = ? LIMIT 1');
+        $pw->execute([$pwId]);
+        $athleteId = (int)($pw->fetchColumn() ?: 0);
+        if (!$athleteId || !self::getAthleteForCoach($athleteId, $coachId, $db)) { echo json_encode([]); exit; }
+
+        $after = (int)($_GET['after'] ?? 0);
+        $notes = AthleteController::loadWorkoutThreadNotesAfter($db, $pwId, $after);
+        echo json_encode(AthleteController::serializeWorkoutNotes($notes, $coachId));
+        exit;
     }
 
     /** POST /app/coach/workout/{planned_workout_id}/send — coach posts to a workout thread. */
