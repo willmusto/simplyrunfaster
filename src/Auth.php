@@ -16,9 +16,14 @@ class Auth
         session_set_cookie_params([
             'lifetime' => SESSION_LIFETIME,
             'path'     => '/',          // site-wide so the session cookie is sent on every route
-            'secure'   => true,         // HTTPS only (relies on the .htaccess HTTPS redirect)
+            'secure'   => true,         // HTTPS only (relies on the .htaccess HTTPS redirect); required for SameSite=None
             'httponly' => true,         // no JS access
-            'samesite' => 'Lax',        // mobile Safari is strict; Lax allows normal navigation
+            // SameSite=None (not Lax): iOS Chrome / WebKit was dropping the session cookie
+            // across the post-login redirect, causing an infinite login loop that the
+            // session_write_close() + meta-refresh fixes did not resolve. None is the
+            // standard fix for WebKit cookie persistence across redirects; it is safe to
+            // pair with our existing CSRF protection (Auth::verifyCsrf on every POST).
+            'samesite' => 'None',
         ]);
     }
 
