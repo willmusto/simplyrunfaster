@@ -168,25 +168,34 @@ try {
     check("fresh remainder begins in the first fully-unexposed week (clean Monday boundary)",
         $firstFresh !== '' && mondayOf($firstFresh) === $firstFreshMonday);
 
-    // Anti-repeat: no carried QUALITY/long instance_signature duplicated in the fresh remainder
-    // (easy/recovery runs repeat every week by design and are not anti-repeat-governed).
+    // Anti-repeat: no carried QUALITY instance_signature reused by a fresh quality session
+    // WITHIN the engine's 28-day hard-block window (the engine's guarantee; reuse beyond the
+    // window is legitimate, and easy/recovery/long recur by design and aren't governed).
     $qualTypes = ['tempo','interval','hill','fartlek','speed','race_pace'];
-    $carriedSigs = [];
+    $hardDays  = 28;
+    $carriedQ = []; // sig => [dates]
     foreach ($capById as $r) {
         if (!empty($r['instance_signature']) && in_array((string)$r['workout_type'], $qualTypes, true)) {
-            $carriedSigs[(string)$r['instance_signature']] = true;
+            $carriedQ[(string)$r['instance_signature']][] = (string)$r['scheduled_date'];
         }
     }
     $qPlace = implode(',', array_fill(0, count($qualTypes), '?'));
     $fst = $db->prepare(
-        "SELECT DISTINCT instance_signature FROM planned_workouts
+        "SELECT instance_signature, scheduled_date FROM planned_workouts
          WHERE plan_id=? AND carried_over_from_plan_id IS NULL AND instance_signature IS NOT NULL
            AND workout_type IN ($qPlace)"
     );
     $fst->execute(array_merge([$planId1], $qualTypes));
     $dupSig = false;
-    foreach ($fst->fetchAll(PDO::FETCH_COLUMN) as $s) if (isset($carriedSigs[(string)$s])) { $dupSig = true; break; }
-    check("no carried quality/long instance_signature duplicated in the fresh remainder", !$dupSig);
+    foreach ($fst->fetchAll(PDO::FETCH_ASSOC) as $fr) {
+        $sig = (string)$fr['instance_signature'];
+        if (!isset($carriedQ[$sig])) continue;
+        $cutoff = date('Y-m-d', strtotime($fr['scheduled_date'] . " -{$hardDays} days"));
+        foreach ($carriedQ[$sig] as $cd) {
+            if ($cd >= $cutoff && $cd <= $fr['scheduled_date']) { $dupSig = true; break 2; }
+        }
+    }
+    check("no carried quality instance_signature reused by the fresh remainder within the 28-day hard block", !$dupSig);
 
     // Generation math intact: the fresh region is a real generated plan.
     $freshCount = (int)$db->query("SELECT COUNT(*) FROM planned_workouts WHERE plan_id={$planId1} AND carried_over_from_plan_id IS NULL")->fetchColumn();
