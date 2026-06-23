@@ -1222,6 +1222,21 @@ class IntervalsService
     private static function raiseUnmatchedFlag(int $athleteId, string $date, string $activityId, PDO $db): void
     {
         try {
+            // Pre-plan suppression: a run dated before the athlete's first-ever plan start
+            // isn't meaningfully "off-plan" (there was no plan to be off of), so don't flag
+            // it — the activity still imports and still shows in the Log as off-plan. The
+            // earliest start spans ALL plan statuses (active/archived/abandoned/pending), so a
+            // regenerated or abandoned earlier plan still counts as the plan era having begun;
+            // a run in a GAP between plans is >= the first start, so it stays in-plan-era and
+            // IS flagged. (If the athlete somehow has no plan at all, earliest is NULL and we
+            // fall through to the normal raise — we don't widen suppression beyond pre-plan.)
+            $earliest = $db->prepare('SELECT MIN(plan_start_date) FROM training_plans WHERE athlete_id = ?');
+            $earliest->execute([$athleteId]);
+            $firstStart = $earliest->fetchColumn();
+            if ($firstStart !== false && $firstStart !== null && $date < (string)$firstStart) {
+                return; // pre-plan run — suppress the flag only
+            }
+
             // Idempotent on (athlete_id, intervals_activity_id): an ACTIVITY_UPLOADED +
             // ACTIVITY_ANALYZED pair (or any re-delivery) re-runs the importer for the same
             // activity, so guard against stacking a duplicate flag — mirroring the
