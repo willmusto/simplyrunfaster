@@ -37,18 +37,22 @@ class TrainingLoad
 
         // Pull all completed workouts in the last 60 days (covers the 42-day CTL window).
         // For archetype-generated workouts intensity_load is pre-computed on planned_workouts;
-        // derive intensity_factor from it. Fall back to workout_library for legacy workouts.
+        // derive intensity_factor from it. Otherwise leave it NULL and let computeStress() fall
+        // back to a per-workout-type factor. (The old workout_library/pw.workout_template_id join
+        // was removed: migration_002 dropped planned_workouts.workout_template_id when the engine
+        // moved to archetypes, which made this query throw "Unknown column 'pw.workout_template_id'"
+        // and silently no-op every recompute. All current matched workouts carry intensity_load,
+        // so the legacy library fallback was unreachable anyway.)
         $stmt = $db->prepare(
             'SELECT cw.activity_date, cw.workout_type, cw.actual_duration, cw.rpe,
                     CASE
                         WHEN pw.intensity_load IS NOT NULL AND pw.target_duration > 0
                             THEN pw.intensity_load / pw.target_duration
-                        ELSE wl.intensity_factor
+                        ELSE NULL
                     END AS intensity_factor
              FROM completed_workouts cw
              LEFT JOIN planned_workouts pw ON pw.id = cw.planned_workout_id
                    AND (pw.cancelled = 0 OR pw.cancelled IS NULL)
-             LEFT JOIN workout_library  wl ON wl.id = pw.workout_template_id
              WHERE cw.athlete_id = ?
                AND cw.activity_date >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)
              ORDER BY cw.activity_date ASC'

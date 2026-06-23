@@ -1133,6 +1133,18 @@ class IntervalsService
     private static function raiseUnmatchedFlag(int $athleteId, string $date, string $activityId, PDO $db): void
     {
         try {
+            // Idempotent on (athlete_id, intervals_activity_id): an ACTIVITY_UPLOADED +
+            // ACTIVITY_ANALYZED pair (or any re-delivery) re-runs the importer for the same
+            // activity, so guard against stacking a duplicate flag — mirroring the
+            // completed_workouts (source, external_activity_id) idempotency.
+            $exists = $db->prepare(
+                'SELECT 1 FROM engine_flags
+                 WHERE athlete_id = ? AND flag_type = "unmatched_activity" AND details LIKE ?
+                 LIMIT 1'
+            );
+            $exists->execute([$athleteId, '%"intervals_activity_id":' . json_encode($activityId) . '%']);
+            if ($exists->fetchColumn()) return;
+
             $db->prepare(
                 'INSERT INTO engine_flags
                     (athlete_id, flag_type, severity, flag_date, details, message, status, created_at)
