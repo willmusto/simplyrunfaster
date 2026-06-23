@@ -3248,6 +3248,30 @@ class PlanGenerator
             $archetype['resolved_variant'] = self::pickVariant($archetype);
         }
 
+        // tempo_intervals (resolveParameters-ranging-spec Stage A): replace the frozen
+        // midpoint (every well_trained tempo resolved to 4 x 14, every week, every phase)
+        // with a sampled total-work target distributed into reps shaped by the selected
+        // variant. Runs here, after the variant is chosen, so the variant finally drives
+        // structure (rep length -> rep count) instead of only tagging workout_type.
+        // Stage A is variety + coherence only; no across-cycle progression yet (Stage B).
+        if (($archetype['code'] ?? '') === 'tempo_intervals') {
+            $params = self::distributeTempoIntervals(
+                $params,
+                $archetype['resolved_variant'] ?? [],
+                $archetype['parameters']['threshold_volume_minutes'] ?? [],
+                $classification,
+                $goalDistance
+            );
+            // Distance-Based Tempo reps read more naturally in miles than in minutes;
+            // swap the description template for that variant so it renders its own shape
+            // rather than the shared minute-based wording (variant no longer decorative).
+            if (($archetype['resolved_variant']['code'] ?? '') === 'distance_based') {
+                $display['description_template'] =
+                    '{{rep_count}} x {{rep_distance_display}} mile tempo reps at comfortably hard effort. {{tempo_recovery_instruction}}';
+                $archetype['display'] = $display;
+            }
+        }
+
         // Mile rep-distance bias (mile spec Part 10): for equal_distance_repeats, prefer the
         // shortest rep distance (≤800m suits milers), overriding the random variant pick.
         if (self::$planDistance === 'mile' && ($archetype['code'] ?? '') === 'equal_distance_repeats') {
@@ -3321,9 +3345,19 @@ class PlanGenerator
 
         switch ($archetype['code']) {
             case 'tempo_intervals':
+                // Safety cap only: the variant distribution above already set a coherent
+                // rep_count. Never drop below 2 reps (1 long rep is a continuous tempo, a
+                // different archetype) even when the slot is tight; the eligibility gate
+                // keeps tempo out of slots too small for its 2-rep minimum, and the stored
+                // duration is recomputed honestly as warmup + main + cooldown.
                 if (!empty($params['rep_duration_minutes']) && (float)$params['rep_duration_minutes'] > 0) {
-                    $maxReps = max(1, (int)floor($available / (float)$params['rep_duration_minutes']));
-                    $params['rep_count'] = min((int)($params['rep_count'] ?? 1), $maxReps);
+                    $maxReps = max(2, (int)floor($available / (float)$params['rep_duration_minutes']));
+                    $params['rep_count'] = max(2, min((int)($params['rep_count'] ?? 2), $maxReps));
+                    // The slot cap must not reintroduce a non-conventional 7 (the
+                    // distribution already excluded it); a capped 7 drops to 6.
+                    if ($params['rep_count'] === 7) {
+                        $params['rep_count'] = 6;
+                    }
                 }
                 break;
             case 'high_volume_time_intervals':
@@ -3621,6 +3655,158 @@ class PlanGenerator
         $upper = (int)round($totalDistanceMiles * $slowPace);
 
         return "{$lower}–{$upper} min";
+    }
+
+    /**
+     * Volume-anchored tempo distribution (resolveParameters-ranging-spec Stage A).
+     *
+     * Replaces the frozen midpoint with a sampled total-work target distributed into
+     * reps shaped by the selected variant. The variant sets rep LENGTH; total work
+     * divided by length sets rep COUNT, so the variant finally drives structure.
+     *
+     * Anchor: threshold_volume_minutes (workable 16-40, well_trained 20-60), the field
+     * already present in the archetype but previously resolved-and-discarded. It is
+     * sampled across a wide window (not hugged at a center) so two tempos for the same
+     * athlete in the same phase can differ substantially in shape. well_trained samples
+     * the upper part of its range and longer goal distances sit higher in range, so the
+     * stronger athlete / longer race sees more total volume.
+     *
+     * Coherence guards: minimum 2 reps, maximum 8 reps, rep length within the variant
+     * range, total clamped to the classification ceiling. No across-cycle progression
+     * here (Stage B): the target is resolved per-instance but does not yet grow over the
+     * cycle. The fit-to-slot cap downstream is the final safety on rep_count.
+     *
+     * @param array $thresholdSpec parameters.threshold_volume_minutes (per-classification
+     *                             {min,max}); insufficient borrows the well_trained range,
+     *                             matching resolveParameters' fallback.
+     */
+    private static function distributeTempoIntervals(
+        array $params, array $variant, array $thresholdSpec,
+        string $classification, string $goalDistance
+    ): array {
+        // 1. Resolve the total-work target (minutes at threshold effort).
+        $range = $thresholdSpec[$classification]
+            ?? $thresholdSpec['well_trained']
+            ?? ['min' => 20, 'max' => 60];
+        $tMin  = (float)($range['min'] ?? 20);
+        $tMax  = (float)($range['max'] ?? 60);
+        $span  = max(0.0, $tMax - $tMin);
+
+        // Longer goal distance sits higher in the range (a marathoner's tempo target is
+        // higher than a 5K athlete's). mile maps to 5K and ultra to marathon upstream.
+        $goalBias = match ($goalDistance) {
+            'marathon' => 0.30,
+            'half'     => 0.20,
+            '10K'      => 0.10,
+            default    => 0.00, // 5K
+        };
+
+        // Sampling window as a fraction of the range. well_trained is pinned to the upper
+        // part (floor 0.40) so it always out-totals workable at the same goal; both shift
+        // up with goal distance. The window is wide on purpose: variety spans the range.
+        if ($classification === 'well_trained') {
+            $winLo = min(0.85, 0.40 + $goalBias);
+            $winHi = 1.00;
+        } else { // workable / insufficient (insufficient borrowed the well_trained range)
+            $winLo = min(0.50, $goalBias);
+            $winHi = min(1.00, 0.65 + $goalBias);
+        }
+        $target = $tMin + $span * self::randFloat($winLo, $winHi);
+        $target = max($tMin, min($tMax, $target)); // ceiling guard
+
+        // 2. Rep length: a CONVENTIONAL value within the selected variant's band (the
+        //    durations/distances a coach actually writes), not raw sampling across the
+        //    range. This is what turns 4 x 11 into 4 x 12: the total-work target is the
+        //    flexible variable (it was always an estimate, dependent on pace/athlete/
+        //    history), while the rep length snaps to a round number. distance_based
+        //    prescribes miles, converted to minutes via a threshold-pace proxy so the
+        //    same total-divided-by-length math applies.
+        $variantCode = $variant['code'] ?? 'time_based';
+        $pace        = self::tempoPaceMinPerMile($classification, $goalDistance);
+        $ceiling     = $tMax; // classification threshold-volume ceiling
+
+        // Candidate rep lengths as [repMinutes, repMiles] pairs.
+        $candidates = [];
+        if ($variantCode === 'distance_based') {
+            // Conventional rep distances (miles): 0.5 ~ 800m, 1.0 = 1600m, etc.
+            foreach ([0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0] as $mi) {
+                $candidates[] = [$mi * $pace, $mi];
+            }
+        } else {
+            // Conventional rep durations (minutes) within each variant band.
+            $bands = [
+                'long_reps'        => [12, 15, 18, 20],          // the long end, few reps
+                'cruise_intervals' => [4, 5, 6, 7],              // the short end, more reps
+                'time_based'       => [4, 5, 6, 8, 10, 12, 15, 18, 20],
+            ];
+            foreach ($bands[$variantCode] ?? $bands['time_based'] as $m) {
+                $candidates[] = [(float)$m, $pace > 0 ? $m / $pace : 0.0];
+            }
+        }
+
+        // Keep only rep lengths whose 2-rep minimum fits the ceiling, so a single long
+        // rep length can't force the work far past the classification ceiling (matters
+        // for distance_based, where a slow athlete's 3-mile rep is ~30 min). Never empty.
+        $fit = array_values(array_filter($candidates, fn($c) => 2 * $c[0] <= $ceiling + 1e-9));
+        if (!empty($fit)) $candidates = $fit;
+
+        [$repMinutes, $repMiles] = $candidates[array_rand($candidates)];
+
+        // 3. Rep count: the CONVENTIONAL whole number in [2,8] whose total work lands
+        //    closest to the target without exceeding the ceiling. 7 is omitted on purpose
+        //    (7 x 7 reads oddly to a coach), so a raw count of 7 resolves to 6 or 8
+        //    depending on which total sits nearer the target. The total flexes to enable
+        //    a round (count, length) pairing; the >=2 / <=8 guards still hold.
+        $conventionalCounts = [2, 3, 4, 5, 6, 8];
+        $repCount  = 2;
+        $bestDelta = INF;
+        foreach ($conventionalCounts as $c) {
+            $work = $c * $repMinutes;
+            if ($c > 2 && $work > $ceiling + 1e-9) continue; // keep work under the ceiling
+            $delta = abs($target - $work);
+            if ($delta < $bestDelta - 1e-9) {
+                $bestDelta = $delta;
+                $repCount  = $c;
+            }
+        }
+
+        // Display the rep distance preserving conventional fractions (0.5, 0.75, 1, 1.5).
+        $miDisplay = rtrim(rtrim(number_format($repMiles, 2, '.', ''), '0'), '.');
+
+        $params['rep_count']                = $repCount;
+        $params['rep_duration_minutes']     = (int)max(1, round($repMinutes));
+        $params['rep_distance_miles']       = round($repMiles, 2);
+        $params['rep_distance_display']     = $miDisplay !== '' ? $miDisplay : '0';
+        $params['threshold_volume_minutes'] = (int)round($target);
+
+        return $params;
+    }
+
+    /**
+     * Threshold/tempo pace proxy in minutes per mile (midpoint of the quality-effort
+     * band). Used to convert distance-based tempo reps into minutes so they distribute
+     * against the same threshold_volume_minutes target as the time-based variants.
+     */
+    private static function tempoPaceMinPerMile(string $classification, string $goalDistance): float
+    {
+        $paces = [
+            'well_trained' => [
+                '5K' => [6.0, 8.0], '10K' => [6.0, 8.0], 'half' => [6.5, 8.5], 'marathon' => [7.0, 9.0],
+            ],
+            'workable' => [
+                '5K' => [8.0, 11.0], '10K' => [8.0, 11.0], 'half' => [8.5, 12.0], 'marathon' => [9.5, 13.0],
+            ],
+        ];
+        $cls = array_key_exists($classification, $paces) ? $classification : 'workable';
+        [$fast, $slow] = $paces[$cls][$goalDistance] ?? $paces[$cls]['5K'];
+        return ($fast + $slow) / 2;
+    }
+
+    /** Uniform random float in [lo, hi]. */
+    private static function randFloat(float $lo, float $hi): float
+    {
+        if ($hi <= $lo) return $lo;
+        return $lo + (mt_rand() / mt_getrandmax()) * ($hi - $lo);
     }
 
     /** Pick a random variant from the archetype's variants array. */
