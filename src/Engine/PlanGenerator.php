@@ -4359,7 +4359,7 @@ class PlanGenerator
         $planIds = $sel->fetchAll(PDO::FETCH_COLUMN) ?: [];
 
         $db->prepare(
-            'UPDATE training_plans SET status = "archived"
+            'UPDATE training_plans SET status = "archived", archived_at = NOW()
              WHERE athlete_id = ? AND status IN ("active", "pending_approval")'
         )->execute([$athleteId]);
 

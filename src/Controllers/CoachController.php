@@ -1654,7 +1654,7 @@ class CoachController
                 'UPDATE plan_approval_queue SET status="rejected", reviewed_by=?, reviewed_at=NOW(), coach_notes=? WHERE id=?'
             )->execute([$coachId, $notes, $queue['id']]);
 
-            $db->prepare('UPDATE training_plans SET status="archived" WHERE id=?')->execute([$planId]);
+            $db->prepare('UPDATE training_plans SET status="archived", archived_at=NOW() WHERE id=?')->execute([$planId]);
 
             // Drop the rejected plan's Intervals.icu events (no-op if not connected).
             IntervalsService::deleteEventsForPlan($planId, $db);
