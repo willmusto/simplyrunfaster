@@ -37,8 +37,7 @@ $rowDate = static fn(string $d): string => date('D M j', strtotime($d));
             <div style="font-size:13px;font-weight:500;">Re-sync activities from Intervals.icu</div>
             <div style="font-size:12px;color:var(--text-muted);">Pull this athlete's recent runs (idempotent — won't duplicate existing).</div>
         </div>
-        <select data-backfill-days aria-label="Re-sync window"
-                style="font-size:12px;padding:5px 8px;border:1px solid var(--border-color,#ddd);border-radius:6px;background:var(--surface-bg,#fff);color:var(--text-primary);">
+        <select data-backfill-days aria-label="Re-sync window">
             <option value="30">Last 30 days</option>
             <option value="60">Last 60 days</option>
             <option value="90">Last 90 days</option>

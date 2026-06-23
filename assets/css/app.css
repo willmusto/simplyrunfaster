@@ -643,6 +643,40 @@ img { max-width: 100%; display: block; }
     padding-right: 36px;
 }
 
+/* Coach Log-tab "Re-sync activities" day picker — theme-aware native <select>.
+   A native select ignores the app surface tokens unless styled explicitly, so it
+   rendered white with light text (invisible in dark mode). Mirror the .form-select
+   tokens (recessed surface / primary text / strong border), compact, and make the OPEN
+   option list follow the theme too via color-scheme + explicit option colors (honored
+   on Chrome/Android). Both modes stay readable: the tokens flip with the theme. */
+select[data-backfill-days] {
+    width: auto;
+    font-size: 12px;
+    font-family: inherit;
+    padding: 6px 30px 6px 10px;
+    color: var(--text-primary);
+    background-color: var(--recessed-bg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    outline: none;
+    appearance: none;
+    color-scheme: light;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239A9A9A' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+}
+select[data-backfill-days] option {
+    background-color: var(--recessed-bg);
+    color: var(--text-primary);
+}
+select[data-backfill-days]:focus {
+    border-color: var(--accent-mid);
+}
+[data-theme="dark"] select[data-backfill-days] { color-scheme: dark; }
+@media (prefers-color-scheme: dark) {
+    [data-theme="system"] select[data-backfill-days] { color-scheme: dark; }
+}
+
 /* Pill choice selectors (onboarding) */
 .pill-choices {
     display: flex;
