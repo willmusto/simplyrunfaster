@@ -27,9 +27,25 @@ $rowDate = static fn(string $d): string => date('D M j', strtotime($d));
 
     <!-- Shared chrome: back + header + sub-nav tab strip -->
     <?php include __DIR__ . '/partials/athlete_chrome.php'; ?>
-    <p class="body-text" style="margin:-6px 0 18px;color:var(--text-muted);font-size:13px;">
+    <p class="body-text" style="margin:-6px 0 14px;color:var(--text-muted);font-size:13px;">
         What this athlete actually did, newest first. Read-only.
     </p>
+
+    <!-- Coach re-sync: pull recent Intervals.icu activities without a reconnect (idempotent) -->
+    <div class="card" data-intervals-backfill style="margin-bottom:18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;">
+        <div style="flex:1;min-width:180px;">
+            <div style="font-size:13px;font-weight:500;">Re-sync activities from Intervals.icu</div>
+            <div style="font-size:12px;color:var(--text-muted);">Pull this athlete's recent runs (idempotent — won't duplicate existing).</div>
+        </div>
+        <select data-backfill-days aria-label="Re-sync window"
+                style="font-size:12px;padding:5px 8px;border:1px solid var(--border-color,#ddd);border-radius:6px;background:var(--surface-bg,#fff);color:var(--text-primary);">
+            <option value="30">Last 30 days</option>
+            <option value="60">Last 60 days</option>
+            <option value="90">Last 90 days</option>
+        </select>
+        <button type="button" class="btn btn-secondary btn-sm" data-backfill-btn data-athlete="<?= $athleteId ?>">Re-sync activities</button>
+        <div data-backfill-result style="display:none;width:100%;font-size:12px;margin-top:2px;"></div>
+    </div>
 
     <?php if (empty($log['weeks'])): ?>
     <div class="card" style="margin-bottom:16px;">
@@ -136,3 +152,51 @@ $rowDate = static fn(string $d): string => date('D M j', strtotime($d));
     <?php endif; ?>
 
 </div>
+
+<script>
+(function () {
+    var wrap = document.querySelector('[data-intervals-backfill]');
+    if (!wrap) return;
+    var btn  = wrap.querySelector('[data-backfill-btn]');
+    var sel  = wrap.querySelector('[data-backfill-days]');
+    var out  = wrap.querySelector('[data-backfill-result]');
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    var csrf = meta ? meta.content : '';
+    var LABEL = 'Re-sync activities';
+
+    btn.addEventListener('click', function () {
+        if (btn.disabled) return;
+        btn.disabled = true;
+        btn.textContent = 'Syncing…';
+        out.style.display = 'none';
+
+        var body = 'athlete_id=' + encodeURIComponent(btn.getAttribute('data-athlete'))
+                 + '&days='      + encodeURIComponent(sel.value);
+
+        fetch('/app/integrations/intervals/backfill', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrf },
+            body:    body
+        }).then(function (r) { return r.json(); })
+          .then(function (res) {
+              btn.disabled = false;
+              btn.textContent = LABEL;
+              out.style.display = 'block';
+              out.textContent = (res && res.message) ? res.message
+                              : (res && res.error ? res.error : 'Re-sync failed. Please try again.');
+              out.style.color = (res && res.success) ? '#1D9E75' : 'var(--color-danger)';
+              // Reload to surface freshly imported runs in the log below.
+              if (res && res.success && res.imported_new > 0) {
+                  setTimeout(function () { location.reload(); }, 1200);
+              }
+          })
+          .catch(function () {
+              btn.disabled = false;
+              btn.textContent = LABEL;
+              out.style.display = 'block';
+              out.style.color = 'var(--color-danger)';
+              out.textContent = 'Network error. Please try again.';
+          });
+    });
+})();
+</script>

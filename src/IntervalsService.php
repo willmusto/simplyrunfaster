@@ -1061,6 +1061,95 @@ class IntervalsService
         return $count;
     }
 
+    /**
+     * Coach-triggered "re-sync last N days": re-run the direct activity pull for an
+     * athlete's recent history WITHOUT requiring a disconnect/reconnect. Reuses the
+     * same per-activity pullActivity() as the on-connect backfill (so it inherits the
+     * list-unwrap + nested-field mapping), and returns a per-activity SUMMARY instead of
+     * a bare count so the caller can surface imported / skipped / errors.
+     *
+     * Idempotent: an activity already in completed_workouts ((source, external_activity_id))
+     * is counted as skipped and NOT re-pulled. A failed pull is counted + logged (it does
+     * not get swallowed into a silent 0). Bounded by a wall-clock budget so a long 90-day
+     * window returns what completed (partial=true) rather than dying on the NFSN web timeout.
+     *
+     * @return array{connected:bool,fetched:int,imported_new:int,skipped:int,errors:int,
+     *               error_ids:array,partial:bool,remaining:int,message:?string}
+     */
+    public static function backfillDetailed(int $userId, int $days, PDO $db): array
+    {
+        $summary = [
+            'connected' => false, 'fetched' => 0, 'imported_new' => 0, 'skipped' => 0,
+            'errors' => 0, 'error_ids' => [], 'partial' => false, 'remaining' => 0, 'message' => null,
+        ];
+
+        $headers = self::getHeaders($userId, $db);
+        if ($headers === null) {
+            $summary['message'] = 'not connected';
+            return $summary;
+        }
+        $summary['connected'] = true;
+
+        $newest = date('Y-m-d');
+        $oldest = date('Y-m-d', strtotime("-{$days} days"));
+        $url = self::API_BASE . '/athlete/0/activities?' . http_build_query([
+            'oldest' => $oldest,
+            'newest' => $newest,
+        ]);
+
+        [$status, $body] = self::http('GET', $url, $headers, null);
+        if ($status < 200 || $status >= 300) {
+            self::markConnectionError($db, $userId, "backfill HTTP {$status}");
+            $summary['errors']  = 1;
+            $summary['message'] = "Intervals.icu API error (HTTP {$status})";
+            return $summary;
+        }
+
+        // Collect Run activity ids from the list (the list endpoint returns top-level
+        // type/id per activity; pullActivity then re-fetches + unwraps each by id).
+        $activities = json_decode($body, true) ?: [];
+        $runIds = [];
+        foreach ($activities as $a) {
+            if (!is_array($a)) continue;
+            if (strcasecmp((string)($a['type'] ?? ''), 'Run') !== 0) continue;
+            $id = (string)($a['id'] ?? '');
+            if ($id !== '') $runIds[] = $id;
+        }
+        $summary['fetched'] = count($runIds);
+
+        // Stay comfortably under the NFSN web timeout; a 90-day window for a high-volume
+        // athlete can be dozens of sequential fetches.
+        $deadline = microtime(true) + 25.0;
+
+        $dup = $db->prepare('SELECT 1 FROM completed_workouts WHERE source = "intervals" AND external_activity_id = ? LIMIT 1');
+        foreach ($runIds as $i => $id) {
+            if (microtime(true) > $deadline) {
+                $summary['partial']   = true;
+                $summary['remaining'] = count($runIds) - $i;
+                break;
+            }
+
+            $dup->execute([$id]);
+            if ($dup->fetchColumn()) {
+                $summary['skipped']++;
+                continue;
+            }
+
+            if (self::pullActivity($userId, $id, $db)) {
+                $summary['imported_new']++;
+            } else {
+                $summary['errors']++;
+                $summary['error_ids'][] = $id;
+                error_log("IntervalsService::backfillDetailed — pullActivity returned false for activity {$id} (user {$userId})");
+            }
+        }
+
+        $db->prepare('UPDATE intervals_connections SET last_synced_at = NOW(), sync_status = "ok", last_error = NULL WHERE user_id = ?')
+           ->execute([$userId]);
+
+        return $summary;
+    }
+
     /** Best-guess source device from the activity payload, or null. */
     private static function deviceFromPayload(array $a): ?string
     {

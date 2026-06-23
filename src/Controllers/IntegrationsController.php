@@ -107,6 +107,80 @@ class IntegrationsController
     }
 
     /**
+     * POST /app/integrations/intervals/backfill — coach/assistant/admin: re-sync the
+     * last N days of an athlete's Intervals.icu activities WITHOUT a reconnect (the
+     * coach Log-tab "Re-sync activities" control; also the recovery path for any run a
+     * webhook ever misses). Body: athlete_id, days (30|60|90, default 30). Idempotent.
+     */
+    public static function backfill(): void
+    {
+        Auth::requireRole(['coach', 'assistant_coach', 'admin']);
+        Auth::verifyCsrf();
+        header('Content-Type: application/json');
+
+        $athleteId = (int)($_POST['athlete_id'] ?? 0);
+        $days      = (int)($_POST['days'] ?? 30);
+        if ($athleteId < 1) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'athlete_id required']);
+            exit;
+        }
+        if (!in_array($days, [30, 60, 90], true)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'days must be 30, 60, or 90']);
+            exit;
+        }
+
+        $db = Database::get();
+
+        // Mirror the coach athlete-access guard exactly (owner coach + assigned assistant
+        // + admin), the same check the Log tab itself uses.
+        if (!CoachAssignments::canAccess((int)Auth::userId(), Auth::role(), $athleteId, $db)) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'forbidden']);
+            exit;
+        }
+
+        $stmt = $db->prepare('SELECT user_id FROM athletes WHERE id = ? LIMIT 1');
+        $stmt->execute([$athleteId]);
+        $userId = (int)($stmt->fetchColumn() ?: 0);
+        if ($userId < 1) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => 'athlete not found']);
+            exit;
+        }
+
+        try {
+            $res = IntervalsService::backfillDetailed($userId, $days, $db);
+        } catch (\Throwable $e) {
+            error_log('IntegrationsController::backfill: ' . $e->getMessage());
+            echo json_encode(['success' => false, 'message' => 'Re-sync failed. Please try again.']);
+            exit;
+        }
+
+        if (!$res['connected']) {
+            echo json_encode([
+                'success'   => false,
+                'connected' => false,
+                'message'   => "This athlete hasn't connected Intervals.icu (or needs to reconnect).",
+            ]);
+            exit;
+        }
+
+        // Human summary for the toast.
+        $parts = ["Imported {$res['imported_new']} new"];
+        if ($res['skipped'] > 0) $parts[] = "{$res['skipped']} already present";
+        if ($res['errors']  > 0) $parts[] = "{$res['errors']} error" . ($res['errors'] === 1 ? '' : 's');
+        $msg = implode(' · ', $parts) . " (last {$days} days)";
+        if (!empty($res['partial'])) {
+            $msg .= " — stopped early at the time limit; {$res['remaining']} left, run again to finish.";
+        }
+
+        echo json_encode(['success' => true, 'message' => $msg] + $res);
+        exit;
+    }
+
+    /**
      * POST /app/integrations/intervals/sync-athlete — athlete self-service: re-push
      * their own visible workouts to Intervals.icu now (the "Sync workouts now" button).
      */
