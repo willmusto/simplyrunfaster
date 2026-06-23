@@ -161,7 +161,11 @@ function render_profile_diff(?string $detailsJson): string
     if (!is_array($data) || empty($data['changes']) || !is_array($data['changes'])) {
         return '';
     }
-    $rows = '';
+    // Single representation of a profile change: a full-width key→value grid
+    // (.profile-diff in app.css). One clean arrow per row — no prose restatement,
+    // no doubled glyph. Views suppress the flag's prose message for profile_updated
+    // so this is the only place the change is shown.
+    $cells = '';
     foreach ($data['changes'] as $c) {
         $label = h($c['label'] ?? ($c['field'] ?? 'Field'));
         $old   = h($c['old_display'] ?? '–');
@@ -169,11 +173,11 @@ function render_profile_diff(?string $detailsJson): string
         $tag   = !empty($c['coach_only'])
             ? ' <span class="pill" style="font-size:9px;background:var(--recessed-bg);color:var(--text-muted);">coach</span>'
             : '';
-        $rows .= '<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:4px 0;border-bottom:1px solid var(--divider);">'
-               . '<span style="color:var(--text-muted);">' . $label . $tag . '</span>'
-               . '<span style="text-align:right;"><span style="color:var(--text-muted);text-decoration:line-through;">' . $old . '</span>'
-               . ' <span style="color:var(--text-muted);">→</span> <span style="font-weight:600;">' . $new . '</span></span>'
-               . '</div>';
+        $cells .= '<span class="profile-diff-label">' . $label . $tag . '</span>'
+               . '<span class="profile-diff-val">'
+               . '<span class="profile-diff-old">' . $old . '</span> '
+               . '<span class="profile-diff-arrow">&rarr;</span> '
+               . '<span class="profile-diff-new">' . $new . '</span></span>';
     }
-    return '<div style="margin-top:6px;">' . $rows . '</div>';
+    return '<div class="profile-diff">' . $cells . '</div>';
 }

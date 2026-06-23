@@ -54,20 +54,10 @@ if ($_leadAware) {
     $_codeTotalWeeks   = max(1, (int)ceil(max(1, $_planEndTs - $_codeWeekStartTs + 86400) / (7 * 86400)));
 }
 
-$_bubbleColor = [
-    'easy'        => ['#E1F5EE', '#085041'],
-    'long'        => ['#0F6E56', '#FFFFFF'],
-    'interval'    => ['#042C53', '#FFFFFF'],
-    'tempo'       => ['#185FA5', '#FFFFFF'],
-    'hill'        => ['#3B6D11', '#FFFFFF'],
-    'fartlek'     => ['#639922', '#FFFFFF'],
-    'recovery'    => ['#D3D1C7', '#444441'],
-    'race'        => ['#993C1D', '#FFFFFF'],
-    'race_pace'   => ['#042C53', '#FFFFFF'],
-    'speed'       => ['#042C53', '#FFFFFF'],
-    'plyometric'  => ['#3B6D11', '#FFFFFF'],
-    'cross_train' => ['#4A3B8A', '#FFFFFF'],
-];
+// Workout-type colors live in ONE place — the .pill-* classes in app.css — and the
+// type→class mapping in ONE place: the shared pill_class() helper (views/layout/base.php),
+// the same one the plan/log/today/macro views use. The bubble just carries that class;
+// no hex values here, so this can never drift from the CSS.
 
 $_legend = [
     'easy'       => 'Easy run',
@@ -123,6 +113,9 @@ $_bubSize = function(int $m): int {
                  background: var(--border-strong); flex-shrink: 0; }
 .cal-vol-lbl   { width: 52px; flex-shrink: 0; text-align: right; font-size: 11px;
                  font-weight: 500; color: var(--text-secondary); white-space: nowrap; }
+/* Component-specific breakpoint (off the standard 480/768/1024 scale on purpose):
+   the 7-column bubble calendar + week/volume labels get cramped below ~600px, so the
+   labels shrink here rather than at the 480 mobile boundary. */
 @media (max-width: 600px) {
     .cal-wk-lbl  { width: 40px; font-size: 9px; }
     .cal-vol-lbl { width: 38px; font-size: 10px; }
@@ -241,16 +234,6 @@ var TYPE_META = [
     {v:'cross_train', l:'Cross-train'},
     {v:'race',        l:'Race'},
 ];
-var TYPE_BG = {
-    easy:'#E1F5EE', long:'#0F6E56',  interval:'#042C53', tempo:'#185FA5',
-    hill:'#3B6D11', fartlek:'#639922',recovery:'#D3D1C7', race:'#993C1D',
-    race_pace:'#042C53', speed:'#042C53', plyometric:'#3B6D11', cross_train:'#4A3B8A'
-};
-var TYPE_FG = {
-    easy:'#085041', long:'#fff', interval:'#fff', tempo:'#fff',
-    hill:'#fff',    fartlek:'#fff', recovery:'#444441', race:'#fff',
-    race_pace:'#fff', speed:'#fff', plyometric:'#fff', cross_train:'#fff'
-};
 var TYPE_LABEL = {
     easy:'Easy run', long:'Long run', interval:'Workout', tempo:'Tempo',
     hill:'Hill session', fartlek:'Fartlek', recovery:'Recovery',
@@ -401,8 +384,8 @@ function saveEdit() {
         /* Update bubble DOM */
         if (_activeBubble) {
             _activeBubble.setAttribute('data-workout', JSON.stringify(_activeData));
-            _activeBubble.style.background = TYPE_BG[w.workout_type] || 'var(--recessed-bg)';
-            _activeBubble.style.color      = TYPE_FG[w.workout_type] || 'var(--text-secondary)';
+            // Colors come from the .pill-* class (single source in app.css), not inline hex.
+            _activeBubble.className = 'cal-bubble ' + (TYPE_CLASS[w.workout_type] || 'pill-recovery');
             var sz = bubSize(_activeData.target_duration);
             _activeBubble.style.width      = 'min(' + sz + 'px, 100%)';
             var lbl = _activeBubble.querySelector('.cal-bub-lbl');
@@ -503,7 +486,7 @@ document.addEventListener('keydown', function(e) {
                 $_dur  = $_slot ? max(0, (int)($_slot[$_durKey] ?? 0)) : 0;
                 $_type = $_slot['workout_type'] ?? null;
                 $_sz   = $_bubSize($_dur);
-                $_clr  = $_type ? ($_bubbleColor[$_type] ?? ['var(--recessed-bg)', 'var(--text-secondary)']) : null;
+                $_typeClass = $_type ? pill_class($_type, $_slot['archetype_code'] ?? null) : 'pill-rest';
 
                 // Data for modal
                 $_wjson = null;
@@ -524,9 +507,8 @@ document.addEventListener('keydown', function(e) {
                 <?php if (!$_inPlan): ?>
                 <!-- outside the plan window — blank cell, matching the macro view -->
                 <?php elseif ($_slot && $_sz > 0): ?>
-                <div class="cal-bubble"
-                     style="width:min(<?= $_sz ?>px,100%);aspect-ratio:1;
-                            background:<?= $_clr[0] ?>;color:<?= $_clr[1] ?>;"
+                <div class="cal-bubble <?= h($_typeClass) ?>"
+                     style="width:min(<?= $_sz ?>px,100%);aspect-ratio:1;"
                      <?= $_wjson !== null ? 'data-workout="' . $_wjson . '"' : '' ?>
                      title="<?= h(($_slot['display_title'] ?? $_slot['template_name'] ?? ucfirst(str_replace('_', ' ', $_type ?? ''))) . ($_dur > 0 ? ' · ' . $_dur . ' min' : '')) ?>">
                     <span class="cal-bub-lbl"><?= $_bubLabel($_dur) ?></span>

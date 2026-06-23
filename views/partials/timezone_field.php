@@ -14,7 +14,7 @@ $tzFieldHint  = $tzFieldHint  ?? null;
 ?>
 <div class="form-group" style="margin-bottom:0;">
     <label class="form-label" for="timezone"><?= h($tzFieldLabel) ?></label>
-    <select id="timezone" name="timezone" class="form-input">
+    <select id="timezone" name="timezone" class="form-select">
         <?php foreach (Timezone::selectOptions() as $tzId => $tzLabel): ?>
         <option value="<?= h($tzId) ?>" <?= $tzId === $selectedTz ? 'selected' : '' ?>><?= h($tzLabel) ?></option>
         <?php endforeach; ?>

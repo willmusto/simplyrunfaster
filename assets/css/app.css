@@ -5,6 +5,10 @@
 
 /* ── CSS Custom Properties ─────────────────────────────────── */
 :root {
+    /* Native UA chrome (select popups, date/time/number pickers, scrollbars)
+       follows the theme. Flipped to `dark` under [data-theme="dark"] below. */
+    color-scheme: light;
+
     /* Accent: Forest Teal */
     --accent-fill:    #E1F5EE;
     --accent-mid:     #1D9E75;
@@ -19,6 +23,10 @@
     --elevated-bg:    #F7F5F2;
     --border-color:   rgba(0, 0, 0, 0.08);
     --border-strong:  rgba(0, 0, 0, 0.15);
+    /* Divider lines. Alias the theme-aware border token so they flip with the
+       theme (substitution is dynamic, so defining once here covers dark too). */
+    --divider:        var(--border-color);
+    --border:         var(--border-color);
 
     /* Typography — Light */
     --text-primary:   #1A1A1A;
@@ -49,6 +57,7 @@
 
 /* Dark mode */
 [data-theme="dark"] {
+    color-scheme: dark;
     --page-bg:        #161616;
     --card-bg:        #1E1E1E;
     --recessed-bg:    #2A2A2A;
@@ -70,6 +79,7 @@
 /* System preference fallback */
 @media (prefers-color-scheme: dark) {
     [data-theme="system"] {
+        color-scheme: dark;
         --page-bg:        #161616;
         --card-bg:        #1E1E1E;
         --recessed-bg:    #2A2A2A;
@@ -643,12 +653,10 @@ img { max-width: 100%; display: block; }
     padding-right: 36px;
 }
 
-/* Coach Log-tab "Re-sync activities" day picker — theme-aware native <select>.
-   A native select ignores the app surface tokens unless styled explicitly, so it
-   rendered white with light text (invisible in dark mode). Mirror the .form-select
-   tokens (recessed surface / primary text / strong border), compact, and make the OPEN
-   option list follow the theme too via color-scheme + explicit option colors (honored
-   on Chrome/Android). Both modes stay readable: the tokens flip with the theme. */
+/* Coach Log-tab "Re-sync activities" day picker — compact, theme-aware native
+   <select>. Surface/text/border come from the design tokens; the OPEN option
+   list now follows the theme via the global `color-scheme` on :root /
+   [data-theme="dark"] (no per-element dark-mode handling needed). */
 select[data-backfill-days] {
     width: auto;
     font-size: 12px;
@@ -660,21 +668,12 @@ select[data-backfill-days] {
     border-radius: var(--radius-sm);
     outline: none;
     appearance: none;
-    color-scheme: light;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239A9A9A' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 10px center;
 }
-select[data-backfill-days] option {
-    background-color: var(--recessed-bg);
-    color: var(--text-primary);
-}
 select[data-backfill-days]:focus {
     border-color: var(--accent-mid);
-}
-[data-theme="dark"] select[data-backfill-days] { color-scheme: dark; }
-@media (prefers-color-scheme: dark) {
-    [data-theme="system"] select[data-backfill-days] { color-scheme: dark; }
 }
 
 /* Pill choice selectors (onboarding) */
@@ -832,6 +831,50 @@ select[data-backfill-days]:focus {
 .flag-card-warning { border-left: 3px solid var(--color-warning); }
 .flag-card-critical { border-left: 3px solid var(--color-danger); }
 .flag-card-info     { border-left: 3px solid var(--color-info); }
+.flag-card-opportunity { border-left: 3px solid var(--color-success); }
+/* Resolved flags (Flags-tab history): muted rail + dimmed, regardless of severity. */
+.flag-card-resolved { border-left: 3px solid var(--text-muted); opacity: 0.85; }
+
+/* Flag-card header: pills/title on the left, aside (resolution badge, date) on the
+   right. Wraps cleanly on narrow cards. Shared by every flag surface. */
+.flag-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.flag-card-titlewrap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.flag-card-title { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.flag-card-aside {
+    display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: auto;
+    font-size: 11px; color: var(--text-muted);
+}
+.flag-card-msg { font-size: 14px; color: var(--text-secondary); line-height: 1.5; margin: 6px 0 0; }
+.flag-card-foot { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+.flag-card-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+/* Profile-change diff (render_profile_diff). Full-width key→value grid below the
+   message — label column sizes to its content (max-content) so labels never wrap
+   mid-phrase; the value column takes the rest and wraps if long. */
+.profile-diff {
+    margin-top: 8px;
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 14px;
+    font-size: 12px;
+    align-items: baseline;
+}
+.profile-diff-label { color: var(--text-muted); }
+.profile-diff-val   { text-align: right; }
+.profile-diff-old   { color: var(--text-muted); text-decoration: line-through; }
+.profile-diff-arrow { color: var(--text-muted); }
+.profile-diff-new   { font-weight: 600; color: var(--text-primary); }
+@media (max-width: 480px) {
+    /* Stack label above value on the narrowest screens so neither is crushed. */
+    .profile-diff { grid-template-columns: 1fr; gap: 2px 0; }
+    .profile-diff-val { text-align: left; margin-bottom: 4px; }
+}
 
 .flag-icon {
     width: 16px;
@@ -979,8 +1022,12 @@ select[data-backfill-days]:focus {
     text-decoration: none;
 }
 
-.roster-row.flag-critical { border-left: 3px solid var(--color-danger); padding-left: 17px; }
-.roster-row.flag-warning  { border-left: 3px solid var(--color-warning); padding-left: 17px; }
+/* Views emit `.severity-critical` / `.severity-warning`; keep both names so the
+   colored severity rail renders on roster + dashboard rows. */
+.roster-row.flag-critical,
+.roster-row.severity-critical { border-left: 3px solid var(--color-danger); padding-left: 17px; }
+.roster-row.flag-warning,
+.roster-row.severity-warning  { border-left: 3px solid var(--color-warning); padding-left: 17px; }
 
 .roster-avatar {
     width: 36px;
@@ -1613,7 +1660,9 @@ body.is-offline .offline-banner { display: block; }
     font-weight: 600;
 }
 
-/* 6-tab bottom nav: shrink font on very small screens */
+/* Component-specific breakpoint (off the standard 480/768/1024 scale on purpose):
+   the 6-tab bottom nav only crowds on very small phones, so shrink its font/icons
+   below 400px rather than at the 480 mobile boundary (would over-shrink common phones). */
 @media (max-width: 400px) {
     .bottom-nav-item { font-size: 10px; }
     .bottom-nav-item svg { width: 20px; height: 20px; }
@@ -1644,7 +1693,9 @@ body.is-offline .offline-banner { display: block; }
     background: none; border: none; cursor: pointer;
     font-size: 20px; line-height: 1; color: var(--text-muted); padding: 4px 6px;
 }
-@media (min-width: 900px) {
+/* Drop the prompt to the viewport floor at the same point the mobile bottom-nav
+   disappears (desktop boundary, 1024) — matches .install-banner / .ios-install-tip. */
+@media (min-width: 1024px) {
     .push-prompt { bottom: 24px; }
 }
 

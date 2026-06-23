@@ -22,24 +22,27 @@ foreach ($flags as $f) {
     <?php else: ?>
 
     <?php foreach ([
-        'critical' => ['CRITICAL', '#FDECEA', '#991B1B', 'severity-critical'],
-        'warning'  => ['WARNINGS', '#FEF9C3', '#92400E', 'severity-warning'],
-        'info'     => ['INFO',     'var(--recessed-bg)', 'var(--text-secondary)', ''],
-    ] as $sev => [$label, $pillBg, $pillColor, $rowClass]):
+        // [section label, severity pill class, section-label color, .flag-card rail class]
+        'critical' => ['CRITICAL', 'pill-critical', 'var(--color-danger)',  'flag-card-critical'],
+        'warning'  => ['WARNINGS', 'pill-warning',  'var(--color-warning)', 'flag-card-warning'],
+        'info'     => ['INFO',     '',              'var(--text-secondary)', 'flag-card-info'],
+    ] as $sev => [$label, $pillClass, $sectionColor, $cardClass]):
         if (empty($bySeverity[$sev])) continue;
     ?>
-    <div class="section-label" style="color:<?= $pillColor ?>;margin-top:20px;"><?= $label ?></div>
+    <div class="section-label" style="color:<?= $sectionColor ?>;margin-top:20px;"><?= $label ?></div>
     <?php foreach ($bySeverity[$sev] as $flag): ?>
-    <div class="roster-row <?= $rowClass ?>" style="margin-bottom:8px;">
+    <div class="flag-card <?= $cardClass ?>" style="margin-bottom:8px;">
+        <div class="flag-body">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div>
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
                     <span style="font-size:14px;font-weight:600;"><?= h($flag['athlete_name']) ?></span>
-                    <span class="pill" style="font-size:10px;background:<?= $pillBg ?>;color:<?= $pillColor ?>;">
+                    <span class="pill <?= $pillClass ?>" style="font-size:10px;<?= $pillClass === '' ? 'background:var(--recessed-bg);color:var(--text-secondary);' : '' ?>">
                         <?= h($flag['flag_type']) ?>
                     </span>
                 </div>
-                <?php if ($flag['message']): ?>
+                <?php // profile_updated shows the structured diff only — no prose restatement. ?>
+                <?php if ($flag['message'] && ($flag['flag_type'] ?? '') !== 'profile_updated'): ?>
                 <p class="body-text" style="margin:0 0 8px;"><?= h($flag['message']) ?></p>
                 <?php endif; ?>
                 <?php if (($flag['flag_type'] ?? '') === 'profile_updated'): ?>
@@ -121,11 +124,11 @@ foreach ($flags as $f) {
                 <a href="/app/coach/athlete/<?= (int)$flag['athlete_id'] ?>" class="btn btn-secondary btn-sm">View</a>
                 <form method="POST" action="/app/coach/flags/<?= (int)$flag['id'] ?>/dismiss">
                     <?= Auth::csrfField() ?>
-                    <button type="submit" class="btn btn-sm"
-                            style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
+                    <button type="submit" class="btn btn-secondary btn-sm">Dismiss</button>
                 </form>
             </div>
         </div>
+        </div><!-- /.flag-body -->
     </div>
     <?php endforeach; ?>
     <?php endforeach; ?>

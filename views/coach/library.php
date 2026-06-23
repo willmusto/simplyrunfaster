@@ -97,7 +97,7 @@ $hasFilter    = $filterType !== '' || $filterPhase !== '' || $filterDistance !==
     .lib-param-key { font-weight: 600; }
     .lib-detail-tmpl { font-size: 12px; color: var(--text-secondary); line-height: 1.6; white-space: pre-line; }
 
-    @media (max-width: 768px) {
+    @media (max-width: 767px) {
         #libDetail {
             top: auto; left: 0; right: 0; bottom: 0; width: 100%;
             max-height: 88vh; border-left: none; border-top: var(--card-border);
@@ -144,7 +144,7 @@ $hasFilter    = $filterType !== '' || $filterPhase !== '' || $filterDistance !==
             </div>
             <div>
                 <div class="form-label-sm">Type</div>
-                <select name="type" class="form-input" style="min-width:130px;" onchange="this.form.submit()">
+                <select name="type" class="form-select" style="min-width:130px;" onchange="this.form.submit()">
                     <option value="">All types</option>
                     <?php foreach ($typeOptions as $val => $lbl): ?>
                     <option value="<?= h($val) ?>" <?= $filterType === $val ? 'selected' : '' ?>><?= h($lbl) ?></option>
@@ -153,7 +153,7 @@ $hasFilter    = $filterType !== '' || $filterPhase !== '' || $filterDistance !==
             </div>
             <div>
                 <div class="form-label-sm">Phase</div>
-                <select name="phase" class="form-input" style="min-width:120px;" onchange="this.form.submit()">
+                <select name="phase" class="form-select" style="min-width:120px;" onchange="this.form.submit()">
                     <option value="">All phases</option>
                     <?php foreach ($phaseOptions as $val => $lbl): ?>
                     <option value="<?= h($val) ?>" <?= $filterPhase === $val ? 'selected' : '' ?>><?= h($lbl) ?></option>
@@ -162,7 +162,7 @@ $hasFilter    = $filterType !== '' || $filterPhase !== '' || $filterDistance !==
             </div>
             <div>
                 <div class="form-label-sm">Distance</div>
-                <select name="distance" class="form-input" style="min-width:120px;" onchange="this.form.submit()">
+                <select name="distance" class="form-select" style="min-width:120px;" onchange="this.form.submit()">
                     <option value="">All distances</option>
                     <?php foreach ($distOptions as $val => $lbl): ?>
                     <option value="<?= h($val) ?>" <?= $filterDistance === $val ? 'selected' : '' ?>><?= h($lbl) ?></option>
@@ -258,7 +258,7 @@ $hasFilter    = $filterType !== '' || $filterPhase !== '' || $filterDistance !==
         <div class="lib-prev-inputs">
             <div class="form-group" style="margin:0;">
                 <label class="form-label" for="libPrev-class">Classification</label>
-                <select id="libPrev-class" class="form-input">
+                <select id="libPrev-class" class="form-select">
                     <option value="workable">Workable</option>
                     <option value="well_trained">Well-trained</option>
                 </select>
@@ -269,7 +269,7 @@ $hasFilter    = $filterType !== '' || $filterPhase !== '' || $filterDistance !==
             </div>
             <div class="form-group" style="margin:0;">
                 <label class="form-label" for="libPrev-dist">Goal distance</label>
-                <select id="libPrev-dist" class="form-input">
+                <select id="libPrev-dist" class="form-select">
                     <option value="5K">5K</option>
                     <option value="10K">10K</option>
                     <option value="half">Half</option>
@@ -280,7 +280,7 @@ $hasFilter    = $filterType !== '' || $filterPhase !== '' || $filterDistance !==
             </div>
             <div class="form-group" style="margin:0;">
                 <label class="form-label" for="libPrev-variant">Variant</label>
-                <select id="libPrev-variant" class="form-input"></select>
+                <select id="libPrev-variant" class="form-select"></select>
             </div>
         </div>
 

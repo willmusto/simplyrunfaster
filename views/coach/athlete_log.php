@@ -31,6 +31,10 @@ $rowDate = static fn(string $d): string => date('D M j', strtotime($d));
         What this athlete actually did, newest first. Read-only.
     </p>
 
+    <?php /* Re-sync card only when this athlete has a live Intervals.icu connection;
+             otherwise the action could only return "not connected", so it's hidden.
+             The empty-state below already explains where completed runs come from. */ ?>
+    <?php if (!empty($hasIntervalsConnection)): ?>
     <!-- Coach re-sync: pull recent Intervals.icu activities without a reconnect (idempotent) -->
     <div class="card" data-intervals-backfill style="margin-bottom:18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;">
         <div style="flex:1;min-width:180px;">
@@ -45,6 +49,7 @@ $rowDate = static fn(string $d): string => date('D M j', strtotime($d));
         <button type="button" class="btn btn-secondary btn-sm" data-backfill-btn data-athlete="<?= $athleteId ?>">Re-sync activities</button>
         <div data-backfill-result style="display:none;width:100%;font-size:12px;margin-top:2px;"></div>
     </div>
+    <?php endif; ?>
 
     <?php if (empty($log['weeks'])): ?>
     <div class="card" style="margin-bottom:16px;">

@@ -191,6 +191,11 @@ class CoachController
         $page    = max(0, (int)($_GET['page'] ?? 0));
         $log     = self::athleteLogData($athleteId, $page, $tz, $db);
 
+        // Only offer the Intervals.icu re-sync card when this athlete actually has a
+        // live connection — same lookup the backfill endpoint guards on. Without it
+        // the control could only ever return "not connected", so we hide it.
+        $hasIntervalsConnection = IntervalsService::connectionForAthlete($athleteId, $db) !== null;
+
         $chrome       = self::athleteChromeData($athleteId, $db);
         $chromeActive = 'log';
 

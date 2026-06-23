@@ -323,7 +323,7 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
     .srf-move-sheet { background:var(--surface-bg,var(--card-bg,#fff)); color:var(--text-primary,#111);
         width:100%; max-width:480px; border-radius:16px 16px 0 0; padding:18px 18px 28px;
         max-height:85vh; overflow-y:auto; box-shadow:0 -8px 32px rgba(0,0,0,0.25); }
-    @media (min-width:520px) { .srf-move-overlay { align-items:center; }
+    @media (min-width:480px) { .srf-move-overlay { align-items:center; }
         .srf-move-sheet { border-radius:16px; } }
     .srf-move-head { display:flex; align-items:center; justify-content:space-between; }
     .srf-move-title { font-size:16px; font-weight:600; }
@@ -362,7 +362,7 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
     .srf-race-sheet { background:var(--surface-bg,var(--card-bg,#fff)); color:var(--text-primary,#111);
         width:100%; max-width:480px; border-radius:16px 16px 0 0; padding:18px 18px 28px;
         max-height:88vh; overflow-y:auto; box-shadow:0 -8px 32px rgba(0,0,0,0.25); }
-    @media (min-width:520px) { .srf-race-overlay { align-items:center; } .srf-race-sheet { border-radius:16px; } }
+    @media (min-width:480px) { .srf-race-overlay { align-items:center; } .srf-race-sheet { border-radius:16px; } }
     .srf-race-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
     .srf-race-title { font-size:16px; font-weight:600; }
     .srf-race-close { background:none; border:none; font-size:26px; line-height:1; cursor:pointer; color:var(--text-muted); }
@@ -402,7 +402,7 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
                     <div style="display:flex;gap:8px;align-items:center;">
                         <input type="number" step="0.1" min="0" id="custom_distance" name="custom_distance"
                                class="form-input" placeholder="e.g. 12.4" style="flex:1;">
-                        <select name="custom_distance_unit" class="form-input" style="max-width:110px;">
+                        <select name="custom_distance_unit" class="form-select" style="max-width:110px;">
                             <option value="miles">miles</option>
                             <option value="km">km</option>
                         </select>

@@ -18,23 +18,27 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
     <?php if (!empty($criticalFlags)): ?>
     <div class="section-label" style="color:var(--color-danger);">NEEDS ATTENTION</div>
     <?php foreach ($criticalFlags as $flag): ?>
-    <div class="roster-row severity-critical" style="margin-bottom:8px;">
-        <div class="roster-row-meta">
-            <span style="font-size:13px;font-weight:600;"><?= h($flag['athlete_name']) ?></span>
-            <span class="pill" style="background:#FDECEA;color:#991B1B;font-size:10px;margin-left:8px;">Critical</span>
-        </div>
-        <div class="roster-row-body">
-            <span style="font-size:13px;color:var(--text-secondary);"><?= h($flag['flag_type']) ?></span>
-            <?php if ($flag['message']): ?>
-            <p class="body-text" style="margin:4px 0 0;"><?= h($flag['message']) ?></p>
-            <?php endif; ?>
-        </div>
-        <div style="display:flex;gap:8px;margin-top:10px;">
-            <a href="/app/coach/athlete/<?= (int)$flag['athlete_id'] ?>" class="btn btn-secondary btn-sm">View athlete</a>
-            <form method="POST" action="/app/coach/flags/<?= (int)$flag['id'] ?>/dismiss" style="display:inline;">
-                <?= Auth::csrfField() ?>
-                <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
-            </form>
+    <div class="flag-card flag-card-critical" style="margin-bottom:8px;">
+        <div class="flag-body">
+            <div class="flag-card-head">
+                <div class="flag-card-titlewrap">
+                    <span class="flag-card-title" style="font-weight:600;"><?= h($flag['athlete_name']) ?></span>
+                    <span class="pill pill-critical" style="font-size:10px;">Critical</span>
+                </div>
+            </div>
+            <div class="flag-card-msg">
+                <?= h($flag['flag_type']) ?>
+                <?php if ($flag['message']): ?>
+                <p style="margin:4px 0 0;"><?= h($flag['message']) ?></p>
+                <?php endif; ?>
+            </div>
+            <div class="flag-card-actions">
+                <a href="/app/coach/athlete/<?= (int)$flag['athlete_id'] ?>" class="btn btn-secondary btn-sm">View athlete</a>
+                <form method="POST" action="/app/coach/flags/<?= (int)$flag['id'] ?>/dismiss" style="display:inline;">
+                    <?= Auth::csrfField() ?>
+                    <button type="submit" class="btn btn-secondary btn-sm">Dismiss</button>
+                </form>
+            </div>
         </div>
     </div>
     <?php endforeach; ?>
@@ -43,23 +47,27 @@ $totalFlags = count($criticalFlags) + count($warningFlags);
     <?php if (!empty($warningFlags)): ?>
     <div class="section-label" style="margin-top:<?= !empty($criticalFlags) ? '24px' : '0' ?>;color:var(--color-warning);">WARNINGS</div>
     <?php foreach ($warningFlags as $flag): ?>
-    <div class="roster-row severity-warning" style="margin-bottom:8px;">
-        <div class="roster-row-meta">
-            <span style="font-size:13px;font-weight:600;"><?= h($flag['athlete_name']) ?></span>
-            <span class="pill" style="background:#FEF9C3;color:#92400E;font-size:10px;margin-left:8px;">Warning</span>
-        </div>
-        <div class="roster-row-body">
-            <span style="font-size:13px;color:var(--text-secondary);"><?= h($flag['flag_type']) ?></span>
-            <?php if ($flag['message']): ?>
-            <p class="body-text" style="margin:4px 0 0;"><?= h($flag['message']) ?></p>
-            <?php endif; ?>
-        </div>
-        <div style="display:flex;gap:8px;margin-top:10px;">
-            <a href="/app/coach/athlete/<?= (int)$flag['athlete_id'] ?>" class="btn btn-secondary btn-sm">View athlete</a>
-            <form method="POST" action="/app/coach/flags/<?= (int)$flag['id'] ?>/dismiss" style="display:inline;">
-                <?= Auth::csrfField() ?>
-                <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
-            </form>
+    <div class="flag-card flag-card-warning" style="margin-bottom:8px;">
+        <div class="flag-body">
+            <div class="flag-card-head">
+                <div class="flag-card-titlewrap">
+                    <span class="flag-card-title" style="font-weight:600;"><?= h($flag['athlete_name']) ?></span>
+                    <span class="pill pill-warning" style="font-size:10px;">Warning</span>
+                </div>
+            </div>
+            <div class="flag-card-msg">
+                <?= h($flag['flag_type']) ?>
+                <?php if ($flag['message']): ?>
+                <p style="margin:4px 0 0;"><?= h($flag['message']) ?></p>
+                <?php endif; ?>
+            </div>
+            <div class="flag-card-actions">
+                <a href="/app/coach/athlete/<?= (int)$flag['athlete_id'] ?>" class="btn btn-secondary btn-sm">View athlete</a>
+                <form method="POST" action="/app/coach/flags/<?= (int)$flag['id'] ?>/dismiss" style="display:inline;">
+                    <?= Auth::csrfField() ?>
+                    <button type="submit" class="btn btn-secondary btn-sm">Dismiss</button>
+                </form>
+            </div>
         </div>
     </div>
     <?php endforeach; ?>

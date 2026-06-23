@@ -8,42 +8,69 @@
  * Vars: $athlete, $flagRecord (['open'=>[], 'resolved'=>[]] from athleteFlagRecord), $chrome,
  *       $chromeActive='flags'.
  */
-$sevColor = static function (string $sev): array {
-    return match ($sev) {
-        'critical'    => ['#FDECEA', '#991B1B'],
-        'warning'     => ['#FEF9C3', '#92400E'],
-        'opportunity' => ['#eef7f2', '#0F6E56'],
-        default       => ['var(--recessed-bg)', 'var(--text-muted)'], // info
-    };
-};
-
-$card = static function (array $f) use ($sevColor): void {
-    [$bg, $fg] = $sevColor((string)$f['severity']);
+// One canonical flag-card layout for every card here (open + resolved): pills + title
+// top-left, resolution badge / raised-date top-right, message body, then the structured
+// profile diff (its own full-width region). No per-instance hardcoded severity colors.
+$card = static function (array $f): void {
+    $sev       = (string)($f['severity'] ?? 'info');
     $resolved  = empty($f['is_open']);
+    $isProfile = ($f['flag_type'] ?? '') === 'profile_updated';
+
+    // Severity → .flag-card-* rail modifier (resolved overrides to the muted rail).
+    $railClass = $resolved ? 'flag-card-resolved' : match ($sev) {
+        'critical'    => 'flag-card-critical',
+        'warning'     => 'flag-card-warning',
+        'opportunity' => 'flag-card-opportunity',
+        default       => 'flag-card-info',
+    };
+    // Severity pill: critical/warning use the canonical .pill-* classes; opportunity/info
+    // (no canonical class) use theme tokens — never hardcoded hex.
+    $sevPillClass = match ($sev) {
+        'critical' => 'pill-critical',
+        'warning'  => 'pill-warning',
+        default    => '',
+    };
+    $sevPillStyle = $sevPillClass === ''
+        ? ($sev === 'opportunity'
+            ? 'background:var(--accent-fill);color:var(--accent-strong);'
+            : 'background:var(--recessed-bg);color:var(--text-secondary);')
+        : '';
     ?>
-    <div class="roster-row" style="margin-bottom:8px;<?= $resolved ? 'opacity:.85;border-left:3px solid var(--text-muted);' : 'border-left:3px solid ' . ($f['severity'] === 'critical' ? 'var(--color-danger)' : ($f['severity'] === 'opportunity' ? '#1D9E75' : 'var(--color-warning)')) . ';' ?>">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <span class="pill" style="font-size:10px;background:<?= $bg ?>;color:<?= $fg ?>;"><?= h(ucfirst((string)$f['severity'])) ?></span>
-            <span style="font-size:13px;font-weight:500;"><?= h((string)$f['title']) ?></span>
-            <span class="pill" style="font-size:10px;background:var(--recessed-bg);color:var(--text-muted);"><?= $f['source'] === 'intel' ? 'Intelligence' : 'Engine' ?></span>
-            <span style="font-size:11px;color:var(--text-muted);margin-left:auto;">
+    <div class="flag-card <?= $railClass ?>" style="margin-bottom:8px;">
+        <div class="flag-body">
+            <div class="flag-card-head">
+                <div class="flag-card-titlewrap">
+                    <span class="pill <?= $sevPillClass ?>" style="font-size:10px;<?= $sevPillStyle ?>"><?= h(ucfirst($sev)) ?></span>
+                    <span class="flag-card-title"><?= h((string)$f['title']) ?></span>
+                    <span class="pill" style="font-size:10px;background:var(--recessed-bg);color:var(--text-muted);"><?= $f['source'] === 'intel' ? 'Intelligence' : 'Engine' ?></span>
+                </div>
+                <div class="flag-card-aside">
+                    <?php if ($resolved && !empty($f['resolution'])): $r = $f['resolution']; ?>
+                    <span class="pill" style="font-size:10px;background:var(--recessed-bg);color:var(--text-secondary);"><?= h((string)$r['label']) ?></span>
+                    <?php if (!empty($r['at'])): ?><span><?= h(Timezone::format($r['at'], 'M j, Y')) ?></span><?php endif; ?>
+                    <?php else: ?>
+                    <span>Raised <?= h(Timezone::format($f['created_at'], 'M j, Y')) ?></span>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <?php // profile_updated shows the structured diff only — no prose restatement. ?>
+            <?php if (!$isProfile && !empty($f['message'])): ?>
+            <p class="flag-card-msg"><?= h((string)$f['message']) ?></p>
+            <?php endif; ?>
+
+            <?php if ($isProfile && !empty($f['details'])): ?>
+            <?= render_profile_diff($f['details']) ?>
+            <?php endif; ?>
+
+            <?php if ($resolved && !empty($f['resolution'])): $r = $f['resolution']; ?>
+            <div class="flag-card-foot">
                 Raised <?= h(Timezone::format($f['created_at'], 'M j, Y')) ?>
-            </span>
+                <?php if (!empty($r['by'])): ?> · by <?= h((string)$r['by']) ?><?php endif; ?>
+                <?php if (!empty($r['reason'])): ?> · <?= h((string)$r['reason']) ?><?php endif; ?>
+            </div>
+            <?php endif; ?>
         </div>
-        <?php if (!empty($f['message'])): ?>
-        <p class="body-text" style="margin:6px 0 0;"><?= h((string)$f['message']) ?></p>
-        <?php endif; ?>
-        <?php if (($f['flag_type'] ?? '') === 'profile_updated' && !empty($f['details'])): ?>
-        <?= render_profile_diff($f['details']) ?>
-        <?php endif; ?>
-        <?php if ($resolved && !empty($f['resolution'])): $r = $f['resolution']; ?>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-            <span class="pill" style="font-size:10px;background:var(--recessed-bg);color:var(--text-secondary);"><?= h((string)$r['label']) ?></span>
-            <?php if (!empty($r['at'])): ?><span><?= h(Timezone::format($r['at'], 'M j, Y')) ?></span><?php endif; ?>
-            <?php if (!empty($r['by'])): ?><span>· by <?= h((string)$r['by']) ?></span><?php endif; ?>
-            <?php if (!empty($r['reason'])): ?><span>· <?= h((string)$r['reason']) ?></span><?php endif; ?>
-        </div>
-        <?php endif; ?>
     </div>
     <?php
 };

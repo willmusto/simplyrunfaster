@@ -377,7 +377,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
     .av-header-email { overflow-wrap: anywhere; }
 
     /* ── Mobile (≤768px): single full-width column, no horizontal overflow ── */
-    @media (max-width: 768px) {
+    @media (max-width: 767px) {
         /* Macro plan: stack each week's days into full-width rows. */
         .macro-week-wrap {
             overflow-x: visible;
@@ -526,7 +526,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
         opacity: .6;
         font-style: italic;
     }
-    @media (max-width: 768px) {
+    @media (max-width: 767px) {
         /* Touch can't hover — keep the add button visible on mobile. */
         .macro-add-btn { opacity: .8; margin-top: 0; }
     }
@@ -605,18 +605,8 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
     #ewd-close:hover { color: var(--text-primary); }
     </style>
 
-    <?php if (!empty($flashSuccess)): ?>
-    <div class="alert alert-success" style="margin-bottom:16px;padding:10px 14px;border-radius:var(--radius-card);
-         background:var(--color-success-bg,#d1fae5);color:var(--color-success-text,#065f46);font-size:13px;">
-        <?= h($flashSuccess) ?>
-    </div>
-    <?php endif; ?>
-    <?php if (!empty($flashError)): ?>
-    <div class="alert alert-error" style="margin-bottom:16px;padding:10px 14px;border-radius:var(--radius-card);
-         background:#fdecea;color:#991b1b;font-size:13px;">
-        <?= h($flashError) ?>
-    </div>
-    <?php endif; ?>
+    <?php /* Flash banners render once at the top of .page-content (see the
+             .flash blocks above); the duplicate .alert copy was removed (F5). */ ?>
 
     <!-- Shared chrome: back + header + sub-nav tab strip -->
     <?php include __DIR__ . '/partials/athlete_chrome.php'; ?>
@@ -628,30 +618,30 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
 
         <?php if (!empty($athleteFlags)): ?>
         <div class="section-label" style="color:var(--color-danger);">OPEN ALERTS</div>
-        <?php foreach ($athleteFlags as $flag): ?>
-        <div class="roster-row <?= $flag['severity'] === 'critical' ? 'severity-critical' : 'severity-warning' ?>"
-             style="margin-bottom:8px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-                <div>
-                    <span class="pill"
-                          style="font-size:10px;background:<?= $flag['severity'] === 'critical' ? '#FDECEA' : '#FEF9C3' ?>;
-                                 color:<?= $flag['severity'] === 'critical' ? '#991B1B' : '#92400E' ?>;">
-                        <?= h(ucfirst($flag['severity'])) ?>
-                    </span>
-                    <span style="font-size:13px;font-weight:500;margin-left:6px;"><?= h($flag['flag_type']) ?></span>
+        <?php foreach ($athleteFlags as $flag):
+            $fCrit      = $flag['severity'] === 'critical';
+            $fIsProfile = ($flag['flag_type'] ?? '') === 'profile_updated';
+        ?>
+        <div class="flag-card <?= $fCrit ? 'flag-card-critical' : 'flag-card-warning' ?>" style="margin-bottom:8px;">
+            <div class="flag-body">
+                <div class="flag-card-head">
+                    <div class="flag-card-titlewrap">
+                        <span class="pill <?= $fCrit ? 'pill-critical' : 'pill-warning' ?>" style="font-size:10px;"><?= h(ucfirst($flag['severity'])) ?></span>
+                        <span class="flag-card-title"><?= h($flag['flag_type']) ?></span>
+                    </div>
+                    <form method="POST" action="/app/coach/flags/<?= (int)$flag['id'] ?>/dismiss" style="margin-left:auto;">
+                        <?= Auth::csrfField() ?>
+                        <button type="submit" class="btn btn-secondary btn-sm">Dismiss</button>
+                    </form>
                 </div>
-                <form method="POST" action="/app/coach/flags/<?= (int)$flag['id'] ?>/dismiss">
-                    <?= Auth::csrfField() ?>
-                    <button type="submit" class="btn btn-sm"
-                            style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
-                </form>
+                <?php // profile_updated shows the structured diff only — no prose restatement. ?>
+                <?php if (!$fIsProfile && $flag['message']): ?>
+                <p class="flag-card-msg"><?= h($flag['message']) ?></p>
+                <?php endif; ?>
+                <?php if ($fIsProfile): ?>
+                <?= render_profile_diff($flag['details'] ?? null) ?>
+                <?php endif; ?>
             </div>
-            <?php if ($flag['message']): ?>
-            <p class="body-text" style="margin:6px 0 0;"><?= h($flag['message']) ?></p>
-            <?php endif; ?>
-            <?php if (($flag['flag_type'] ?? '') === 'profile_updated'): ?>
-            <?= render_profile_diff($flag['details'] ?? null) ?>
-            <?php endif; ?>
         </div>
         <?php endforeach; ?>
         <?php endif; ?>
@@ -1234,7 +1224,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 <div id="awd-config" style="display:none;margin-top:14px;">
                     <div class="form-group" id="awd-variant-group" style="display:none;">
                         <label class="form-label" for="awd-variant">Variant</label>
-                        <select id="awd-variant" class="form-input"></select>
+                        <select id="awd-variant" class="form-select"></select>
                     </div>
                     <div class="form-group">
                         <label class="form-label" for="awd-duration">Duration (minutes)</label>
@@ -1263,7 +1253,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="awd-ff-type">Workout type</label>
-                    <select id="awd-ff-type" class="form-input">
+                    <select id="awd-ff-type" class="form-select">
                         <option value="easy">Easy run</option>
                         <option value="long">Long run</option>
                         <option value="tempo">Tempo</option>
@@ -1319,7 +1309,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="ewd-s-type">Workout type</label>
-                    <select id="ewd-s-type" class="form-input">
+                    <select id="ewd-s-type" class="form-select">
                         <option value="easy">Easy run</option><option value="long">Long run</option>
                         <option value="tempo">Tempo</option><option value="interval">Workout</option>
                         <option value="recovery">Recovery</option><option value="race_pace">Race pace</option>
@@ -1355,7 +1345,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 <div id="ewd-config" style="display:none;margin-top:14px;">
                     <div class="form-group" id="ewd-variant-group" style="display:none;">
                         <label class="form-label" for="ewd-variant">Variant</label>
-                        <select id="ewd-variant" class="form-input"></select>
+                        <select id="ewd-variant" class="form-select"></select>
                     </div>
                     <div class="form-group">
                         <label class="form-label" for="ewd-duration">Duration (minutes)</label>
@@ -1381,7 +1371,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="ewd-ff-type">Workout type</label>
-                    <select id="ewd-ff-type" class="form-input">
+                    <select id="ewd-ff-type" class="form-select">
                         <option value="easy">Easy run</option><option value="long">Long run</option>
                         <option value="tempo">Tempo</option><option value="interval">Workout</option>
                         <option value="recovery">Recovery</option><option value="race_pace">Race pace</option>
@@ -2010,7 +2000,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                     <label class="form-label" for="cr_custom">Distance</label>
                     <div style="display:flex;gap:8px;">
                         <input type="number" step="0.1" min="0" id="cr_custom" name="custom_distance" class="form-input" style="flex:1;">
-                        <select name="custom_distance_unit" class="form-input" style="max-width:110px;">
+                        <select name="custom_distance_unit" class="form-select" style="max-width:110px;">
                             <option value="miles">miles</option>
                             <option value="km">km</option>
                         </select>
