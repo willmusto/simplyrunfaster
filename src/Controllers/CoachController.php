@@ -284,6 +284,56 @@ class CoachController
     }
 
     /**
+     * PURE single source of an athlete's OPEN flags across BOTH tables (engine_flags +
+     * coaching_intelligence_flags), normalized to the Flags-card shape, newest first. The chrome
+     * badge/dot and the Flags-tab Open section both derive from this, so they can't drift. Cheap:
+     * two indexed open-status lookups for one athlete. No writes.
+     */
+    public static function openFlagsForAthlete(int $athleteId, PDO $db): array
+    {
+        $rows = [];
+        try {
+            $es = $db->prepare("SELECT * FROM engine_flags WHERE athlete_id = ? AND status = 'open' ORDER BY created_at DESC");
+            $es->execute([$athleteId]);
+            foreach ($es->fetchAll(PDO::FETCH_ASSOC) as $f) {
+                $rows[] = [
+                    'source' => 'engine', 'severity' => (string)$f['severity'], 'title' => (string)$f['flag_type'],
+                    'message' => (string)($f['message'] ?? ''), 'status' => 'open', 'is_open' => true,
+                    'created_at' => (string)$f['created_at'], 'flag_type' => (string)$f['flag_type'],
+                    'details' => $f['details'] ?? null, 'resolution' => null,
+                ];
+            }
+        } catch (\Throwable $e) { /* table may be absent pre-migration */ }
+        try {
+            $is = $db->prepare("SELECT * FROM coaching_intelligence_flags WHERE athlete_id = ? AND status = 'open' ORDER BY created_at DESC");
+            $is->execute([$athleteId]);
+            foreach ($is->fetchAll(PDO::FETCH_ASSOC) as $f) {
+                $rows[] = [
+                    'source' => 'intel', 'severity' => (string)$f['severity'], 'title' => (string)($f['title'] ?? $f['flag_type']),
+                    'message' => (string)($f['detail'] ?? ''), 'status' => 'open', 'is_open' => true,
+                    'created_at' => (string)$f['created_at'], 'flag_type' => (string)$f['flag_type'],
+                    'details' => null, 'resolution' => null,
+                ];
+            }
+        } catch (\Throwable $e) { /* table may be absent pre-migration */ }
+        usort($rows, static fn($a, $b) => strcmp((string)$b['created_at'], (string)$a['created_at']));
+        return $rows;
+    }
+
+    /** On-track dot colour from a set of open flags: any critical → red, any warning → amber, else green.
+     *  (Intel 'opportunity'/'info' are not concerns and read green.) */
+    private static function topSeverityDot(array $openRows): string
+    {
+        $hasWarning = false;
+        foreach ($openRows as $r) {
+            $s = (string)($r['severity'] ?? '');
+            if ($s === 'critical') return 'red';
+            if ($s === 'warning')  $hasWarning = true;
+        }
+        return $hasWarning ? 'amber' : 'green';
+    }
+
+    /**
      * PURE: the athlete's FULL flag record for the Flags tab — open + resolved history across
      * BOTH flag tables (engine_flags + coaching_intelligence_flags), normalized to one shape,
      * within the last $days days, capped at $limit resolved rows. No writes. Returns
@@ -364,9 +414,8 @@ class CoachController
             }
         } catch (\Throwable $e) { /* table may be absent pre-migration */ }
 
-        $open = array_values(array_filter($rows, static fn($r) => $r['is_open']));
-        usort($open, static fn($a, $b) => strcmp((string)$b['created_at'], (string)$a['created_at']));
-
+        // Open set is single-sourced (same as the chrome badge/dot) so they can't drift.
+        $open     = self::openFlagsForAthlete($athleteId, $db);
         $resolved = array_values(array_filter($rows, static fn($r) => !$r['is_open']));
         usort($resolved, static function ($a, $b) {
             $ax = (string)($a['resolution']['at'] ?? $a['created_at']);
@@ -3503,25 +3552,17 @@ class CoachController
             }
         }
 
-        $fc = $db->prepare('SELECT COUNT(*) FROM engine_flags WHERE athlete_id = ? AND status = "open"');
-        $fc->execute([$athleteId]);
-        $flagCount = (int)$fc->fetchColumn();
-
-        $sv = $db->prepare(
-            'SELECT severity FROM engine_flags WHERE athlete_id = ? AND status = "open"
-             ORDER BY FIELD(severity,"critical","warning","info") LIMIT 1'
-        );
-        $sv->execute([$athleteId]);
-        $top = (string)($sv->fetchColumn() ?: '');
-        $dot = $top === 'critical' ? 'red' : ($top === 'warning' ? 'amber' : 'green');
+        // Badge + dot count ALL open flags across both tables (same source as the Flags tab's
+        // Open section), so the badge equals the Open list and the dot is the true top severity.
+        $open = self::openFlagsForAthlete($athleteId, $db);
 
         return [
             'phase'       => $phase,
             'week'        => $week,
             'total_weeks' => $totalWeeks,
             'race'        => self::getNextRace($athleteId, $db),
-            'flag_count'  => $flagCount,
-            'on_track'    => $dot,
+            'flag_count'  => count($open),
+            'on_track'    => self::topSeverityDot($open),
         ];
     }
 

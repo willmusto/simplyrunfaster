@@ -109,9 +109,12 @@ try {
     }
     check("resolved: most-recently-resolved first", $sortedDesc);
 
-    // Badge unchanged: counts OPEN engine flags only (1), not the full history.
+    // Badge + dot now count ALL open flags across both tables (= the Open section), not history.
     $chrome = CoachController::athleteChromeData($athleteId, $db);
-    check("strip badge counts OPEN engine flags only (= 1, not history)", (int)$chrome['flag_count'] === 1);
+    check("badge counts ALL open flags across both tables (= Open section count, 2)",
+        (int)$chrome['flag_count'] === 2 && (int)$chrome['flag_count'] === count($open));
+    check("on-track dot reflects top open severity across both tables (amber: two warnings, no open critical)",
+        $chrome['on_track'] === 'amber');
 
     // No writes.
     $efc1 = (int)$db->query("SELECT COUNT(*) FROM engine_flags WHERE athlete_id={$athleteId}")->fetchColumn();
@@ -127,6 +130,18 @@ try {
     check("view has NO dismiss/act controls (no form/POST/dismiss button)",
         strpos($html, 'method="POST"') === false && stripos($html, '/dismiss') === false
         && strpos($html, '<button') === false);
+
+    // ── Prior bug case: open intel flag, NO open engine flag → badge > 0 (was 0) ──
+    $db->prepare("UPDATE engine_flags SET status='dismissed', reviewed_at=NOW() WHERE athlete_id=? AND status='open'")->execute([$athleteId]);
+    $chromeNoEngine = CoachController::athleteChromeData($athleteId, $db);
+    check("bug case fixed: open intel + no open engine → badge = 1 (was 0)", (int)$chromeNoEngine['flag_count'] === 1);
+    check("bug case: dot still colored from the open intel warning (amber)", $chromeNoEngine['on_track'] === 'amber');
+
+    // ── Critical dot: an open critical engine flag turns the dot red ──
+    $db->prepare("INSERT INTO engine_flags (athlete_id, flag_type, severity, flag_date, message, status, created_at)
+                  VALUES (?, 'plan_rebuild_needed', 'critical', CURDATE(), 'crit', 'open', NOW())")->execute([$athleteId]);
+    $chromeCrit = CoachController::athleteChromeData($athleteId, $db);
+    check("dot is red when an open critical flag exists", $chromeCrit['on_track'] === 'red' && (int)$chromeCrit['flag_count'] === 2);
 
     echo "\n================================\n";
     echo "  Flags tab full-record verification\n";
