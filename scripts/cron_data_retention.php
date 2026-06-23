@@ -42,12 +42,12 @@ $W = [
     'intervals_webhook_processed' => 30,   // raw webhook payloads, processed/skipped (fastest-growing)
     'intervals_webhook_failed'    => 90,   // keep failed webhooks longer for debugging
     'intervals_push_log'          => 90,   // watch-push delivery audit
-    'engine_flags'                => 180,  // closed (dismissed/acted_on) flags
-    'cif'                         => 180,  // closed coaching_intelligence_flags
-    'training_load'               => 400,  // ~13 months; CTL window is 42d, keep ample history
-    'planned_cancelled'           => 180,  // coach soft-deleted workouts (preserve training-log window)
+    'engine_flags'                => 180,  // closed (dismissed/acted_on) flags — Flags tab shows only 90d, so safe
+    'cif'                         => 180,  // closed coaching_intelligence_flags — same 90d-visible margin
+    'training_load'               => 730,  // 2 years: long-term fitness history + cross-cycle continuity (not log exhaust)
+    'planned_cancelled'           => 180,  // coach soft-deleted workouts — no report reads cancelled=1 past this
     'training_plans_archived'     => 180,  // archived plans past archived_at + N (keep latest per athlete)
-    'stripe_webhook_log'          => 180,  // billing audit — longer retention
+    'stripe_webhook_log'          => 365,  // financial audit — keep >= 1 year for disputes/accounting
 ];
 
 $mode = $dryRun ? 'DRY RUN (no deletes)' : 'LIVE';

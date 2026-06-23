@@ -11,6 +11,12 @@
  *      KEEP athletes.billing_status — it is still WRITTEN (Auth.php, AdminController.php) and
  *      READ (CoachController.php); it is NOT dead.
  *
+ * DECISION 2026-06-23: apply ONLY the metric_type ENUM cleanup by default. The DROP COLUMNs
+ * (reason_tag + the 4 dead athletes billing columns) are HELD — on MariaDB 5.3/MyISAM a
+ * DROP COLUMN forces a full table rebuild, which is real risk on the central `athletes`
+ * table for zero functional benefit (dead columns cost nothing in place). They remain
+ * available behind an explicit --with-drops flag if that calculus changes.
+ *
  * SAFETY:
  *   - Idempotent: each op is skipped if already applied (column gone / ENUM member absent).
  *   - No-row-uses guard: a destructive op is SKIPPED (with a warning) if any row would be
@@ -19,8 +25,10 @@
  *     and does not block the other ops.
  *   - Dry-run: report what it WOULD do without changing anything.
  *
- *     php scripts/run_migration_034.php --dry-run   # report only
- *     php scripts/run_migration_034.php             # apply (after confirmation)
+ *     php scripts/run_migration_034.php --dry-run               # report only (ENUM-only scope)
+ *     php scripts/run_migration_034.php                         # apply metric_type ENUM cleanup
+ *     php scripts/run_migration_034.php --with-drops            # also drop the dead columns
+ *     php scripts/run_migration_034.php --with-drops --dry-run  # report incl. the held drops
  */
 
 define('SCRIPT_ROOT', dirname(__DIR__));
@@ -28,8 +36,9 @@ date_default_timezone_set('UTC');
 require_once SCRIPT_ROOT . '/config/config.php';
 require_once SCRIPT_ROOT . '/config/database.php';
 
-$dryRun = in_array('--dry-run', $argv ?? [], true);
-$db     = Database::get();
+$dryRun    = in_array('--dry-run', $argv ?? [], true);
+$withDrops = in_array('--with-drops', $argv ?? [], true);  // column DROPs are HELD by default (MariaDB 5.3 rebuild risk)
+$db        = Database::get();
 
 $hasColumn = function (string $t, string $c) use ($db): bool {
     $s = $db->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?');
@@ -68,28 +77,34 @@ if ($hasColumn('athlete_behavior_log', 'metric_type')) {
     }
 }
 
-// 2) coach_adjustments.reason_tag — drop column if unused.
-if (!$hasColumn('coach_adjustments', 'reason_tag')) {
-    echo "  [skip] coach_adjustments.reason_tag already dropped.\n";
+// Column DROPs (2 & 3) are HELD by default — pass --with-drops to apply.
+if (!$withDrops) {
+    echo "  [hold] column drops deferred (reason_tag + 5 dead athletes billing cols). "
+        . "Run with --with-drops to apply (MariaDB 5.3 DROP COLUMN = table rebuild).\n";
 } else {
-    $inUse = $cnt("SELECT COUNT(*) FROM coach_adjustments WHERE reason_tag IS NOT NULL AND reason_tag <> ''");
-    if ($inUse > 0) echo "  [WARN] reason_tag: {$inUse} row(s) populated — SKIP.\n";
-    else $try("DROP coach_adjustments.reason_tag", "ALTER TABLE `coach_adjustments` DROP COLUMN `reason_tag`");
-}
+    // 2) coach_adjustments.reason_tag — drop column if unused.
+    if (!$hasColumn('coach_adjustments', 'reason_tag')) {
+        echo "  [skip] coach_adjustments.reason_tag already dropped.\n";
+    } else {
+        $inUse = $cnt("SELECT COUNT(*) FROM coach_adjustments WHERE reason_tag IS NOT NULL AND reason_tag <> ''");
+        if ($inUse > 0) echo "  [WARN] reason_tag: {$inUse} row(s) populated — SKIP.\n";
+        else $try("DROP coach_adjustments.reason_tag", "ALTER TABLE `coach_adjustments` DROP COLUMN `reason_tag`");
+    }
 
-// 3) athletes legacy billing columns (KEEP billing_status).
-$deadBilling = [
-    'stripe_customer_id'     => "stripe_customer_id IS NOT NULL",
-    'stripe_subscription_id' => "stripe_subscription_id IS NOT NULL",
-    'comp_reason'            => "comp_reason IS NOT NULL",
-    'trial_ends_at'          => "trial_ends_at IS NOT NULL",
-    'billing_notes'          => "billing_notes IS NOT NULL",
-];
-foreach ($deadBilling as $col => $usedWhere) {
-    if (!$hasColumn('athletes', $col)) { echo "  [skip] athletes.{$col} already dropped.\n"; continue; }
-    $inUse = $cnt("SELECT COUNT(*) FROM athletes WHERE {$usedWhere}");
-    if ($inUse > 0) echo "  [WARN] athletes.{$col}: {$inUse} row(s) populated — SKIP.\n";
-    else $try("DROP athletes.{$col}", "ALTER TABLE `athletes` DROP COLUMN `{$col}`");
+    // 3) athletes legacy billing columns (KEEP billing_status).
+    $deadBilling = [
+        'stripe_customer_id'     => "stripe_customer_id IS NOT NULL",
+        'stripe_subscription_id' => "stripe_subscription_id IS NOT NULL",
+        'comp_reason'            => "comp_reason IS NOT NULL",
+        'trial_ends_at'          => "trial_ends_at IS NOT NULL",
+        'billing_notes'          => "billing_notes IS NOT NULL",
+    ];
+    foreach ($deadBilling as $col => $usedWhere) {
+        if (!$hasColumn('athletes', $col)) { echo "  [skip] athletes.{$col} already dropped.\n"; continue; }
+        $inUse = $cnt("SELECT COUNT(*) FROM athletes WHERE {$usedWhere}");
+        if ($inUse > 0) echo "  [WARN] athletes.{$col}: {$inUse} row(s) populated — SKIP.\n";
+        else $try("DROP athletes.{$col}", "ALTER TABLE `athletes` DROP COLUMN `{$col}`");
+    }
 }
 
 echo date('Y-m-d H:i:s') . " — migration 034 " . ($dryRun ? 'dry-run complete (nothing changed).' : 'complete.') . "\n";

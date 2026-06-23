@@ -1,7 +1,7 @@
 -- SimplyRunFaster Database Schema
 -- Regenerated from the LIVE production schema on 2026-06-23 (structure only).
 -- Engine, tables, and columns reflect production EXACTLY. Do not hand-edit — regenerate
--- with scripts/dump_schema.php (or mysqldump --no-data) when the live schema changes.
+-- with scripts/_tmp_dump_schema.php (or mysqldump --no-data) when the live schema changes.
 -- NOTE: production is MyISAM throughout (no FKs, no transactions); see _specs/db_debt_audit.md.
 
 SET NAMES utf8;
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS `athlete_behavior_log` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `athlete_id` int(11) NOT NULL,
   `logged_at` datetime NOT NULL,
-  `metric_type` enum('rpe_vs_target','completion_rate','easy_pace_drift','response_time','engagement_score') NOT NULL,
+  `metric_type` enum('rpe_vs_target','completion_rate','engagement_score') NOT NULL,
   `metric_value` float NOT NULL,
   `metric_context` longtext,
   `plan_week` int(11) DEFAULT NULL,
@@ -608,6 +608,7 @@ CREATE TABLE IF NOT EXISTS `training_plans` (
   `plan_type` enum('race_cycle','development_plan','maintenance_plan','recovery_block','return_to_running') COLLATE utf8_unicode_ci NOT NULL DEFAULT 'race_cycle',
   `rtr_current_stage` int(11) DEFAULT NULL COMMENT 'return_to_running run/walk stage 1-10; NULL for other plan types',
   `status` enum('pending_approval','active','archived','abandoned') COLLATE utf8_unicode_ci NOT NULL DEFAULT 'pending_approval',
+  `archived_at` datetime DEFAULT NULL COMMENT 'set when status becomes archived; enables age-based retention',
   `approved_by` int(10) unsigned DEFAULT NULL COMMENT 'coach user_id',
   `approved_at` datetime DEFAULT NULL,
   `plan_start_date` date DEFAULT NULL,
