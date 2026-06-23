@@ -230,7 +230,9 @@ class CoachController
         $stmt = $db->prepare(
             "SELECT cw.*, pw.display_title AS planned_title, pw.target_duration AS planned_duration,
                     pw.workout_type AS planned_type,
-                    (SELECT COUNT(*) FROM session_notes sn WHERE sn.planned_workout_id = cw.planned_workout_id) AS note_count
+                    (SELECT COUNT(*) FROM session_notes sn
+                       WHERE sn.completed_workout_id = cw.id
+                          OR (cw.planned_workout_id IS NOT NULL AND sn.planned_workout_id = cw.planned_workout_id)) AS note_count
              FROM completed_workouts cw
              LEFT JOIN planned_workouts pw ON pw.id = cw.planned_workout_id
              WHERE cw.athlete_id = ? AND cw.activity_date BETWEEN ? AND ?
@@ -238,6 +240,29 @@ class CoachController
         );
         $stmt->execute([$athleteId, $windowStart, $windowEnd]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        // Off-plan completions carry their thread inline on the coach Log card (matched
+        // sessions link out to the planned-workout thread instead). Batch-load the notes
+        // for the off-plan rows in this window, keyed by completed_workout_id.
+        $offPlanIds = [];
+        foreach ($rows as $r) {
+            if ($r['planned_workout_id'] === null) $offPlanIds[] = (int)$r['id'];
+        }
+        $threads = [];
+        if ($offPlanIds) {
+            $in = implode(',', array_fill(0, count($offPlanIds), '?'));
+            $tn = $db->prepare(
+                "SELECT sn.completed_workout_id, sn.body, sn.author_role, sn.created_at, u.name AS author_name
+                 FROM session_notes sn
+                 LEFT JOIN users u ON u.id = sn.author_id
+                 WHERE sn.completed_workout_id IN ($in)
+                 ORDER BY sn.created_at ASC, sn.id ASC"
+            );
+            $tn->execute($offPlanIds);
+            foreach ($tn->fetchAll(PDO::FETCH_ASSOC) as $n) {
+                $threads[(int)$n['completed_workout_id']][] = $n;
+            }
+        }
 
         $weeks = [];
         foreach ($rows as $r) {
@@ -250,6 +275,7 @@ class CoachController
             }
             $matched     = $r['planned_workout_id'] !== null;
             $r['matched'] = $matched;
+            $r['thread']  = $threads[(int)$r['id']] ?? [];
             $weeks[$mon]['rows'][]          = $r;
             $weeks[$mon]['total_minutes']  += (int)($r['actual_duration'] ?? 0);
             $weeks[$mon]['total_distance'] += (float)($r['actual_distance'] ?? 0);
@@ -2987,6 +3013,14 @@ class CoachController
         $athleteId = (int)($params['id'] ?? 0);
         $db        = Database::get();
         $back      = '/app/coach/athlete/' . $athleteId . '/messages';
+
+        // Allow returning to the Log tab (or another coach athlete sub-page) when the
+        // comment was posted from there, e.g. the off-plan thread on the Log card. Only
+        // same-site coach athlete paths are honoured (no open redirect).
+        $returnTo = (string)($_POST['return_to'] ?? '');
+        if ($returnTo !== '' && preg_match('#^/app/coach/athlete/\d+(/[\w/-]*)?$#', $returnTo)) {
+            $back = $returnTo;
+        }
 
         $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
         $cwId    = (int)($_POST['completed_workout_id'] ?? 0);

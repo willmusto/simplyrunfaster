@@ -121,7 +121,38 @@ $rowDate = static fn(string $d): string => date('D M j', strtotime($d));
                         if (!empty($r['external_activity_id'])) $det[] = 'Source id: ' . h((string)$r['external_activity_id']);
                         echo $det ? implode('<br>', $det) : 'No additional detail recorded.';
                         ?>
-                        <div style="margin-top:6px;color:var(--text-muted);">Commenting on off-plan sessions isn't available yet.</div>
+                    </div>
+
+                    <!-- Off-plan two-sided thread: keyed on completed_workout_id (no plan side),
+                         same session_notes store + handler as the matched-session thread. -->
+                    <?php $thread = $r['thread'] ?? []; ?>
+                    <div style="margin-top:10px;padding-top:10px;border-top:var(--card-border);">
+                        <div class="section-label" style="margin-bottom:6px;">CONVERSATION</div>
+                        <?php if (empty($thread)): ?>
+                        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">No comments yet — start a conversation about this off-plan run. Your athlete sees it on their session view.</div>
+                        <?php else: ?>
+                        <?php foreach ($thread as $n):
+                            $isCoach = ($n['author_role'] ?? 'athlete') !== 'athlete';
+                            $who     = $n['author_name'] ?: ($isCoach ? 'Coach' : ($athlete['name'] ?? 'Athlete'));
+                            $when    = Timezone::format($n['created_at'], 'M j · g:ia');
+                        ?>
+                        <div style="margin-bottom:8px;">
+                            <div style="font-size:12px;font-weight:600;color:<?= $isCoach ? 'var(--accent-mid)' : 'var(--text-primary)' ?>;">
+                                <?= h($who) ?><span style="font-weight:400;color:var(--text-muted);font-size:11px;"> · <?= h($when) ?></span>
+                            </div>
+                            <div style="font-size:13px;color:var(--text-secondary);white-space:pre-line;"><?= nl2br(h((string)$n['body'])) ?></div>
+                        </div>
+                        <?php endforeach; ?>
+                        <?php endif; ?>
+
+                        <form method="POST" action="/app/coach/athlete/<?= $athleteId ?>/session-note" style="margin-top:8px;">
+                            <?= Auth::csrfField() ?>
+                            <input type="hidden" name="completed_workout_id" value="<?= (int)$r['id'] ?>">
+                            <input type="hidden" name="return_to" value="/app/coach/athlete/<?= $athleteId ?>/log">
+                            <textarea name="body" class="form-textarea" rows="2" maxlength="1000" required
+                                      placeholder="Comment on this off-plan run…" style="font-size:13px;"></textarea>
+                            <button type="submit" class="btn btn-primary btn-sm" style="margin-top:6px;">Post comment</button>
+                        </form>
                     </div>
                 </details>
                 <?php endif; ?>
