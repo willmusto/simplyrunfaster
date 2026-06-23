@@ -39,24 +39,13 @@ include __DIR__ . '/../../views/layout/html_open.php';
         </div>
         <?php endif; ?>
 
-        <div class="form-group">
-            <label class="form-label" for="current_weekly_minutes">
-                How many minutes per week are you running right now?
-            </label>
-            <input type="number" id="current_weekly_minutes" name="current_weekly_minutes"
-                   class="form-input" placeholder="e.g. 180" min="0" max="1200" required
-                   value="<?= h($d['current_weekly_minutes'] ?? '') ?>">
-            <div class="form-hint">Include all running, including warm-ups and cool-downs.</div>
-        </div>
-
-        <div class="form-group">
-            <label class="form-label" for="longest_recent_run_mins">
-                What's the longest run you've done in the last 30 days (minutes)?
-            </label>
-            <input type="number" id="longest_recent_run_mins" name="longest_recent_run_mins"
-                   class="form-input" placeholder="e.g. 75" min="0" max="600" required
-                   value="<?= h($d['longest_recent_run_mins'] ?? '') ?>">
-        </div>
+        <?php
+        // Dual-path weekly-volume + longest-run inputs (both derive the canonical
+        // minutes columns). Units are chosen later (step 6), so distance entry here
+        // assumes miles; the "by time" method is unit-free.
+        $p = $d; $unitLabel = 'mi';
+        include __DIR__ . '/../partials/fitness_inputs.php';
+        ?>
 
         <div class="form-group">
             <label class="form-label" for="months_at_current_volume">

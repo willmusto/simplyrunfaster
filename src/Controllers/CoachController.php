@@ -559,6 +559,16 @@ class CoachController
 
         $new = ProfileForm::sanitize($_POST, true);
 
+        // Engine-critical completeness + cross-field sanity (Stage A3/A4). Errors block
+        // the save; soft warnings ride along with the success flash. plan_type isn't
+        // editable here, so the goal-distance requirement keys on the stored plan_type.
+        $check = ProfileForm::validateSubmission($new, $old['plan_type'] ?? null);
+        if (!empty($check['errors'])) {
+            $_SESSION['flash_error'] = implode(' ', $check['errors']);
+            header('Location: /app/coach/athlete/' . $athleteId . '/edit');
+            exit;
+        }
+
         ProfileForm::save($athleteId, $old, $new, [
             'actor_role'   => 'coach',
             'athlete_name' => $athlete['name'],
@@ -603,7 +613,8 @@ class CoachController
             Notifications::notifyFlag($athleteId, 'info', $msg);
         }
 
-        $_SESSION['flash_success'] = 'Training profile updated.';
+        $_SESSION['flash_success'] = 'Training profile updated.'
+            . (!empty($check['warnings']) ? ' Note: ' . implode(' ', $check['warnings']) : '');
         header('Location: /app/coach/athlete/' . $athleteId . '/edit');
         exit;
     }
@@ -620,6 +631,31 @@ class CoachController
         $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
         if (!$athlete) {
             header('Location: /app/coach/athletes');
+            exit;
+        }
+
+        // Stage B — generation completeness gate (warn-and-allow). The safety net for
+        // athletes who never completed full onboarding (coach-created): if any engine-
+        // critical field is missing, surface exactly what's absent and the default the
+        // engine will substitute, then bounce back WITHOUT generating. A second click
+        // (ack_missing=1, set by the warning banner's form) proceeds anyway.
+        $profile  = Auth::getAthleteProfile($athleteId) ?? [];
+        $missing  = ProfileForm::missingCritical($profile, $profile['plan_type'] ?? null);
+        if ($missing && empty($_POST['ack_missing'])) {
+            $defaults = [
+                'current_weekly_minutes'  => 'start from a minimal default volume',
+                'training_days_per_week'  => 'assume 4 running days/week',
+                'longest_recent_run_mins' => 'estimate the long run (~60 min)',
+                'goal_race_distance'      => 'assume a 5K goal',
+            ];
+            $names = implode(', ', array_values($missing));
+            $acts  = implode('; ', array_map(fn($c) => $defaults[$c] ?? 'use a default', array_keys($missing)));
+            $_SESSION['generate_warning'] = [
+                'athlete_id' => $athleteId,
+                'message'    => "Missing for an accurate plan: {$names}. If you generate now the engine will {$acts}. "
+                              . 'Set these in Edit Profile for an accurate plan, or generate anyway.',
+            ];
+            header('Location: /app/coach/athlete/' . $athleteId);
             exit;
         }
 

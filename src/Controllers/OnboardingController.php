@@ -111,6 +111,14 @@ class OnboardingController
         $_SESSION['onboarding_data']['ultra_surface'] =
             in_array($distance, $ultraDistances, true) ? $ultraSurface : null;
 
+        // A race cycle needs a goal distance (thresholds, phase shape, and pace bands all
+        // key on it); without one the engine would silently default to 5K. Required on the
+        // race path only — development / maintenance / return-to-running don't use it.
+        if ($planType === 'race_cycle' && empty($distance)) {
+            $_SESSION['flash_error'] = 'Please choose your goal race distance to continue.';
+            Auth::redirect('/app/onboarding/1');
+        }
+
         // A race cycle is structurally undefined without a goal race date (phase lengths,
         // taper, and total weeks all derive from it), so it is required before advancing —
         // mirroring the client-side check and the PlanGenerator guard. Other plan types
@@ -132,12 +140,25 @@ class OnboardingController
 
     private static function saveStep2(int $step): void
     {
-        $weekly = (int)($_POST['current_weekly_minutes'] ?? 0);
-        $longest = (int)($_POST['longest_recent_run_mins'] ?? 0);
+        // Dual-path inputs: derive the canonical minutes from whichever entry method
+        // (time or distance + pace) the athlete used. These remain the source of truth.
+        $weekly  = ProfileForm::deriveWeeklyMinutes($_POST);
+        $longest = ProfileForm::deriveLongestRunMinutes($_POST);
         $months  = (int)($_POST['months_at_current_volume'] ?? 0);
 
-        if ($weekly < 1 || $longest < 1 || $months < 0) {
-            $_SESSION['flash_error'] = 'Please fill in your current training volume.';
+        // Preserve whatever derived so the form repopulates on a validation redirect.
+        if ($weekly !== null)  $_SESSION['onboarding_data']['current_weekly_minutes']  = $weekly;
+        if ($longest !== null) $_SESSION['onboarding_data']['longest_recent_run_mins'] = $longest;
+
+        if (!$weekly || !$longest || $months < 0) {
+            $_SESSION['flash_error'] = 'Please enter your weekly running volume and your longest recent run.';
+            Auth::redirect('/app/onboarding/2');
+        }
+
+        // Hard sanity block: a single run cannot exceed the whole week's running.
+        $sanity = ProfileForm::sanityIssues($weekly, $longest, null);
+        if ($sanity['hard']) {
+            $_SESSION['flash_error'] = $sanity['hard'];
             Auth::redirect('/app/onboarding/2');
         }
 

@@ -940,15 +940,31 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 </button>
             </form>
             <?php else: ?>
+            <?php
+            // Stage B warning: set by generatePlan when engine-critical fields are missing.
+            // Shown once; the form below then carries ack_missing=1 so "Generate anyway" proceeds.
+            $genWarn = (!empty($_SESSION['generate_warning'])
+                && (int)($_SESSION['generate_warning']['athlete_id'] ?? 0) === (int)$athlete['id'])
+                ? $_SESSION['generate_warning'] : null;
+            if ($genWarn) unset($_SESSION['generate_warning']);
+            ?>
+            <?php if ($genWarn): ?>
+            <div class="card" style="margin-bottom:12px;border:1px solid var(--color-warning,#e0a800);">
+                <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Incomplete profile data</div>
+                <p class="body-text" style="margin:0 0 8px;font-size:13px;"><?= h($genWarn['message']) ?></p>
+                <a href="/app/coach/athlete/<?= (int)$athlete['id'] ?>/edit" class="btn btn-secondary btn-sm">Set these in Edit Profile →</a>
+            </div>
+            <?php endif; ?>
             <form method="POST" action="/app/coach/athlete/<?= (int)$athlete['id'] ?>/generate-plan"
                   onsubmit="return confirm('Generate a new plan for <?= h(addslashes($athlete['name'])) ?>? Any pending plan in the queue will be replaced.');">
                 <?= Auth::csrfField() ?>
+                <?php if ($genWarn): ?><input type="hidden" name="ack_missing" value="1"><?php endif; ?>
                 <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.35;">
                     <input type="checkbox" name="full_wipe" value="1" style="margin-top:2px;flex-shrink:0;">
                     <span>Regenerate entire plan including days that have been exposed to the athlete.</span>
                 </label>
                 <button type="submit" class="btn btn-primary btn-full">
-                    Generate Plan
+                    <?= $genWarn ? 'Generate anyway' : 'Generate Plan' ?>
                 </button>
             </form>
             <?php endif; ?>

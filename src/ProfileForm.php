@@ -76,6 +76,14 @@ class ProfileForm
         foreach (self::fields($coach) as $col => $def) {
             $out[$col] = self::sanitizeField($col, $def, $post);
         }
+        // Dual-path entry: derive the canonical volume / longest-run minutes from
+        // whichever method the form used (time or distance+pace). Derivation falls
+        // back to a directly-posted value, so a payload without method fields is
+        // unchanged. Only override when a usable value was derived.
+        $w = self::deriveWeeklyMinutes($post);
+        if ($w !== null) $out['current_weekly_minutes'] = $w;
+        $l = self::deriveLongestRunMinutes($post);
+        if ($l !== null) $out['longest_recent_run_mins'] = $l;
         // scheduling_preference is NOT NULL with a default; never store null.
         if (array_key_exists('scheduling_preference', $out) && $out['scheduling_preference'] === null) {
             $out['scheduling_preference'] = 'flex';
@@ -115,6 +123,137 @@ class ProfileForm
                 $v = trim((string)($raw ?? ''));
                 return $v === '' ? null : $v;
         }
+    }
+
+    // ── Dual-path derivation (volume + longest run) ──────────────────────
+    //
+    // current_weekly_minutes and longest_recent_run_mins remain the single source
+    // of truth. The forms offer two ENTRY methods that both DERIVE these — never a
+    // second stored field. The arithmetic is unit-agnostic: distance × pace(sec per
+    // unit) / 60 = minutes, so mi/km only affect the labels, not the math.
+
+    /**
+     * Derive weekly running minutes from a posted payload.
+     *   method 'distance' → weekly_distance × pace(weekly_pace, sec/unit) / 60
+     *   method 'time'     → weekly_time_hours×60 + weekly_time_minutes
+     * Falls back to a directly-posted current_weekly_minutes (backward compat /
+     * programmatic callers). Returns null when nothing usable was provided.
+     */
+    public static function deriveWeeklyMinutes(array $post): ?int
+    {
+        if (($post['weekly_volume_method'] ?? 'time') === 'distance') {
+            $dist = (float)($post['weekly_distance'] ?? 0);
+            $pace = self::parsePace((string)($post['weekly_pace'] ?? ''));
+            if ($dist > 0 && $pace) return max(0, (int)round($dist * $pace / 60));
+            return null;
+        }
+        $total = (int)($post['weekly_time_hours'] ?? 0) * 60 + (int)($post['weekly_time_minutes'] ?? 0);
+        if ($total <= 0 && isset($post['current_weekly_minutes']) && $post['current_weekly_minutes'] !== '') {
+            $total = max(0, (int)$post['current_weekly_minutes']);
+        }
+        return $total > 0 ? $total : null;
+    }
+
+    /**
+     * Derive longest-run minutes from a posted payload.
+     *   method 'distance' → longest_distance × pace(longest_pace, sec/unit) / 60
+     *   method 'time'     → longest_time_minutes
+     * Falls back to a directly-posted longest_recent_run_mins. Null when unusable.
+     */
+    public static function deriveLongestRunMinutes(array $post): ?int
+    {
+        if (($post['longest_method'] ?? 'time') === 'distance') {
+            $dist = (float)($post['longest_distance'] ?? 0);
+            $pace = self::parsePace((string)($post['longest_pace'] ?? ''));
+            if ($dist > 0 && $pace) return max(0, (int)round($dist * $pace / 60));
+            return null;
+        }
+        $m = (int)($post['longest_time_minutes'] ?? 0);
+        if ($m <= 0 && isset($post['longest_recent_run_mins']) && $post['longest_recent_run_mins'] !== '') {
+            $m = max(0, (int)$post['longest_recent_run_mins']);
+        }
+        return $m > 0 ? $m : null;
+    }
+
+    // ── Engine-critical completeness + cross-field sanity ────────────────
+
+    /** Engine-critical fields (col => label) that a plan needs to generate accurately. */
+    public const ENGINE_CRITICAL = [
+        'current_weekly_minutes' => 'Weekly volume',
+        'training_days_per_week' => 'Training days per week',
+        'longest_recent_run_mins' => 'Longest recent run',
+    ];
+
+    /**
+     * Which engine-critical fields are missing/blank in $values (a sanitized payload
+     * OR an athlete_profiles row). goal_race_distance is required only on the race-goal
+     * path (plan_type='race_cycle'); N/A for development / maintenance / return-to-running.
+     * Returns [col => label] for each missing field (empty array = complete).
+     */
+    public static function missingCritical(array $values, ?string $planType): array
+    {
+        $missing = [];
+        foreach (self::ENGINE_CRITICAL as $col => $label) {
+            $v = $values[$col] ?? null;
+            if ($v === null || $v === '' || (int)$v <= 0) $missing[$col] = $label;
+        }
+        if (($planType ?? '') === 'race_cycle') {
+            $g = $values['goal_race_distance'] ?? null;
+            if ($g === null || $g === '') $missing['goal_race_distance'] = 'Goal race distance';
+        }
+        return $missing;
+    }
+
+    /**
+     * Cross-field sanity on the derived numbers.
+     *   HARD (impossible): a single run can't exceed total weekly volume.
+     *   SOFT (implausible, non-blocking): combinations that usually mean a mistake —
+     *     high weekly volume with a tiny longest run (the Bekah contradiction), a
+     *     longest run shorter than the average run, or low volume with a long single run.
+     * Returns ['hard' => ?string, 'soft' => string[]].
+     */
+    public static function sanityIssues(?int $weekly, ?int $longest, ?int $days): array
+    {
+        $weekly = (int)$weekly; $longest = (int)$longest; $days = (int)$days;
+        $hard = null; $soft = [];
+
+        if ($weekly > 0 && $longest > 0 && $longest > $weekly) {
+            return ['hard' => "Longest run ({$longest} min) can't be longer than your whole week's running "
+                . "({$weekly} min). Please re-check these.", 'soft' => []];
+        }
+        if ($weekly >= 150 && $longest > 0 && $longest <= 25) {
+            $soft[] = 'High weekly volume with a very short longest run — double-check these numbers.';
+        }
+        if ($days > 0 && $longest > 0 && $longest < ($weekly / $days) * 0.5) {
+            $soft[] = 'Longest run is shorter than your average run — double-check these numbers.';
+        }
+        if ($weekly > 0 && $weekly <= 60 && $longest >= 50) {
+            $soft[] = 'Low weekly volume but a long single run — double-check these numbers.';
+        }
+        return ['hard' => $hard, 'soft' => $soft];
+    }
+
+    /**
+     * Validate a sanitized profile submission toward plan generation.
+     * Returns ['errors' => string[], 'warnings' => string[]]. Errors block the save
+     * (missing engine-critical fields, or an impossible longest>weekly combo); warnings
+     * are non-blocking ("double-check") soft sanity notes shown alongside a successful save.
+     */
+    public static function validateSubmission(array $values, ?string $planType): array
+    {
+        $errors  = [];
+        $missing = self::missingCritical($values, $planType);
+        if ($missing) {
+            $errors[] = 'Please complete: ' . implode(', ', array_values($missing)) . '.';
+        }
+        $s = self::sanityIssues(
+            $values['current_weekly_minutes']  ?? null,
+            $values['longest_recent_run_mins'] ?? null,
+            $values['training_days_per_week']  ?? null
+        );
+        if ($s['hard']) $errors[] = $s['hard'];
+
+        return ['errors' => $errors, 'warnings' => $s['soft']];
     }
 
     /** Parse a "mm:ss" (or bare seconds) pace string into seconds per mile. */

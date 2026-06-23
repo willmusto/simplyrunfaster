@@ -1029,6 +1029,15 @@ class AthleteController
 
         $new = ProfileForm::sanitize($_POST, false);
 
+        // Engine-critical completeness + cross-field sanity (Stage A3/A4). Errors block
+        // the save; soft warnings ride along with the success flash.
+        $check = ProfileForm::validateSubmission($new, $old['plan_type'] ?? null);
+        if (!empty($check['errors'])) {
+            $_SESSION['flash_error'] = implode(' ', $check['errors']);
+            header('Location: /app/settings/training');
+            exit;
+        }
+
         ProfileForm::save($athleteId, $old, $new, [
             'actor_role'   => 'athlete',
             'athlete_name' => $athlete['name'],
@@ -1043,7 +1052,8 @@ class AthleteController
               WHERE athlete_id = ?'
         )->execute([$isHyrox, $isHyrox, $athleteId]);
 
-        $_SESSION['flash_success'] = 'Training profile saved.';
+        $_SESSION['flash_success'] = 'Training profile saved.'
+            . (!empty($check['warnings']) ? ' Note: ' . implode(' ', $check['warnings']) : '');
         header('Location: /app/settings/training');
         exit;
     }

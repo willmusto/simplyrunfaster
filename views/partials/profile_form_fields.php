@@ -91,13 +91,9 @@ $hasRace    = !empty($p['most_recent_race_time']);
 <!-- CURRENT FITNESS -->
 <div class="section-label">CURRENT FITNESS</div>
 <div class="card" style="margin-bottom:16px;">
+    <?php include __DIR__ . '/fitness_inputs.php'; ?>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <div class="form-group">
-            <label class="form-label" for="current_weekly_minutes">Weekly volume (minutes)</label>
-            <input type="number" id="current_weekly_minutes" name="current_weekly_minutes" class="form-input"
-                   min="0" max="1200" placeholder="e.g. 180" value="<?= h($p['current_weekly_minutes'] ?? '') ?>">
-        </div>
-        <div class="form-group">
+        <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" for="peak_weekly_minutes">Highest-ever weekly volume (minutes)</label>
             <input type="number" id="peak_weekly_minutes" name="peak_weekly_minutes" class="form-input"
                    min="0" max="2000" placeholder="e.g. 300" value="<?= h($p['peak_weekly_minutes'] ?? '') ?>">
@@ -107,19 +103,10 @@ $hasRace    = !empty($p['most_recent_race_time']);
             <input type="number" id="years_running" name="years_running" class="form-input"
                    min="0" max="80" step="0.5" placeholder="e.g. 4" value="<?= h($p['years_running'] ?? '') ?>">
         </div>
-        <div class="form-group" style="margin-bottom:0;">
+        <div class="form-group" style="margin-bottom:0;margin-top:12px;">
             <label class="form-label" for="months_at_current_volume">Months at current volume</label>
             <input type="number" id="months_at_current_volume" name="months_at_current_volume" class="form-input"
                    min="0" max="600" placeholder="e.g. 3" value="<?= h($p['months_at_current_volume'] ?? '') ?>">
-        </div>
-        <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="longest_recent_run_mins">Longest recent run (minutes)</label>
-            <input type="number" id="longest_recent_run_mins" name="longest_recent_run_mins" class="form-input"
-                   min="0" max="1440" placeholder="e.g. 60" value="<?= h($p['longest_recent_run_mins'] ?? '') ?>">
-            <p class="body-text" style="margin:6px 0 0;font-size:12px;color:var(--text-muted);">
-                Longest continuous run in the last few weeks. Used to gauge base fitness; leaving it blank
-                no longer lowers the athlete's classification.
-            </p>
         </div>
     </div>
 </div>
