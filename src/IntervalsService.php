@@ -949,7 +949,10 @@ class IntervalsService
         try {
             $athleteId = self::athleteIdForUser($userId, $db);
             $headers   = self::getHeaders($userId, $db);
-            if ($athleteId === null || $headers === null) return false;
+            if ($athleteId === null || $headers === null) {
+                error_log("IntervalsService::pullActivity — no athlete/headers for user {$userId}, activity {$activityId}");
+                return false;
+            }
 
             [$status, $body] = self::http('GET', self::API_BASE . '/athlete/0/activities/' . rawurlencode($activityId), $headers, null);
             if ($status < 200 || $status >= 300) {
@@ -957,9 +960,16 @@ class IntervalsService
                 return false;
             }
 
+            // GET /athlete/0/activities/{id} returns a single-element list ([{...}]); unwrap
+            // it (handle a bare object too, in case the API ever returns either shape).
             $a = json_decode($body, true) ?: [];
+            if (isset($a[0]) && is_array($a[0])) {
+                $a = $a[0];
+            }
             if (strcasecmp((string)($a['type'] ?? ''), 'Run') !== 0) {
-                return false; // skip non-runs silently
+                error_log("IntervalsService::pullActivity — skipped non-Run (type='"
+                    . (string)($a['type'] ?? '') . "') for activity {$activityId}");
+                return false; // skip non-runs
             }
 
             $localDate = substr((string)($a['start_date_local'] ?? ($a['local_date'] ?? '')), 0, 10);
