@@ -165,8 +165,21 @@ class OnboardingController
         $_SESSION['onboarding_data']['current_weekly_minutes']    = $weekly;
         $_SESSION['onboarding_data']['longest_recent_run_mins']   = $longest;
         $_SESSION['onboarding_data']['months_at_current_volume']  = $months;
-        $_SESSION['onboarding_data']['most_recent_race_distance'] = $_POST['recent_race_distance'] ?? null;
-        $_SESSION['onboarding_data']['most_recent_race_time']     = self::parseTimeToSeconds($_POST['recent_race_time'] ?? '');
+        $raceDistance = $_POST['recent_race_distance'] ?? null;
+        $raceTimeSecs = self::parseTimeToSeconds($_POST['recent_race_time'] ?? '');
+
+        // Reject an impossible race time (e.g. "4:02" parsed as 4m02s for a Marathon)
+        // before it's stored — otherwise it derives garbage pace zones ("0:08/mile").
+        // Only when both a projectable distance and a time were given.
+        if ($raceDistance && $raceTimeSecs !== null
+            && !PaceZones::isPlausibleRaceTime($raceDistance, $raceTimeSecs)) {
+            $_SESSION['flash_error'] = 'That race time looks off for the distance. '
+                . 'Enter it as H:MM:SS for longer races (e.g. 4:02:00 for a marathon), or M:SS for shorter ones.';
+            Auth::redirect('/app/onboarding/2');
+        }
+
+        $_SESSION['onboarding_data']['most_recent_race_distance'] = $raceDistance;
+        $_SESSION['onboarding_data']['most_recent_race_time']     = $raceTimeSecs;
         $_SESSION['onboarding_data']['most_recent_race_date']     = $_POST['recent_race_date'] ?? null;
 
         // Easy-pace fallback (only meaningful when no race result was given).

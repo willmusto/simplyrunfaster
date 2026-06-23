@@ -35,6 +35,37 @@ class PaceZones
     private const RIEGEL_EXP = 1.06;
 
     /**
+     * Plausible human race-pace bounds (seconds per mile), used to reject an
+     * impossible race time before projecting zones. 2:30/mile is faster than any
+     * human at any race distance (mile WR is ~3:43/mi, marathon WR ~4:34/mi);
+     * 22:00/mile is slower than any running/walking race finish (an ~9.5h marathon).
+     * A 242-second "marathon" (the bug that produced 0:08/mile zones) implies a
+     * ~9 sec/mile pace — far below the floor — and is rejected.
+     */
+    private const MIN_PLAUSIBLE_PACE_SECS = 150;
+    private const MAX_PLAUSIBLE_PACE_SECS = 1320;
+
+    /**
+     * True when a finish time is physically plausible for the distance (its implied
+     * pace falls within human race bounds). Used by fromRace() and by input
+     * validation (onboarding) so an impossible time never derives garbage zones.
+     * Returns true for distances we can't project (ultras) — there's no pace basis
+     * to judge them, and fromRace() already declines to derive zones for those.
+     */
+    public static function isPlausibleRaceTime(string $distance, int $timeSeconds): bool
+    {
+        $miles = self::distanceToMiles($distance);
+        if ($miles === null) {
+            return true; // unmapped distance — no pace basis to object on
+        }
+        if ($timeSeconds <= 0) {
+            return false;
+        }
+        $pace = $timeSeconds / $miles;
+        return $pace >= self::MIN_PLAUSIBLE_PACE_SECS && $pace <= self::MAX_PLAUSIBLE_PACE_SECS;
+    }
+
+    /**
      * Easy pace is treated as ~20% slower (in pace) than marathon pace.
      * Used to convert an entered easy pace into a marathon-pace projection
      * basis. Deliberately a single documented constant: this is the
@@ -68,6 +99,13 @@ class PaceZones
     {
         $refMiles = self::distanceToMiles($distance);
         if ($refMiles === null || $timeSeconds <= 0) {
+            return null;
+        }
+
+        // Reject physically impossible times (e.g. a 4-minute marathon) before
+        // projecting — otherwise garbage in → garbage zones (single-digit-second
+        // paces rendering as "0:08/mile"). Caller falls back to effort-only.
+        if (!self::isPlausibleRaceTime($distance, $timeSeconds)) {
             return null;
         }
 
