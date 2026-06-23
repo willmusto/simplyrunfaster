@@ -129,8 +129,9 @@ Populated by onboarding form(s). The engine reads this at plan generation time.
 | ultra_surface | ENUM | road, trail (nullable) — populated only for ultra goal distances (migration_018); drives trail-vs-road archetype weighting + long-run cues |
 | is_hyrox | BOOL | default false — Hyrox UI facade flag (migration_021); engine runs mile logic underneath, display shows "Hyrox" |
 | hyrox_ever | BOOL | default false — latches to 1 the first time Hyrox is ever selected and never resets (migration_023). Keeps the Hyrox goal-distance pill visible in Training Settings after the athlete switches away to another goal. |
-| current_weekly_mileage | FLOAT | self-reported at onboarding |
-| training_days_per_week | INT | availability |
+| current_weekly_minutes | INT | self-reported current weekly time-on-feet (minutes). Captured via the dual-path input (by time, or distance + average pace; `views/partials/fitness_inputs.php`, `ProfileForm::deriveWeeklyMinutes`). Base-classification axis + volume seed. Required on every generation-feeding path (§9a). |
+| longest_recent_run_mins | INT | self-reported longest continuous run in the last ~30 days (minutes). Same dual-path input (`ProfileForm::deriveLongestRunMinutes`). Base-classification axis + long-run seed. Required at onboarding/edit; a **blank** value is *excluded* from classification (engine spec §5), never scored as 0. |
+| training_days_per_week | INT | availability; base-classification axis (runs/week) |
 | long_run_day | TINYINT | preferred day of week (0=Sun); used when scheduling_preference='fixed' |
 | primary_workout_day | TINYINT | preferred primary quality day (0=Sun); used when scheduling_preference='fixed' |
 | must_off_days | LONGTEXT | JSON array of day-of-week ints (0=Sun) that can never be training days. Widened from VARCHAR(20) in migration_004. |
@@ -154,9 +155,10 @@ Populated by onboarding form(s). The engine reads this at plan generation time.
 | cross_training_elliptical | ENUM | none, gym, home |
 | cross_training_pool | BOOL | default false |
 | cross_training_other | TEXT | nullable — free text |
+| units | ENUM | miles, km (default miles) — per-athlete display + distance/pace entry units; respected by the dual-path fitness inputs |
 | updated_at | DATETIME | bumped on every profile save |
 
-> **Note:** `sql/schema.sql` is the canonical column list (this table is a high-level overview). `current_weekly_mileage` above is historical naming — the actual column is `current_weekly_minutes` (all volume is time-on-feet in minutes). `workout_day_preference` was specified but **never implemented** and does not exist in production; it is superseded by `long_run_day` + `primary_workout_day`. See §31 for the editing UI.
+> **Note:** `sql/schema.sql` is the canonical column list (this table is a high-level overview — not every column is listed here, e.g. `years_running`, `months_at_current_volume`, `most_recent_race_*`, `medical_clearance_*`). All volume is time-on-feet in **minutes** (the historical `current_weekly_mileage` naming is retired). `workout_day_preference` was specified but **never implemented** and does not exist in production; it is superseded by `long_run_day` + `primary_workout_day`. See §31 for the editing UI.
 
 ### `training_plans`
 One plan per athlete at a time. Previous plans are archived, not deleted.
@@ -269,6 +271,8 @@ The engine raises flags; coaches review and dismiss them.
 **Flag deduplication:** Before inserting any engine flag, the engine checks for an existing open flag of the same `flag_type` for the same athlete and skips the insert if one is found. This applies to all engine-raised flags at generation and evaluation time — a given flag type will appear at most once in the open state per athlete. **Exceptions (inserted without deduplication):**
 - **`display_generation_incomplete`** — each plan generation raises its own flag independently, because display completeness is plan-specific. See engine spec §18.8.
 - **`profile_updated`** — each profile save is a distinct event the coach should see individually; never merged into an existing open flag. See §31 (Profile Editing).
+
+**`plan_rebuild_needed` has three triggers** (all reuse this one type to avoid an ENUM migration): (1) the engine judges the current plan unrecoverable; (2) an athlete completes the return-to-running stage-10 progression (`details.reason = 'return_to_running_complete'`, info); and (3) the post-generation **consistency guard** — a non-RTR plan that mixes a stage-1 run/walk on-ramp with continuous runs > 45 min, signalling a likely misclassification from missing input (`details.reason = 'stage1_runwalk_with_long_continuous'`, warning). See engine spec §5.
 
 ### `plan_approval_queue`
 Holds generated plans pending coach review before activation.
@@ -647,7 +651,7 @@ Triggered on first login. Completion sets `onboarding_completed_at` and queues p
 1. **Goal** — target race, distance, date, time goal (time optional). **Goal race date is required when a race-cycle goal is selected** (inline client validation "Please enter your goal race date to continue." + server check in `saveStep1`); it stays optional for development / maintenance / return-to-running. This mirrors the engine's hard guard — `generateRaceCycle` refuses to build without `goal_race_date` and raises a critical `missing_goal_race_date` flag (engine spec §6). Distance pills are ordered shortest-first with Hyrox first when shown: Hyrox · Mile / 1500m · 5K · 10K · 15K · Half Marathon · Marathon · 50K · 50 Mile · 100K · 100 Mile (ultra labels drop the "Ultra" suffix). Selecting an ultra shows a required trail/road question (`ultra_surface`); selecting Hyrox stores `goal=mile` + `is_hyrox=1` (and latches `hyrox_ever=1`) and shows a functional-fitness supplement note on the next screen. In **Training Settings** the same pill set is used, and the Hyrox pill is shown only once the athlete has ever selected it (`is_hyrox=1 OR hyrox_ever=1`), so it persists after switching to another goal. See engine spec §9b/§9c.
 2. **Current fitness** — weekly running volume, longest recent run (both **required**), most recent race result (optional). Both volume and longest-run are captured via a **dual-path input** (`views/partials/fitness_inputs.php`, shared with Training Settings / coach Edit Profile): the athlete enters **either** time (hours+minutes / minutes) **or** distance + average pace (mm:ss per unit), and the form derives the canonical minutes column live ("≈ N min/week"). The derivation is unit-agnostic (`distance × pace_seconds_per_unit / 60`); only `current_weekly_minutes` and `longest_recent_run_mins` are stored — there is no second field that can disagree. Server-side derivation is authoritative (`ProfileForm::deriveWeeklyMinutes` / `deriveLongestRunMinutes`); the average pace captured for volume is **not** fed to pace-zone derivation (it includes quality, so it isn't easy pace). A cross-field sanity check **hard-blocks** the impossible case (longest run > weekly total) and **soft-warns** (non-blocking) on implausible combinations (`ProfileForm::sanityIssues`). See §9a.
 3. **Availability** — days per week, preferred long run day, any days unavailable
-4. **History** — years running, injury history, highest-ever weekly mileage
+4. **History** — years running, injury history, highest-ever weekly volume (`peak_weekly_minutes`, minutes)
 5. **Watch setup** — platform selection, OAuth connect (optional — clearly skippable, no friction if declined)
 6. **Preferences** — units (miles/km), notifications, dark/light mode, **plus three required consent checkboxes**: (a) "I am 18 years of age or older, or I have obtained parental or guardian consent…", (b) "I have read and agree to the [Privacy Policy](/app/privacy).", and (c) "I have read and agree to the [Terms of Service](/app/terms), including the assumption of risk and liability waiver in Section 5." (migration_020, 2026-06-17). All three must be checked; `OnboardingController::saveStep6()` validates them server-side (the client `required` attribute is convenience only) and refuses to finalize onboarding if any is missing. On success it records `consent_age = 1`, `consent_privacy = 1`, `consent_given_at = NOW()`, `consent_tos = 1`, `consent_tos_at = NOW()` on the `users` row. See §25.
 
@@ -1549,6 +1553,9 @@ Athletes and coaches can edit a training profile after onboarding. Implemented i
 - **Athlete — Training Settings** (`GET/POST /app/settings/training`, linked from the
   Settings tab). Single consolidated form: goal, current fitness, typical easy pace,
   availability (incl. must-off days + fixed/flex scheduling), history, cross-training.
+  The **current-fitness** section uses the shared dual-path inputs
+  (`views/partials/fitness_inputs.php`): weekly volume and longest run can each be entered
+  by time **or** distance + average pace, both deriving the canonical minutes columns (§9a).
 - **Coach — Edit Profile** (`GET/POST /app/coach/athlete/:id/edit`, button on the coach
   athlete view). All athlete fields **plus** coach-only controls: `peak_volume_ceiling_mins`,
   `pace_zones_visible` toggle, and `pace_zones_hidden_reason` (shown only when zones are
@@ -1556,6 +1563,13 @@ Athletes and coaches can edit a training profile after onboarding. Implemented i
   Manual / None).
 
 ### Save behavior
+- **Required engine-critical fields + sanity (Stage A3/A4, 2026-06-23).** Both entry points
+  run `ProfileForm::validateSubmission` before saving: the save is **blocked** when an
+  engine-critical field is missing (`current_weekly_minutes`, `training_days_per_week`,
+  `longest_recent_run_mins`; `goal_race_distance` only when the stored `plan_type` is
+  `race_cycle`) or when the numbers are impossible (longest run > weekly total). Implausible
+  but possible combinations (e.g. high volume + a tiny longest run) save with a non-blocking
+  "double-check" note appended to the success flash. See §9a.
 - Writes `athlete_profiles` and bumps `updated_at`. **Does NOT trigger plan regeneration** —
   values are simply available for the next plan generation/rebuild to read.
 - If the typical easy-pace range changed and current zones are empty or

@@ -167,18 +167,20 @@ Remainder always goes to base or build, never peak or taper.
 
 ## 5. Athlete Base Classification
 
-Classification is based on **combination of weekly mileage and length of running experience.** Both factors must meet the threshold — mileage alone or experience alone is insufficient.
+Classification is computed from the athlete's **current training-volume profile** — all time-on-feet, never mileage. Three axes are evaluated against per-distance thresholds: runs per week (`training_days_per_week`), weekly minutes (`current_weekly_minutes`), and longest recent run minutes (`longest_recent_run_mins`). Running experience (`years_running` / `months_at_current_volume`) is recorded at onboarding but is **not** an input to this classification.
 
 ### Classification Matrix
 
+Engine units, all three as **runs/wk · weekly-min · long-run-min**. Non-ultra distances:
+
 | Distance | Well Trained | Workable | Insufficient |
 |---|---|---|---|
-| 5K | 6+ months, 25+ mpw | 3+ months, 15+ mpw | Below workable |
-| 10K | 9+ months, 30+ mpw | 6+ months, 20+ mpw | Below workable |
-| Half Marathon | 12+ months, 35+ mpw | 9+ months, 25+ mpw | Below workable |
-| Marathon | 18+ months, 45+ mpw | 12+ months, 35+ mpw | Below workable |
+| 5K | 4 / 180 / 60 | 3 / 120 / 45 | Below workable |
+| 10K | 4 / 210 / 70 | 3 / 150 / 50 | Below workable |
+| Half Marathon | 5 / 270 / 90 | 4 / 180 / 60 | Below workable |
+| Marathon | 5 / 360 / 105 | 4 / 240 / 75 | Below workable |
 
-The engine evaluates classification on time-on-feet (runs/week + weekly minutes + long-run minutes, all met simultaneously), not mileage. Ultra thresholds (engine units):
+Ultra and mile thresholds (same engine units):
 
 | Distance | Well Trained (runs / wk-min / long-min) | Workable |
 |---|---|---|
@@ -188,26 +190,39 @@ The engine evaluates classification on time-on-feet (runs/week + weekly minutes 
 | 100K | 6 / 480 / 150 | 5 / 360 / 105 |
 | 100 Miler | 6 / 600 / 180 | 5 / 420 / 120 |
 
+### How the tiers are decided *(updated 2026-06-23)*
+
+`PlanGenerator::classifyAthlete` / `meetsTier` / `presentAxis`:
+
+- An athlete meets a tier when **every axis that has data clears that tier's threshold**. A **missing/blank axis is excluded** from the test, never scored as 0 — an unanswered optional input (e.g. a blank longest-run) can never demote an athlete below what their populated data supports.
+- The test is **anchored on weekly minutes**: with no volume signal at all, no tier above `insufficient` is asserted (the safe default for a data-less profile, and for a genuine beginner whose populated axes fall short).
+- **Sanity floor:** weekly minutes **and** training frequency both independently clearing `workable` can never read `insufficient`, whatever the long-run axis says (or doesn't) — this also lifts a high-volume athlete whose *present-but-low* long run would otherwise demote them.
+- Genuinely low **populated** volume/frequency still classifies low: the rule is specifically that **missing ≠ failing**; low-but-present still fails the threshold and stays `insufficient` (→ the run/walk on-ramp).
+
+> **Why.** This replaced an all-three-must-pass rule that read NULL as 0. A blank `longest_recent_run_mins` (an optional input often absent for coach-created athletes) was scored as a 0-minute long run, collapsing a 250-min/wk, 4-day, 15-year runner to `insufficient` and onto a stage-1 run/walk plan. Onboarding now also requires the long-run field, but the classifier no longer depends on it being present. See architecture §9a for the input-capture/completeness hardening.
+
 **Persistence.** The computed classification is cached on `athlete_profiles.base_classification` on every plan generation (`PlanGenerator::generate`), derived from the athlete's goal distance + current volume profile, so the coach UI and later regenerations read it without recomputing. (Previously it was computed transiently inside each generator and never written back, leaving the column NULL.) A profile edit followed by a regenerate refreshes it.
+
+**Consistency guard (post-generation).** After any non-`return_to_running` plan is built, if it contains **both** a stage-1 run/walk on-ramp (`run_walk_intervals`, 1 min run / 3 min walk) **and** continuous runs longer than 45 min, the base classification is almost certainly wrong (those don't fit one athlete — typically a missing input). Rather than ship the contradiction silently, the engine raises a coach-facing flag naming it and pointing at the likely-blank profile fields (`PlanGenerator::flagClassificationContradiction`). To avoid a `flag_type` ENUM migration it reuses the existing `plan_rebuild_needed` type at `warning` severity; `return_to_running` is skipped (stage-1 run/walk alongside a later continuous run is the intended progression there).
 
 ### Engine Response by Classification
 
+> **Approval flow is identical for every classification.** All generated plans enter the standard `plan_approval_queue` as `pending` and are invisible to the athlete until the coach approves — there is **no** separate "hold state" or "week-one-only" path for any tier. Classification changes the *plan content* (phase proportions, archetype eligibility) and which *flags* are raised, not the gating.
+
 **Well Trained**
-- Standard phase proportions (shifted toward build)
-- No flags raised at onboarding
-- Normal plan generation and approval flow
+- Phase proportions shifted toward build (base 20 / build 40 / peak 20 / taper 15).
+- Full archetype pool, including archetypes gated to `min_classification: well_trained`.
+- No classification flag.
 
 **Workable**
-- Standard phase proportions
-- Informational flag raised for coach awareness at onboarding call
-- Coach may adjust goal focus (completion vs. time) or proceed as-is
-- Early weeks are more conservative than athlete may expect
+- More conservative phase proportions (base 30 / build 30 / peak 20 / taper 15); early weeks are more conservative than the athlete may expect.
+- Archetype pool excludes the `well_trained`-only tier. No dedicated `workable` flag is raised (an earlier "informational flag at the onboarding call" was specified but never implemented).
 
 **Insufficient**
-- Plan generates but enters mandatory hold state (not standard approval queue)
-- Athlete sees week one only until onboarding call resolves
-- Coach decides: redirect to shorter distance, extend cycle, or proceed with heavily modified plan
-- Engine raises `insufficient_base` flag, severity: critical
+- Most conservative phase proportions (base 40 / build 25 / peak 20 / taper 15).
+- On the **race-cycle** path the engine raises `insufficient_base` (severity `critical`, "Coach decision required") so the coach can redirect to a shorter distance, extend the cycle, or proceed with a modified plan.
+- On a **development plan** the athlete enters the **run/walk on-ramp** — `run_walk_intervals` at stage 1 is the only archetype with `min_classification: insufficient`, so it fills the easy/quality slots (see §18.10 Beginner / Return-to-Running Archetypes). The post-generation **consistency guard** (above) catches the case where this on-ramp is mixed with long continuous runs, i.e. a likely misclassification.
+- An independent **3-day-per-week** athlete (any classification) additionally gets a `limited_development_opportunity` info flag.
 
 ---
 
