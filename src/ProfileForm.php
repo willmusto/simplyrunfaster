@@ -30,6 +30,7 @@ class ProfileForm
         'goal_race_date'            => ['label' => 'Goal race date',      'type' => 'date'],
         'goal_finish_time'          => ['label' => 'Goal finish time',    'type' => 'string'],
         'current_weekly_minutes'    => ['label' => 'Weekly volume',       'type' => 'minutes'],
+        'longest_recent_run_mins'   => ['label' => 'Longest recent run',  'type' => 'minutes'],
         'years_running'             => ['label' => 'Years running',       'type' => 'float'],
         'months_at_current_volume'  => ['label' => 'Months at volume',    'type' => 'int'],
         'peak_weekly_minutes'       => ['label' => 'Highest weekly volume','type' => 'minutes'],

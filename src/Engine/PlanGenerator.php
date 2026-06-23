@@ -834,6 +834,10 @@ class PlanGenerator
             if ($preserve !== null) {
                 self::applyPreservation($planId, $preserve, $db);
             }
+            // Consistency guard: catch a contradictory plan (gentlest run/walk on-ramp +
+            // continuous runs well past a beginner's reach) regardless of how the
+            // misclassification arose. Runs on the final, preserved-and-patched content.
+            self::flagClassificationContradiction($planId, $athleteId, $planType, $db);
             self::finalizeCoachingDecisions($planId, $db);
             self::createApprovalQueueEntry($planId, $athleteId, $trigger, $db);
         }
@@ -3899,6 +3903,61 @@ class PlanGenerator
         return $instructions === '' ? $clause : rtrim($instructions) . ' ' . $clause;
     }
 
+    /**
+     * Post-generation consistency guard. A coherent plan never combines the gentlest
+     * run/walk on-ramp (stage-1 run_walk_intervals: 1 min run / 3 min walk) with
+     * continuous runs well beyond a beginner's reach (> 45 min). When both appear in
+     * one plan the base classification is almost certainly wrong — typically a missing
+     * optional input (e.g. a blank longest_recent_run_mins) demoting a capable athlete
+     * onto the run/walk path. Raise a coach-facing flag rather than shipping the
+     * contradiction silently, so it is caught regardless of the underlying cause.
+     *
+     * Skips return_to_running, where stage-1 run/walk alongside a later continuous run
+     * is the intended progression. Reuses the existing 'plan_rebuild_needed' flag_type
+     * (a coach "review / rebuild this plan" signal) to avoid a flag_type ENUM migration;
+     * the message states the contradiction and its likely cause explicitly.
+     */
+    private static function flagClassificationContradiction(
+        int $planId, int $athleteId, string $planType, PDO $db
+    ): void {
+        if ($planType === 'return_to_running') return;
+
+        $s1 = $db->prepare(
+            "SELECT COUNT(*) FROM planned_workouts
+             WHERE plan_id = ? AND archetype_code = 'run_walk_intervals' AND archetype_variant = 'stage_1'"
+        );
+        $s1->execute([$planId]);
+        if ((int)$s1->fetchColumn() === 0) return;
+
+        // Continuous run (anything that is NOT a run/walk session) longer than 45 min.
+        $cont = $db->prepare(
+            "SELECT COUNT(*) FROM planned_workouts
+             WHERE plan_id = ? AND target_duration > 45
+               AND (archetype_code IS NULL OR archetype_code <> 'run_walk_intervals')"
+        );
+        $cont->execute([$planId]);
+        $longest = $db->prepare(
+            "SELECT MAX(target_duration) FROM planned_workouts
+             WHERE plan_id = ? AND (archetype_code IS NULL OR archetype_code <> 'run_walk_intervals')"
+        );
+        $longest->execute([$planId]);
+
+        if ((int)$cont->fetchColumn() === 0) return;
+        $maxMins = (int)$longest->fetchColumn();
+
+        self::raiseFlag(
+            $athleteId, 'plan_rebuild_needed', 'warning',
+            'Possible misclassification: this plan mixes a stage-1 run/walk on-ramp (1 min run / '
+            . '3 min walk) with continuous runs up to ' . self::durationLabel(max(1, $maxMins))
+            . ' — those do not fit the same athlete. The base classification is likely wrong, often '
+            . 'because an optional input is blank (check the athlete\'s longest recent run, weekly '
+            . 'minutes, and training days). Review before approving; correct the profile and regenerate '
+            . 'if the run/walk on-ramp is not appropriate.',
+            $db,
+            ['plan_id' => $planId, 'reason' => 'stage1_runwalk_with_long_continuous', 'longest_continuous_minutes' => $maxMins]
+        );
+    }
+
     private static function validateGeneratedDisplays(int $planId, int $athleteId, PDO $db): void
     {
         $stmt = $db->prepare(
@@ -4130,24 +4189,76 @@ class PlanGenerator
 
     // ── Classification & phase calculations ──────────────────────────────────
 
+    /**
+     * Base classification from the athlete's volume profile.
+     *
+     * CORE PRINCIPLE: a blank/optional input must never collapse an athlete to a worse
+     * classification than their populated data supports. Each axis (runs_per_week,
+     * weekly_minutes, long_run_minutes) is tested ONLY when it carries real data
+     * (non-null, > 0). A missing axis is EXCLUDED from the test, not scored as 0 —
+     * otherwise an unanswered "longest recent run" question pins an otherwise
+     * well-trained athlete to 'insufficient' and onto the run/walk on-ramp.
+     *
+     * A tier is met when every PRESENT axis clears that tier's threshold, anchored on
+     * weekly_minutes (we never promote above 'insufficient' with no volume signal at
+     * all). A sanity floor then guarantees that volume AND frequency both independently
+     * clearing 'workable' can never read 'insufficient', whatever the long-run axis says
+     * (or doesn't). Genuinely low *populated* volume/frequency still classifies low —
+     * the change is specifically that MISSING ≠ failing; low-but-present still fails.
+     */
     private static function classifyAthlete(array $profile, string $distance): string
     {
-        $runsPerWeek = (int)($profile['training_days_per_week'] ?? 0);
-        $weekly      = (int)($profile['current_weekly_minutes'] ?? 0);
-        $longRun     = (int)($profile['longest_recent_run_mins'] ?? 0);
-        $dist        = self::normalizeDistance($distance);
-
+        $dist       = self::normalizeDistance($distance);
         $thresholds = self::CLASSIFICATION[$dist] ?? self::CLASSIFICATION['5K'];
 
-        $wt = $thresholds['well_trained'];
-        if ($runsPerWeek >= $wt['runs_per_week'] && $weekly >= $wt['weekly_minutes'] && $longRun >= $wt['long_run_minutes']) {
-            return 'well_trained';
-        }
+        $axes = [
+            'runs_per_week'    => self::presentAxis($profile['training_days_per_week']  ?? null),
+            'weekly_minutes'   => self::presentAxis($profile['current_weekly_minutes']  ?? null),
+            'long_run_minutes' => self::presentAxis($profile['longest_recent_run_mins'] ?? null),
+        ];
+
+        if (self::meetsTier($axes, $thresholds['well_trained'])) return 'well_trained';
+        if (self::meetsTier($axes, $thresholds['workable']))     return 'workable';
+
+        // Sanity floor: volume AND frequency both independently clearing 'workable'
+        // cannot be 'insufficient' — this catches the case where a present-but-low
+        // long-run axis would otherwise demote a high-volume, frequent runner.
         $wb = $thresholds['workable'];
-        if ($runsPerWeek >= $wb['runs_per_week'] && $weekly >= $wb['weekly_minutes'] && $longRun >= $wb['long_run_minutes']) {
+        if ($axes['weekly_minutes'] !== null && $axes['runs_per_week'] !== null
+            && $axes['weekly_minutes'] >= $wb['weekly_minutes']
+            && $axes['runs_per_week']  >= $wb['runs_per_week']) {
             return 'workable';
         }
+
         return 'insufficient';
+    }
+
+    /**
+     * Normalize a classification axis: real data (non-null, > 0) → int; blank/zero → null
+     * (an unanswered optional field is absent, not a value of zero).
+     */
+    private static function presentAxis(mixed $raw): ?int
+    {
+        if ($raw === null || $raw === '') return null;
+        $v = (int)$raw;
+        return $v > 0 ? $v : null;
+    }
+
+    /**
+     * Whether the athlete meets a classification tier. Missing axes are excluded; every
+     * PRESENT axis must clear its threshold. Anchored on weekly_minutes: with no volume
+     * signal at all we never assert a tier above 'insufficient' (the safe default for a
+     * data-less profile, and for a genuine beginner whose populated axes fall short).
+     */
+    private static function meetsTier(array $axes, array $threshold): bool
+    {
+        if ($axes['weekly_minutes'] === null) return false;
+
+        foreach ($axes as $name => $value) {
+            if ($value === null) continue;                       // missing axis excluded
+            if ($value < (int)($threshold[$name] ?? 0)) return false; // present axis must clear the bar
+        }
+        return true;
     }
 
     private static function calculatePhases(int $totalWeeks, array $props): array

@@ -112,6 +112,15 @@ $hasRace    = !empty($p['most_recent_race_time']);
             <input type="number" id="months_at_current_volume" name="months_at_current_volume" class="form-input"
                    min="0" max="600" placeholder="e.g. 3" value="<?= h($p['months_at_current_volume'] ?? '') ?>">
         </div>
+        <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="longest_recent_run_mins">Longest recent run (minutes)</label>
+            <input type="number" id="longest_recent_run_mins" name="longest_recent_run_mins" class="form-input"
+                   min="0" max="1440" placeholder="e.g. 60" value="<?= h($p['longest_recent_run_mins'] ?? '') ?>">
+            <p class="body-text" style="margin:6px 0 0;font-size:12px;color:var(--text-muted);">
+                Longest continuous run in the last few weeks. Used to gauge base fitness; leaving it blank
+                no longer lowers the athlete's classification.
+            </p>
+        </div>
     </div>
 </div>
 
