@@ -4148,7 +4148,9 @@ class PlanGenerator
     private static function buildConstraints(array $profile): array
     {
         $hillAccess = !empty($profile['hill_access']) && $profile['hill_access'] !== 'none';
-        $trackBg    = ($profile['track_field_background'] ?? '') === 'yes';
+        // track_field_background is a tinyint(1); read it as a boolean (it was compared to
+        // the string 'yes', so it never matched and the gate was permanently off).
+        $trackBg    = !empty($profile['track_field_background']);
 
         return [
             'track_access'                        => $trackBg ? 'yes' : 'no',

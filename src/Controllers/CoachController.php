@@ -565,8 +565,9 @@ class CoachController
         $new = ProfileForm::sanitize($_POST, true);
 
         // Engine-critical completeness + cross-field sanity (Stage A3/A4). Errors block
-        // the save; soft warnings ride along with the success flash. plan_type isn't
-        // editable here, so the goal-distance requirement keys on the stored plan_type.
+        // the save; soft warnings ride along with the success flash. plan_type is now
+        // editable on the form, so validateSubmission keys the goal-distance requirement
+        // on the submitted plan_type (falling back to the stored one).
         $check = ProfileForm::validateSubmission($new, $old['plan_type'] ?? null);
         if (!empty($check['errors'])) {
             $_SESSION['flash_error'] = implode(' ', $check['errors']);

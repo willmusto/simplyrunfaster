@@ -25,6 +25,9 @@ class ProfileForm
      * type drives both sanitising and diff formatting.
      */
     private const ATHLETE_FIELDS = [
+        // recovery_block is engine-managed (not a coach choice) but kept in the whitelist
+        // so an athlete already on it is never silently nulled by a save.
+        'plan_type'                 => ['label' => 'Plan type', 'type' => 'enum', 'options' => ['race_cycle','development_plan','maintenance_plan','return_to_running','recovery_block']],
         'goal_race_distance'        => ['label' => 'Goal race distance',  'type' => 'enum',  'options' => ['5K','10K','15K','Half Marathon','Marathon','mile','50k','50_miler','100k','100_miler']],
         'ultra_surface'             => ['label' => 'Ultra surface',        'type' => 'enum',  'options' => ['trail','road']],
         'goal_race_date'            => ['label' => 'Goal race date',      'type' => 'date'],
@@ -47,6 +50,21 @@ class ProfileForm
         'cross_training_other'      => ['label' => 'Other cross-training','type' => 'text'],
         'typical_easy_pace_min'     => ['label' => 'Typical easy pace (fast end)', 'type' => 'pace'],
         'typical_easy_pace_max'     => ['label' => 'Typical easy pace (slow end)', 'type' => 'pace'],
+        // Most recent race (drives race_result pace zones). Time stored as canonical
+        // SECONDS via the 'race_time' type (hh:mm:ss / mm:ss), never a raw-seconds field.
+        'most_recent_race_distance' => ['label' => 'Most recent race distance', 'type' => 'enum', 'options' => self::RACE_DISTANCES],
+        'most_recent_race_time'     => ['label' => 'Most recent race time', 'type' => 'race_time'],
+        'most_recent_race_date'     => ['label' => 'Most recent race date', 'type' => 'date'],
+        // Equipment & clearances — engine gates (ArchetypeSelector/PlanGenerator) that
+        // were previously settable nowhere and stuck at their schema defaults.
+        'hill_access'               => ['label' => 'Hill access', 'type' => 'bool'],
+        'track_field_background'    => ['label' => 'Track/field background', 'type' => 'bool'],
+        'plyometric_clearance'      => ['label' => 'Plyometric clearance', 'type' => 'bool'],
+        // Return-to-running only (shown when plan_type = return_to_running). Persisted
+        // only when the RTR section is present (see sanitize()); medical_clearance_at is
+        // a derived timestamp set as a side-effect in save().
+        'medical_clearance_confirmed' => ['label' => 'Medical clearance confirmed', 'type' => 'bool'],
+        'return_time_off_band'      => ['label' => 'Time off before returning', 'type' => 'enum', 'options' => ['1_2_weeks','2_6_weeks','6_16_weeks','4_12_months','12_plus_months']],
     ];
 
     /** Coach-only fields — recorded in the diff details, never surfaced in the athlete-facing message. */
@@ -93,6 +111,12 @@ class ProfileForm
             $out['long_run_day']       = null;
             $out['primary_workout_day'] = null;
         }
+        // RTR-only fields apply only to return-to-running plans. For any other plan type
+        // leave those columns untouched — an unchecked checkbox on a hidden section must
+        // not zero a stored value, and they're meaningless off the RTR path.
+        if (($post['plan_type'] ?? '') !== 'return_to_running') {
+            unset($out['medical_clearance_confirmed'], $out['return_time_off_band']);
+        }
         return $out;
     }
 
@@ -115,6 +139,8 @@ class ProfileForm
                 return ($raw === null || $raw === '') ? null : max(0, min(6, (int)$raw));
             case 'pace':
                 return self::parsePace((string)($raw ?? ''));
+            case 'race_time':
+                return self::parseRaceTime((string)($raw ?? ''));
             case 'days':
                 return self::normalizeDays($raw);
             case 'string':
@@ -242,6 +268,9 @@ class ProfileForm
     public static function validateSubmission(array $values, ?string $planType): array
     {
         $errors  = [];
+        // plan_type is now editable on the form; a submitted value drives the
+        // goal-distance requirement (falls back to the caller's stored plan_type).
+        $planType = $values['plan_type'] ?? $planType;
         $missing = self::missingCritical($values, $planType);
         if ($missing) {
             $errors[] = 'Please complete: ' . implode(', ', array_values($missing)) . '.';
@@ -252,6 +281,15 @@ class ProfileForm
             $values['training_days_per_week']  ?? null
         );
         if ($s['hard']) $errors[] = $s['hard'];
+
+        // Race-time plausibility — the SAME rule the onboarding door and fromRace()
+        // use, so the coach/athlete form can't introduce a time onboarding would reject.
+        $rDist = $values['most_recent_race_distance'] ?? null;
+        $rTime = $values['most_recent_race_time'] ?? null; // canonical seconds
+        if ($rDist && $rTime && !PaceZones::isPlausibleRaceTime((string)$rDist, (int)$rTime)) {
+            $errors[] = 'That race time looks off for the distance. Enter it as H:MM:SS for longer '
+                . 'races (e.g. 4:02:00 for a marathon), or M:SS for shorter ones.';
+        }
 
         return ['errors' => $errors, 'warnings' => $s['soft']];
     }
@@ -274,6 +312,35 @@ class ProfileForm
     public static function formatPaceSecs(?int $secs): string
     {
         if (!$secs) return '';
+        return sprintf('%d:%02d', intdiv($secs, 60), $secs % 60);
+    }
+
+    /**
+     * Parse a finish time "h:mm:ss" / "mm:ss" / bare seconds into total seconds.
+     * The single canonical race-time parser — shared by onboarding and the profile
+     * form so both doors interpret a time identically (never a raw-seconds field).
+     */
+    public static function parseRaceTime(string $time): ?int
+    {
+        $time = trim($time);
+        if ($time === '') return null;
+        if (!preg_match('/^\d{1,2}(:\d{1,2}){0,2}$/', $time)) return null;
+        $parts = array_map('intval', explode(':', $time));
+        return match (count($parts)) {
+            3 => $parts[0] * 3600 + $parts[1] * 60 + $parts[2],
+            2 => $parts[0] * 60 + $parts[1],
+            1 => $parts[0],
+            default => null,
+        };
+    }
+
+    /** Format total seconds as "h:mm:ss" (>=1h) or "m:ss"; empty for null/0. Echoes a stored race time back to the form. */
+    public static function formatRaceTime(?int $secs): string
+    {
+        if (!$secs || $secs <= 0) return '';
+        if ($secs >= 3600) {
+            return sprintf('%d:%02d:%02d', intdiv($secs, 3600), intdiv($secs % 3600, 60), $secs % 60);
+        }
         return sprintf('%d:%02d', intdiv($secs, 60), $secs % 60);
     }
 
@@ -316,6 +383,20 @@ class ProfileForm
         // Re-derive pace zones from easy pace when the easy range changed and
         // we are not clobbering verified ('race_result') or 'manual' zones.
         self::maybeDeriveZones($old, $new, $updates);
+        // A changed (valid) race result re-derives verified race_result zones — takes
+        // precedence over the easy-pace estimate. Same fromRace() path / plausibility floor.
+        self::maybeDeriveRaceZones($old, $new, $updates);
+        // medical_clearance_at is a derived timestamp: stamp it when clearance flips on,
+        // clear it when off — mirroring onboarding. Only when the RTR field was submitted.
+        if (array_key_exists('medical_clearance_confirmed', $new)) {
+            $confirmed    = (int)$new['medical_clearance_confirmed'] === 1;
+            $wasConfirmed = (int)($old['medical_clearance_confirmed'] ?? 0) === 1;
+            if ($confirmed && !$wasConfirmed) {
+                $updates['medical_clearance_at'] = date('Y-m-d H:i:s');
+            } elseif (!$confirmed) {
+                $updates['medical_clearance_at'] = null;
+            }
+        }
 
         // Always touch updated_at.
         $cols   = array_keys($updates);
@@ -364,6 +445,35 @@ class ProfileForm
         if ($zones) {
             $updates['pace_zones']        = json_encode($zones);
             $updates['pace_zones_source'] = 'easy_pace_estimate';
+        }
+    }
+
+    /**
+     * Re-derive verified race_result zones when the most-recent-race result changed
+     * to a valid (projectable, plausible) value. Mirrors onboarding/RaceController:
+     * zones are DERIVED via PaceZones::fromRace — never hand-written — and the
+     * plausibility floor means an impossible time produces no zones (no garbage).
+     */
+    private static function maybeDeriveRaceZones(array $old, array $new, array &$updates): void
+    {
+        if (!array_key_exists('most_recent_race_time', $new)) {
+            return; // race fields not on this form scope — nothing to do
+        }
+        $dist = $new['most_recent_race_distance'] ?? ($old['most_recent_race_distance'] ?? null);
+        $time = $new['most_recent_race_time'] ?? null; // canonical seconds
+        if (!$dist || !$time) {
+            return;
+        }
+        // Only act on an actual change to the result.
+        $oldDist = $old['most_recent_race_distance'] ?? null;
+        $oldTime = isset($old['most_recent_race_time']) ? (int)$old['most_recent_race_time'] : null;
+        if ((string)$dist === (string)$oldDist && (int)$time === (int)$oldTime) {
+            return;
+        }
+        $zones = PaceZones::fromRace((string)$dist, (int)$time);
+        if ($zones) {
+            $updates['pace_zones']        = json_encode($zones);
+            $updates['pace_zones_source'] = 'race_result';
         }
     }
 
@@ -432,6 +542,8 @@ class ProfileForm
                 return self::DAYS[(int)$val] ?? '—';
             case 'pace':
                 return self::formatPaceSecs((int)$val) . ' /mi';
+            case 'race_time':
+                return self::formatRaceTime((int)$val);
             case 'days':
                 $arr = json_decode(self::normalizeDays($val), true) ?: [];
                 if (!$arr) return 'None';
@@ -451,6 +563,16 @@ class ProfileForm
             'flex'         => 'Flexible',
             'fixed'        => 'Fixed days',
             'none'         => 'None',
+            'race_cycle'        => 'Race cycle',
+            'development_plan'  => 'Development',
+            'maintenance_plan'  => 'Maintenance',
+            'return_to_running' => 'Return to running',
+            'recovery_block'    => 'Recovery block',
+            '1_2_weeks'    => '1–2 weeks',
+            '2_6_weeks'    => '2–6 weeks',
+            '6_16_weeks'   => '6–16 weeks',
+            '4_12_months'  => '4–12 months',
+            '12_plus_months' => '12+ months',
             default        => ucfirst(str_replace('_', ' ', $v)),
         };
     }

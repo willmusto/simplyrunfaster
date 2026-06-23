@@ -17,6 +17,27 @@ $hasRace    = !empty($p['most_recent_race_time']);
 <div class="section-label">GOAL</div>
 <div class="card" style="margin-bottom:16px;">
     <div class="form-group">
+        <label class="form-label" for="plan_type">Plan type</label>
+        <?php
+        $planOpts = [
+            'race_cycle'        => 'Race cycle',
+            'development_plan'  => 'Development',
+            'maintenance_plan'  => 'Maintenance',
+            'return_to_running' => 'Return to running',
+        ];
+        $curPlan = $p['plan_type'] ?? '';
+        // recovery_block is engine-managed; surface it only if the athlete is on it,
+        // so opening the form never silently changes it.
+        if ($curPlan === 'recovery_block') $planOpts['recovery_block'] = 'Recovery block (engine-managed)';
+        ?>
+        <select id="plan_type" name="plan_type" class="form-select" data-plan-type>
+            <?php foreach ($planOpts as $val => $label): ?>
+            <option value="<?= h($val) ?>" <?= $curPlan === $val ? 'selected' : '' ?>><?= h($label) ?></option>
+            <?php endforeach; ?>
+        </select>
+        <div class="form-hint">Takes effect on the next plan generation — does not rebuild the active plan.</div>
+    </div>
+    <div class="form-group">
         <label class="form-label">Goal race distance</label>
         <?php
         // Goal-distance pills, shortest-first. Hyrox is a UI facade over the mile
@@ -88,6 +109,31 @@ $hasRace    = !empty($p['most_recent_race_time']);
     </div>
 </div>
 
+<!-- RETURN TO RUNNING (only meaningful for return_to_running plans) -->
+<?php $isRtr = ($p['plan_type'] ?? '') === 'return_to_running'; ?>
+<div class="section-label" data-rtr-block <?= $isRtr ? '' : 'style="display:none;"' ?>>RETURN TO RUNNING</div>
+<div class="card" data-rtr-block style="margin-bottom:16px;<?= $isRtr ? '' : 'display:none;' ?>">
+    <div class="form-group">
+        <label class="toggle-wrap" style="cursor:pointer;">
+            <span>Medical clearance to return confirmed</span>
+            <div class="toggle">
+                <input type="checkbox" name="medical_clearance_confirmed" value="1" <?= !empty($p['medical_clearance_confirmed']) ? 'checked' : '' ?>>
+                <span class="toggle-slider"></span>
+            </div>
+        </label>
+    </div>
+    <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label" for="return_time_off_band">Time off before returning</label>
+        <?php $rtrBands = ['1_2_weeks'=>'1–2 weeks','2_6_weeks'=>'2–6 weeks','6_16_weeks'=>'6–16 weeks','4_12_months'=>'4–12 months','12_plus_months'=>'12+ months']; ?>
+        <select id="return_time_off_band" name="return_time_off_band" class="form-select">
+            <option value="">—</option>
+            <?php foreach ($rtrBands as $val => $label): ?>
+            <option value="<?= h($val) ?>" <?= ($p['return_time_off_band'] ?? '') === $val ? 'selected' : '' ?>><?= h($label) ?></option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+</div>
+
 <!-- CURRENT FITNESS -->
 <div class="section-label">CURRENT FITNESS</div>
 <div class="card" style="margin-bottom:16px;">
@@ -134,6 +180,38 @@ $hasRace    = !empty($p['most_recent_race_time']);
             <input type="text" id="typical_easy_pace_max" name="typical_easy_pace_max" class="form-input"
                    placeholder="e.g. 10:00"
                    value="<?= h(ProfileForm::formatPaceSecs(isset($p['typical_easy_pace_max']) ? (int)$p['typical_easy_pace_max'] : null)) ?>">
+        </div>
+    </div>
+</div>
+
+<!-- MOST RECENT RACE -->
+<div class="section-label">MOST RECENT RACE</div>
+<div class="card" style="margin-bottom:16px;">
+    <p class="body-text" style="margin:0 0 12px;font-size:13px;color:var(--text-muted);">
+        A recent race or time trial. A valid result derives <strong>verified</strong> pace zones (overrides the
+        easy-pace estimate). Enter the finish time as H:MM:SS (or M:SS for short races).
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+        <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="most_recent_race_distance">Distance</label>
+            <select id="most_recent_race_distance" name="most_recent_race_distance" class="form-select">
+                <option value="">—</option>
+                <?php foreach (ProfileForm::RACE_DISTANCES as $rd): ?>
+                <option value="<?= h($rd) ?>" <?= ($p['most_recent_race_distance'] ?? '') === $rd ? 'selected' : '' ?>><?= h($rd) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="most_recent_race_time">Finish time</label>
+            <input type="text" id="most_recent_race_time" name="most_recent_race_time" class="form-input"
+                   placeholder="e.g. 4:02:00"
+                   value="<?= h(ProfileForm::formatRaceTime(isset($p['most_recent_race_time']) ? (int)$p['most_recent_race_time'] : null)) ?>">
+            <div class="form-hint">H:MM:SS or M:SS</div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="most_recent_race_date">Date</label>
+            <input type="date" id="most_recent_race_date" name="most_recent_race_date" class="form-input"
+                   value="<?= h($p['most_recent_race_date'] ?? '') ?>">
         </div>
     </div>
 </div>
@@ -225,9 +303,43 @@ $hasRace    = !empty($p['most_recent_race_time']);
     </div>
 </div>
 
-<!-- CROSS-TRAINING -->
-<div class="section-label">CROSS-TRAINING EQUIPMENT</div>
+<!-- EQUIPMENT & CLEARANCES -->
+<div class="section-label">EQUIPMENT &amp; CLEARANCES</div>
 <div class="card" style="margin-bottom:16px;">
+    <?php /* Engine gates (ArchetypeSelector/PlanGenerator). hill_access defaults ON. */ ?>
+    <div class="form-group">
+        <label class="toggle-wrap" style="cursor:pointer;">
+            <span>Hill access</span>
+            <div class="toggle">
+                <input type="checkbox" name="hill_access" value="1"
+                       <?= (!isset($p['hill_access']) || (int)$p['hill_access'] === 1) ? 'checked' : '' ?>>
+                <span class="toggle-slider"></span>
+            </div>
+        </label>
+        <div class="form-hint" style="margin-top:6px;">Has hilly terrain — gates hill-repeat and hill-circuit workouts. Turn off for flatland athletes.</div>
+    </div>
+    <div class="form-group">
+        <label class="toggle-wrap" style="cursor:pointer;">
+            <span>Track / field athletics background</span>
+            <div class="toggle">
+                <input type="checkbox" name="track_field_background" value="1"
+                       <?= !empty($p['track_field_background']) ? 'checked' : '' ?>>
+                <span class="toggle-slider"></span>
+            </div>
+        </label>
+    </div>
+    <div class="form-group">
+        <label class="toggle-wrap" style="cursor:pointer;">
+            <span>Plyometric clearance</span>
+            <div class="toggle">
+                <input type="checkbox" name="plyometric_clearance" value="1"
+                       <?= !empty($p['plyometric_clearance']) ? 'checked' : '' ?>>
+                <span class="toggle-slider"></span>
+            </div>
+        </label>
+        <div class="form-hint" style="margin-top:6px;">Cleared for bounding / plyometric work — required before any plyometric archetype can be prescribed.</div>
+    </div>
+    <div class="divider"></div>
     <div class="form-group">
         <label class="form-label">Bike</label>
         <div class="pill-choices">
@@ -305,5 +417,15 @@ $hasRace    = !empty($p['most_recent_race_time']);
     }
     distRadios.forEach(function (r) { r.addEventListener('change', updateSurface); });
     updateSurface();
+
+    // Show the Return-to-running block only when plan type is return_to_running.
+    var planSel   = document.querySelector('[data-plan-type]');
+    var rtrBlocks = document.querySelectorAll('[data-rtr-block]');
+    function updateRtr() {
+        var on = !!planSel && planSel.value === 'return_to_running';
+        rtrBlocks.forEach(function (el) { el.style.display = on ? '' : 'none'; });
+    }
+    if (planSel) planSel.addEventListener('change', updateRtr);
+    updateRtr();
 })();
 </script>

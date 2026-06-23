@@ -553,13 +553,8 @@ class OnboardingController
 
     private static function parseTimeToSeconds(string $time): ?int
     {
-        if (!$time) return null;
-        $parts = array_map('intval', explode(':', $time));
-        return match(count($parts)) {
-            3 => $parts[0] * 3600 + $parts[1] * 60 + $parts[2],
-            2 => $parts[0] * 60  + $parts[1],
-            1 => $parts[0],
-            default => null,
-        };
+        // Delegate to the shared canonical parser so onboarding and the profile form
+        // interpret a race time identically (one rule set, both entry doors).
+        return ProfileForm::parseRaceTime($time);
     }
 }
