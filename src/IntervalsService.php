@@ -1343,4 +1343,55 @@ class IntervalsService
         curl_close($ch);
         return [$status, (string)$resp];
     }
+
+    /**
+     * Best-effort remote token revocation for account deletion (privacy / GDPR).
+     *
+     * Attempts to disconnect the athlete's authorization at Intervals.icu so the token
+     * stops working upstream. This is a COURTESY on top of the guaranteed local removal:
+     * the caller (account-deletion cron) deletes the local intervals_connections row
+     * regardless of what this returns, so a deleted account never retains a usable token
+     * even if Intervals.icu is unreachable.
+     *
+     * Contract: NEVER throws, NEVER blocks deletion. Returns false (and logs) when the
+     * integration is unconfigured, the test trap is set, there is no connection, the
+     * token can't be decrypted, no revoke endpoint is reachable (incl. 404 "no endpoint"),
+     * the call errors, or it was already revoked. Returns true only on a 2xx response.
+     *
+     * NOTE: Intervals.icu does not document a public OAuth revoke endpoint; this issues a
+     * best-effort DELETE of the per-user authorization and treats anything other than a
+     * 2xx as a logged no-op. Confirm/adjust the endpoint against Intervals.icu docs if/when
+     * one is published — the local deletion is what actually protects the credential today.
+     */
+    public static function revokeToken(int $userId, PDO $db): bool
+    {
+        // Explicit test trap: a verify script can `define('INTERVALS_DISABLE_REVOKE', true)`
+        // before loading config to guarantee no outbound call, while still exercising the
+        // "revoke failed → local token still removed" path without hitting a live endpoint.
+        if (defined('INTERVALS_DISABLE_REVOKE') && INTERVALS_DISABLE_REVOKE) {
+            error_log("IntervalsService::revokeToken — disabled by INTERVALS_DISABLE_REVOKE (user {$userId})");
+            return false;
+        }
+        if (!self::isConfigured()) {
+            error_log("IntervalsService::revokeToken — integration not configured; local token still removed (user {$userId})");
+            return false;
+        }
+        try {
+            if (!self::connectionForUser($userId, $db)) return false;
+            $headers = self::getHeaders($userId, $db);
+            if ($headers === null) return false;
+
+            // Best-effort DELETE of the OAuth authorization. Any non-2xx (incl. 404 = no
+            // such endpoint) or transport error is caught/logged and treated as a no-op.
+            [$status, $body] = self::http('DELETE', self::API_BASE . '/oauth/deauthorize', $headers, null);
+            if ($status >= 200 && $status < 300) {
+                return true;
+            }
+            error_log("IntervalsService::revokeToken — revoke returned HTTP {$status} (user {$userId}); removing local token only");
+            return false;
+        } catch (\Throwable $e) {
+            error_log("IntervalsService::revokeToken — {$e->getMessage()} (user {$userId}); removing local token only");
+            return false;
+        }
+    }
 }

@@ -1380,8 +1380,18 @@ class PlanGenerator
         // and surface a critical flag so the coach fixes the profile, rather than
         // silently producing a broken or mis-typed plan.
         if (!$raceDate) {
-            self::raiseFlag($athleteId, 'missing_goal_race_date', 'critical',
-                "Cannot generate a race cycle plan without a goal race date. Please update the athlete's profile.", $db);
+            // No goal race date → a race cycle is structurally impossible (phases, taper, and
+            // total weeks are all derived from it). Reuse the valid 'plan_rebuild_needed'
+            // flag_type (a coach "fix the profile and regenerate" signal) rather than a
+            // dedicated 'missing_goal_race_date' type: the latter is NOT an engine_flags ENUM
+            // member, so on MyISAM it is silently coerced to '' and the critical flag vanishes
+            // (same class of bug as the unmatched_activity flag, migration 032). The message
+            // stays specific so the coach sees exactly why generation refused; details.reason
+            // tags the cause for analytics/backfill even though flag_type is the reused value.
+            self::raiseFlag($athleteId, 'plan_rebuild_needed', 'critical',
+                "Cannot generate a race cycle plan without a goal race date. Please add the athlete's "
+                . "goal race date to their profile, then regenerate the plan.",
+                $db, ['reason' => 'missing_goal_race_date']);
             return null;
         }
 

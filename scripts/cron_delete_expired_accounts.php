@@ -30,9 +30,27 @@ date_default_timezone_set('UTC');
 
 require_once SCRIPT_ROOT . '/config/config.php';
 require_once SCRIPT_ROOT . '/config/database.php';
+// For best-effort Intervals.icu token revocation on deletion (optional — guarded by
+// class_exists below so the cron still runs if these files are ever absent).
+if (is_file(SCRIPT_ROOT . '/src/Crypto.php'))          require_once SCRIPT_ROOT . '/src/Crypto.php';
+if (is_file(SCRIPT_ROOT . '/src/IntervalsService.php')) require_once SCRIPT_ROOT . '/src/IntervalsService.php';
 
 $dryRun = in_array('--dry-run', $argv ?? [], true);
 $db     = Database::get();
+
+/** True when $table exists in the current database. Cached per process. */
+$hasTable = (function () use ($db): callable {
+    $cache = [];
+    return function (string $table) use ($db, &$cache): bool {
+        if (array_key_exists($table, $cache)) return $cache[$table];
+        $stmt = $db->prepare(
+            'SELECT COUNT(*) FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?'
+        );
+        $stmt->execute([$table]);
+        return $cache[$table] = ((int)$stmt->fetchColumn() > 0);
+    };
+})();
 
 $mode = $dryRun ? 'DRY RUN (no changes)' : 'LIVE';
 echo date('Y-m-d H:i:s') . " — account retention cron starting [{$mode}]\n";
@@ -72,6 +90,7 @@ $stmtA = $db->query(
     "SELECT u.id, u.role, u.subscription_status, u.subscription_end_date
      FROM users u
      WHERE u.role = 'athlete'
+       AND u.deleted_at IS NULL
        AND u.subscription_status = 'canceled'
        AND u.subscription_end_date IS NOT NULL
        AND u.subscription_end_date < (NOW() - INTERVAL 90 DAY)"
@@ -87,6 +106,7 @@ $stmtB = $db->query(
      FROM users u
      LEFT JOIN athletes a ON a.user_id = u.id
      WHERE u.role = 'athlete'
+       AND u.deleted_at IS NULL
        AND u.subscription_status = 'none'
        AND u.created_at < (NOW() - INTERVAL 90 DAY)
        AND a.onboarding_completed_at IS NULL"
@@ -107,22 +127,51 @@ if (!$candidates) {
 echo 'Found ' . count($candidates) . " candidate account(s).\n";
 
 // ── Process each candidate ───────────────────────────────────
-// Athlete-scoped tables keyed by athlete_id, in the spec-defined order.
+// EVERY table that stores athlete- or user-scoped personal data MUST appear in one of
+// the lists below (or the Intervals teardown). A deleted account must leave NO residual
+// PII and NO live third-party credentials. When a migration adds a new user/athlete-
+// scoped table, add it here too — the verify script (verify_account_deletion.php)
+// asserts the sweep leaves zero residual rows in every scoped table.
+//
+// Athlete-scoped tables keyed by athlete_id.
 $athleteTables = [
     'messages',
     'session_notes',
+    'scheduled_messages',
     'completed_workouts',
     'planned_workouts',
-    'athlete_profiles',
+    'training_load',
     'engine_flags',
+    'coaching_intelligence_flags',
+    'coach_adjustments',
+    'athlete_behavior_log',
+    'athlete_response_profiles',
+    'plan_approval_queue',
+    'plan_regeneration_requests',
+    'coach_assignments',
+    'races',
+    'personal_bests',
+    'watch_connections',
+    'athlete_profiles',
     'training_plans',
 ];
-// User-scoped tables keyed by user_id.
+// User-scoped tables keyed by user_id. intervals_connections holds the encrypted OAuth
+// token — deleting the row removes the stored credential locally.
 $userTables = [
     'notification_preferences',
     'device_notify_preferences',
     'push_subscriptions',
+    'phone_verifications',
+    'password_reset_tokens',
+    'intervals_connections',
 ];
+
+// Intentionally RETAINED (not swept): account_deletions (the deletion audit record),
+// stripe_webhook_log (billing audit keyed by Stripe ids — same rationale as anonymizing
+// rather than hard-deleting `users`), and invite_links (coach-owned; a used invite's
+// `used_by` is a historical id, not athlete PII). The Intervals append-only logs
+// (intervals_push_log keyed by planned_workout_id, intervals_webhook_log keyed by the
+// Intervals athlete string) are purged in the dedicated teardown below.
 
 $deleted = 0;
 $skipped = 0;
@@ -155,6 +204,16 @@ foreach ($candidates as $userId => $info) {
     $athleteId = $athStmt->fetchColumn();
     $athleteId = $athleteId !== false ? (int)$athleteId : null;
 
+    // The Intervals athlete id (string) keys the webhook log; capture it before the
+    // connection row is deleted so the raw activity payloads can be purged too.
+    $intervalsAthleteId = null;
+    if ($hasTable('intervals_connections')) {
+        $ic = $db->prepare('SELECT intervals_athlete_id FROM intervals_connections WHERE user_id = ? LIMIT 1');
+        $ic->execute([$userId]);
+        $v = $ic->fetchColumn();
+        $intervalsAthleteId = ($v !== false && $v !== '') ? (string)$v : null;
+    }
+
     echo "  - user {$userId} (athlete " . ($athleteId ?? 'none') . "), status '{$status}', reason {$reason}:\n";
 
     if ($dryRun) {
@@ -162,14 +221,31 @@ foreach ($candidates as $userId => $info) {
         $total = 0;
         if ($athleteId !== null) {
             foreach ($athleteTables as $t) {
+                if (!$hasTable($t)) continue;
                 $c = (int)$db->query("SELECT COUNT(*) FROM `{$t}` WHERE athlete_id = {$athleteId}")->fetchColumn();
                 if ($c > 0) echo "      {$t}: {$c}\n";
                 $total += $c;
             }
+            if ($hasTable('intervals_push_log')) {
+                $c = (int)$db->query(
+                    "SELECT COUNT(*) FROM intervals_push_log
+                     WHERE planned_workout_id IN (SELECT id FROM planned_workouts WHERE athlete_id = {$athleteId})"
+                )->fetchColumn();
+                if ($c > 0) echo "      intervals_push_log: {$c}\n";
+                $total += $c;
+            }
         }
         foreach ($userTables as $t) {
+            if (!$hasTable($t)) continue;
             $c = (int)$db->query("SELECT COUNT(*) FROM `{$t}` WHERE user_id = {$userId}")->fetchColumn();
             if ($c > 0) echo "      {$t}: {$c}\n";
+            $total += $c;
+        }
+        if ($intervalsAthleteId !== null && $hasTable('intervals_webhook_log')) {
+            $q = $db->prepare('SELECT COUNT(*) FROM intervals_webhook_log WHERE athlete_id = ?');
+            $q->execute([$intervalsAthleteId]);
+            $c = (int)$q->fetchColumn();
+            if ($c > 0) echo "      intervals_webhook_log: {$c}\n";
             $total += $c;
         }
         echo "      would delete {$total} child row(s), anonymize user {$userId}, log reason '{$reason}'\n";
@@ -177,27 +253,70 @@ foreach ($candidates as $userId => $info) {
         continue;
     }
 
-    // ── Live deletion, atomic per user ───────────────────────
+    // ── Live deletion ────────────────────────────────────────
+    // Production is MyISAM, which is NON-TRANSACTIONAL: beginTransaction/commit would be
+    // a silent no-op, so we do NOT use them. Instead every step is idempotent and the
+    // sweep is ORDERED to be safe to re-run — child rows are deleted by id (a re-run
+    // deletes nothing more) and `users.deleted_at` is set LAST. Because the candidate
+    // SELECTs exclude `deleted_at IS NOT NULL`, a run that fails partway leaves the
+    // account un-anonymized and it is simply reprocessed (and completed) next run. No
+    // rollback and no partial-state cleanup are relied upon.
     try {
-        $db->beginTransaction();
-
-        if ($athleteId !== null) {
-            foreach ($athleteTables as $t) {
-                $s = $db->prepare("DELETE FROM `{$t}` WHERE athlete_id = ?");
-                $s->execute([$athleteId]);
+        // 0. Best-effort remote token revocation at Intervals.icu (courtesy disconnect).
+        //    NON-BLOCKING: any failure (network, no endpoint, already revoked, unconfigured)
+        //    is caught/logged and never stops the deletion. The LOCAL token is removed
+        //    unconditionally in step 3 regardless of the outcome here.
+        if ($intervalsAthleteId !== null && class_exists('IntervalsService')) {
+            try {
+                $revoked = IntervalsService::revokeToken($userId, $db);
+                echo '      intervals token revoke: ' . ($revoked ? 'ok' : 'not confirmed (local token still removed)') . "\n";
+            } catch (\Throwable $e) {
+                echo "      intervals token revoke: error (local token still removed)\n";
+                error_log("cron_delete_expired_accounts: revoke user {$userId}: " . $e->getMessage());
             }
         }
-        foreach ($userTables as $t) {
-            $s = $db->prepare("DELETE FROM `{$t}` WHERE user_id = ?");
-            $s->execute([$userId]);
+
+        // 1. Intervals append-only logs FIRST: intervals_push_log keys off
+        //    planned_workout_id (which still exists at this point); intervals_webhook_log
+        //    keys off the captured Intervals athlete string.
+        if ($athleteId !== null && $hasTable('intervals_push_log')) {
+            $db->prepare(
+                "DELETE FROM intervals_push_log
+                 WHERE planned_workout_id IN (SELECT id FROM planned_workouts WHERE athlete_id = ?)"
+            )->execute([$athleteId]);
+        }
+        if ($intervalsAthleteId !== null && $hasTable('intervals_webhook_log')) {
+            $db->prepare('DELETE FROM intervals_webhook_log WHERE athlete_id = ?')->execute([$intervalsAthleteId]);
         }
 
-        // Remove the athletes row itself.
+        // 2. All simple athlete_id-scoped child rows.
+        if ($athleteId !== null) {
+            foreach ($athleteTables as $t) {
+                if (!$hasTable($t)) continue;
+                $db->prepare("DELETE FROM `{$t}` WHERE athlete_id = ?")->execute([$athleteId]);
+            }
+        }
+        // 3. All simple user_id-scoped child rows (incl. intervals_connections = local token).
+        foreach ($userTables as $t) {
+            if (!$hasTable($t)) continue;
+            $db->prepare("DELETE FROM `{$t}` WHERE user_id = ?")->execute([$userId]);
+        }
+
+        // 4. Remove the athletes row itself.
         $db->prepare('DELETE FROM athletes WHERE user_id = ?')->execute([$userId]);
 
-        // Anonymize (not hard-delete) the users row to preserve billing history.
-        // NOTE: `users` has no push_subscription column (push data lives in the
-        // push_subscriptions table, deleted above), so it is not referenced here.
+        // 5. Audit log — guarded so a resumed run does not insert a duplicate record.
+        $already = $db->prepare('SELECT 1 FROM account_deletions WHERE user_id = ? LIMIT 1');
+        $already->execute([$userId]);
+        if (!$already->fetchColumn()) {
+            $db->prepare(
+                'INSERT INTO account_deletions (user_id, deleted_at, reason) VALUES (?, NOW(), ?)'
+            )->execute([$userId, $reason]);
+        }
+
+        // 6. Anonymize (not hard-delete) the users row LAST — preserves billing history and
+        //    sets deleted_at, the idempotency marker that prevents reprocessing. `users`
+        //    has no push column (push data is in push_subscriptions, deleted above).
         $db->prepare(
             "UPDATE users
                 SET email              = CONCAT('deleted_', id, '@deleted.invalid'),
@@ -209,19 +328,12 @@ foreach ($candidates as $userId => $info) {
               WHERE id = ?"
         )->execute([$userId]);
 
-        // Audit log.
-        $db->prepare(
-            'INSERT INTO account_deletions (user_id, deleted_at, reason) VALUES (?, NOW(), ?)'
-        )->execute([$userId, $reason]);
-
-        $db->commit();
         echo "      deleted + anonymized.\n";
         $deleted++;
     } catch (Throwable $e) {
-        if ($db->inTransaction()) {
-            $db->rollBack();
-        }
-        echo "      ERROR: " . $e->getMessage() . " — left untouched.\n";
+        // No rollback (MyISAM): the account is left un-anonymized and will be reprocessed
+        // and completed on the next run. The sweep is idempotent, so that is safe.
+        echo "      ERROR: " . $e->getMessage() . " — partial; will be completed on the next run.\n";
         error_log("cron_delete_expired_accounts: user {$userId} failed: " . $e->getMessage());
         $skipped++;
     }
