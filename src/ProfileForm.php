@@ -25,9 +25,6 @@ class ProfileForm
      * type drives both sanitising and diff formatting.
      */
     private const ATHLETE_FIELDS = [
-        // recovery_block is engine-managed (not a coach choice) but kept in the whitelist
-        // so an athlete already on it is never silently nulled by a save.
-        'plan_type'                 => ['label' => 'Plan type', 'type' => 'enum', 'options' => ['race_cycle','development_plan','maintenance_plan','return_to_running','recovery_block']],
         'goal_race_distance'        => ['label' => 'Goal race distance',  'type' => 'enum',  'options' => ['5K','10K','15K','Half Marathon','Marathon','mile','50k','50_miler','100k','100_miler']],
         'ultra_surface'             => ['label' => 'Ultra surface',        'type' => 'enum',  'options' => ['trail','road']],
         'goal_race_date'            => ['label' => 'Goal race date',      'type' => 'date'],
@@ -55,11 +52,10 @@ class ProfileForm
         'most_recent_race_distance' => ['label' => 'Most recent race distance', 'type' => 'enum', 'options' => self::RACE_DISTANCES],
         'most_recent_race_time'     => ['label' => 'Most recent race time', 'type' => 'race_time'],
         'most_recent_race_date'     => ['label' => 'Most recent race date', 'type' => 'date'],
-        // Equipment & clearances — engine gates (ArchetypeSelector/PlanGenerator) that
-        // were previously settable nowhere and stuck at their schema defaults.
+        // Equipment self-report (engine gates). plyometric_clearance is coach-only (a
+        // safety/readiness gate) — see COACH_FIELDS.
         'hill_access'               => ['label' => 'Hill access', 'type' => 'bool'],
         'track_field_background'    => ['label' => 'Track/field background', 'type' => 'bool'],
-        'plyometric_clearance'      => ['label' => 'Plyometric clearance', 'type' => 'bool'],
         // Return-to-running only (shown when plan_type = return_to_running). Persisted
         // only when the RTR section is present (see sanitize()); medical_clearance_at is
         // a derived timestamp set as a side-effect in save().
@@ -69,7 +65,12 @@ class ProfileForm
 
     /** Coach-only fields — recorded in the diff details, never surfaced in the athlete-facing message. */
     private const COACH_FIELDS = [
+        // plan_type is a coaching decision, not athlete self-service. recovery_block is
+        // engine-managed but whitelisted so an athlete already on it is never nulled.
+        'plan_type'                 => ['label' => 'Plan type', 'type' => 'enum', 'options' => ['race_cycle','development_plan','maintenance_plan','return_to_running','recovery_block']],
         'peak_volume_ceiling_mins'  => ['label' => 'Peak volume ceiling', 'type' => 'minutes'],
+        // plyometric_clearance gates higher-injury-risk work — a coach readiness gate.
+        'plyometric_clearance'      => ['label' => 'Plyometric clearance', 'type' => 'bool'],
         'pace_zones_visible'        => ['label' => 'Pace zones visible',   'type' => 'bool'],
         'pace_zones_hidden_reason'  => ['label' => 'Pace zones hidden reason', 'type' => 'text'],
     ];
@@ -111,12 +112,8 @@ class ProfileForm
             $out['long_run_day']       = null;
             $out['primary_workout_day'] = null;
         }
-        // RTR-only fields apply only to return-to-running plans. For any other plan type
-        // leave those columns untouched — an unchecked checkbox on a hidden section must
-        // not zero a stored value, and they're meaningless off the RTR path.
-        if (($post['plan_type'] ?? '') !== 'return_to_running') {
-            unset($out['medical_clearance_confirmed'], $out['return_time_off_band']);
-        }
+        // RTR-only fields are gated in save() on the EFFECTIVE plan type (the athlete
+        // form no longer posts plan_type — it's coach-only — so we can't gate here).
         return $out;
     }
 
@@ -386,10 +383,19 @@ class ProfileForm
         // A changed (valid) race result re-derives verified race_result zones — takes
         // precedence over the easy-pace estimate. Same fromRace() path / plausibility floor.
         self::maybeDeriveRaceZones($old, $new, $updates);
+
+        // RTR-only fields apply only to return-to-running plans. Gate on the EFFECTIVE
+        // plan type — the coach's new value if they changed it, else the stored one (the
+        // athlete form doesn't post plan_type). Off the RTR path, leave those columns
+        // untouched (a hidden/absent checkbox must not zero a stored value).
+        $effectivePlan = $new['plan_type'] ?? ($old['plan_type'] ?? '');
+        if ($effectivePlan !== 'return_to_running') {
+            unset($updates['medical_clearance_confirmed'], $updates['return_time_off_band']);
+        }
         // medical_clearance_at is a derived timestamp: stamp it when clearance flips on,
-        // clear it when off — mirroring onboarding. Only when the RTR field was submitted.
-        if (array_key_exists('medical_clearance_confirmed', $new)) {
-            $confirmed    = (int)$new['medical_clearance_confirmed'] === 1;
+        // clear it when off — mirroring onboarding. Only when the field survived the gate.
+        if (array_key_exists('medical_clearance_confirmed', $updates)) {
+            $confirmed    = (int)$updates['medical_clearance_confirmed'] === 1;
             $wasConfirmed = (int)($old['medical_clearance_confirmed'] ?? 0) === 1;
             if ($confirmed && !$wasConfirmed) {
                 $updates['medical_clearance_at'] = date('Y-m-d H:i:s');

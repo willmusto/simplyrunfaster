@@ -17,27 +17,6 @@ $hasRace    = !empty($p['most_recent_race_time']);
 <div class="section-label">GOAL</div>
 <div class="card" style="margin-bottom:16px;">
     <div class="form-group">
-        <label class="form-label" for="plan_type">Plan type</label>
-        <?php
-        $planOpts = [
-            'race_cycle'        => 'Race cycle',
-            'development_plan'  => 'Development',
-            'maintenance_plan'  => 'Maintenance',
-            'return_to_running' => 'Return to running',
-        ];
-        $curPlan = $p['plan_type'] ?? '';
-        // recovery_block is engine-managed; surface it only if the athlete is on it,
-        // so opening the form never silently changes it.
-        if ($curPlan === 'recovery_block') $planOpts['recovery_block'] = 'Recovery block (engine-managed)';
-        ?>
-        <select id="plan_type" name="plan_type" class="form-select" data-plan-type>
-            <?php foreach ($planOpts as $val => $label): ?>
-            <option value="<?= h($val) ?>" <?= $curPlan === $val ? 'selected' : '' ?>><?= h($label) ?></option>
-            <?php endforeach; ?>
-        </select>
-        <div class="form-hint">Takes effect on the next plan generation — does not rebuild the active plan.</div>
-    </div>
-    <div class="form-group">
         <label class="form-label">Goal race distance</label>
         <?php
         // Goal-distance pills, shortest-first. Hyrox is a UI facade over the mile
@@ -328,17 +307,8 @@ $hasRace    = !empty($p['most_recent_race_time']);
             </div>
         </label>
     </div>
-    <div class="form-group">
-        <label class="toggle-wrap" style="cursor:pointer;">
-            <span>Plyometric clearance</span>
-            <div class="toggle">
-                <input type="checkbox" name="plyometric_clearance" value="1"
-                       <?= !empty($p['plyometric_clearance']) ? 'checked' : '' ?>>
-                <span class="toggle-slider"></span>
-            </div>
-        </label>
-        <div class="form-hint" style="margin-top:6px;">Cleared for bounding / plyometric work — required before any plyometric archetype can be prescribed.</div>
-    </div>
+    <?php /* plyometric_clearance is coach-only — rendered in the coach Edit Profile
+             COACH CONTROLS block, not here in the athlete-facing shared partial. */ ?>
     <div class="divider"></div>
     <div class="form-group">
         <label class="form-label">Bike</label>
@@ -417,15 +387,8 @@ $hasRace    = !empty($p['most_recent_race_time']);
     }
     distRadios.forEach(function (r) { r.addEventListener('change', updateSurface); });
     updateSurface();
-
-    // Show the Return-to-running block only when plan type is return_to_running.
-    var planSel   = document.querySelector('[data-plan-type]');
-    var rtrBlocks = document.querySelectorAll('[data-rtr-block]');
-    function updateRtr() {
-        var on = !!planSel && planSel.value === 'return_to_running';
-        rtrBlocks.forEach(function (el) { el.style.display = on ? '' : 'none'; });
-    }
-    if (planSel) planSel.addEventListener('change', updateRtr);
-    updateRtr();
+    // The Return-to-running block's visibility follows the stored plan_type (server-
+    // rendered). plan_type is coach-only and lives in the coach Edit Profile form, which
+    // owns the dynamic show/hide as the coach changes it.
 })();
 </script>
