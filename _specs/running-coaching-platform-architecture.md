@@ -257,7 +257,7 @@ The engine raises flags; coaches review and dismiss them.
 |---|---|---|
 | id | INT PK | |
 | athlete_id | INT FK | |
-| flag_type | ENUM | missed_workouts, hr_elevated, load_spike, compliance_low, plan_rebuild_needed, compliance_trend, compliance_pattern, excessive_fatigue, fitness_decline, taper_concern, insufficient_base, return_to_running_discomfort, limited_development_opportunity, long_run_day_conflict, display_generation_incomplete, profile_updated, pace_zones_missing |
+| flag_type | ENUM | missed_workouts, hr_elevated, load_spike, compliance_low, plan_rebuild_needed, compliance_trend, compliance_pattern, excessive_fatigue, fitness_decline, taper_concern, insufficient_base, return_to_running_discomfort, limited_development_opportunity, long_run_day_conflict, display_generation_incomplete, profile_updated, pace_zones_missing, schedule_day_ramp, ultra_surface_reminder, race_added, goal_race_changed, pace_recalibration, hyrox_supplement_reminder, assistant_pace_zone_edit, unmatched_activity (info; off-plan Intervals import — migration_032) |
 | severity | ENUM | info, warning, critical |
 | flag_date | DATE | |
 | details | JSON | machine-readable context |
@@ -286,7 +286,7 @@ Holds generated plans pending coach review before activation.
 | coach_notes | TEXT | |
 
 ### `workout_library`
-Legacy template table seeded from initial workout library (WL-001 through WL-023, documented in the Workout Library document). **This table is no longer joined by AthleteController, CoachController, or TrainingLoad.php for archetype-generated workouts.** It remains in the database for historical reference and as a seed source for initial content. The archetype engine (workout_archetypes table + ArchetypeSelector) is the active workout prescription layer. Archetype/variant swapping UI was removed in Milestone 3.5 and will be redesigned in a future milestone. *(June 2026)* The coach **Library page (`/app/coach/library`) no longer reads `workout_library` at all** — it is now a read-only browser over the active `workout_archetypes` (see §8, "Workout Library — archetype browser"); the old `workout_library` template list + "Add template" creation UI were removed.
+Legacy template table seeded from initial workout library (WL-001 through WL-023, documented in the Workout Library document). **This table is no longer joined by AthleteController, CoachController, or TrainingLoad.php** — `TrainingLoad.php`'s legacy `workout_library` join (on the long-dropped `planned_workouts.workout_template_id`) was removed entirely in June 2026; it now derives intensity from `intensity_load` with a per-type fallback (engine spec §11, Training Load Model). It remains in the database for historical reference and as a seed source for initial content. The archetype engine (workout_archetypes table + ArchetypeSelector) is the active workout prescription layer. Archetype/variant swapping UI was removed in Milestone 3.5 and will be redesigned in a future milestone. *(June 2026)* The coach **Library page (`/app/coach/library`) no longer reads `workout_library` at all** — it is now a read-only browser over the active `workout_archetypes` (see §8, "Workout Library — archetype browser"); the old `workout_library` template list + "Add template" creation UI were removed.
 
 | Column | Type | Notes |
 |---|---|---|
