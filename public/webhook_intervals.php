@@ -67,8 +67,10 @@ if ($secret !== '') {
     }
 }
 if (!$authed) {
-    $db->prepare('UPDATE intervals_webhook_log SET status = "rejected", error_message = ?, processed_at = NOW() WHERE id = ?')
-       ->execute(['secret mismatch (no matching secret in payload or header)', $logId]);
+    // 'failed' is the closest valid intervals_webhook_log.status ENUM value (no 'rejected'
+    // member); the error_message marks it as an auth rejection. The row is still logged.
+    $db->prepare('UPDATE intervals_webhook_log SET status = "failed", error_message = ?, processed_at = NOW() WHERE id = ?')
+       ->execute(['rejected: secret mismatch (no matching secret in payload or header)', $logId]);
     http_response_code(401);
     echo 'unauthorized';
     exit;
