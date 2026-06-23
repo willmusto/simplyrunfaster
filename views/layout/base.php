@@ -161,23 +161,33 @@ function render_profile_diff(?string $detailsJson): string
     if (!is_array($data) || empty($data['changes']) || !is_array($data['changes'])) {
         return '';
     }
-    // Single representation of a profile change: a full-width key→value grid
-    // (.profile-diff in app.css). One clean arrow per row — no prose restatement,
-    // no doubled glyph. Views suppress the flag's prose message for profile_updated
-    // so this is the only place the change is shown.
-    $cells = '';
+    // Single representation of a profile change: tight "Label → value" rows
+    // (.profile-diff in app.css). One clean arrow per row — no prose restatement.
+    // When there's no prior value (newly-set field), render just "Label → new";
+    // ProfileForm::format() emits an em-dash placeholder for null/empty, so an
+    // old_display of '—' (or blank) means "no old value" — don't strike it through
+    // (that produced the stray "=" glyph). Views suppress the flag's prose message
+    // for profile_updated so this is the only place the change is shown.
+    $rows = '';
     foreach ($data['changes'] as $c) {
-        $label = h($c['label'] ?? ($c['field'] ?? 'Field'));
-        $old   = h($c['old_display'] ?? '–');
-        $new   = h($c['new_display'] ?? '–');
-        $tag   = !empty($c['coach_only'])
+        $label  = h($c['label'] ?? ($c['field'] ?? 'Field'));
+        $oldRaw = trim((string)($c['old_display'] ?? ''));
+        $newRaw = trim((string)($c['new_display'] ?? ''));
+        $new    = h($newRaw === '' ? '—' : $newRaw);
+        $hasOld = $oldRaw !== '' && $oldRaw !== '—';
+        $tag    = !empty($c['coach_only'])
             ? ' <span class="pill" style="font-size:9px;background:var(--recessed-bg);color:var(--text-muted);">coach</span>'
             : '';
-        $cells .= '<span class="profile-diff-label">' . $label . $tag . '</span>'
-               . '<span class="profile-diff-val">'
-               . '<span class="profile-diff-old">' . $old . '</span> '
-               . '<span class="profile-diff-arrow">&rarr;</span> '
-               . '<span class="profile-diff-new">' . $new . '</span></span>';
+        $val = $hasOld
+            ? '<span class="profile-diff-old">' . h($oldRaw) . '</span> '
+              . '<span class="profile-diff-arrow">&rarr;</span> '
+              . '<span class="profile-diff-new">' . $new . '</span>'
+            : '<span class="profile-diff-arrow">&rarr;</span> '
+              . '<span class="profile-diff-new">' . $new . '</span>';
+        $rows .= '<div class="profile-diff-row">'
+               . '<span class="profile-diff-label">' . $label . $tag . '</span>'
+               . '<span class="profile-diff-val">' . $val . '</span>'
+               . '</div>';
     }
-    return '<div class="profile-diff">' . $cells . '</div>';
+    return '<div class="profile-diff">' . $rows . '</div>';
 }

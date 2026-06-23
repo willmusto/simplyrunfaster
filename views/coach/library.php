@@ -28,11 +28,19 @@ $hasFilter    = $filterType !== '' || $filterPhase !== '' || $filterDistance !==
 
     .lib-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
         gap: 12px;
+        align-items: stretch;   /* equal-height cards per row → footers line up */
+    }
+    @media (max-width: 480px) {
+        /* Single column on phones (360px min would otherwise overflow narrow screens). */
+        .lib-grid { grid-template-columns: 1fr; }
     }
     .lib-card {
         position: relative;
+        display: flex;
+        flex-direction: column;   /* lets the footer pin to the card bottom */
+        height: 100%;             /* fill the stretched grid cell */
         text-align: left;
         width: 100%;
         border: var(--card-border);
@@ -57,10 +65,13 @@ $hasFilter    = $filterType !== '' || $filterPhase !== '' || $filterDistance !==
     .lib-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin: 0; }
     .lib-desc.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
     .lib-more {
+        align-self: flex-start;
         background: none; border: none; padding: 0; margin-top: 4px; cursor: pointer;
         color: var(--accent-mid); font-size: 11px; font-weight: 500;
     }
-    .lib-card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+    /* Footer pinned to the card bottom so footers align across a row; padding-top keeps
+       the description from crowding it on short cards. */
+    .lib-card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 10px; }
     .lib-variant-count { font-size: 11px; color: var(--text-muted); }
     .lib-sys { font-size: 10px; color: var(--text-muted); }
 
@@ -216,7 +227,10 @@ $hasFilter    = $filterType !== '' || $filterPhase !== '' || $filterDistance !==
 
             <?php if ($a['description'] !== ''): ?>
             <p class="lib-desc clamp" data-desc><?= h($a['description']) ?></p>
-            <button type="button" class="lib-more" data-more hidden>Show more</button>
+            <?php /* A <span>, not a <button>: a nested <button> inside the .lib-card button is
+                     invalid HTML and made the browser close the card early, spilling the footer
+                     out as a stray grid item. JS binds the click via [data-more]. */ ?>
+            <span class="lib-more" data-more hidden>Show more</span>
             <?php endif; ?>
 
             <div class="lib-card-foot">

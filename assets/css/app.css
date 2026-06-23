@@ -854,27 +854,28 @@ select[data-backfill-days]:focus {
 .flag-card-foot { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
 .flag-card-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 
-/* Profile-change diff (render_profile_diff). Full-width key→value grid below the
-   message — label column sizes to its content (max-content) so labels never wrap
-   mid-phrase; the value column takes the rest and wraps if long. */
+/* Profile-change diff (render_profile_diff). Each change is one tight "Label → value"
+   row: label and value sit close together (small gap, NO full-width spacer), so the
+   pair reads as one unit. Rows stack as a compact block. On narrow screens the value
+   wraps directly under its label (flex-wrap) — it never detaches. */
 .profile-diff {
     margin-top: 8px;
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 4px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     font-size: 12px;
-    align-items: baseline;
 }
-.profile-diff-label { color: var(--text-muted); }
-.profile-diff-val   { text-align: right; }
+.profile-diff-row {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px 8px;          /* 8px between label and value; 2px if the value wraps below */
+}
+.profile-diff-label { color: var(--text-muted); flex-shrink: 0; }
+.profile-diff-val   { color: var(--text-primary); }
 .profile-diff-old   { color: var(--text-muted); text-decoration: line-through; }
 .profile-diff-arrow { color: var(--text-muted); }
 .profile-diff-new   { font-weight: 600; color: var(--text-primary); }
-@media (max-width: 480px) {
-    /* Stack label above value on the narrowest screens so neither is crushed. */
-    .profile-diff { grid-template-columns: 1fr; gap: 2px 0; }
-    .profile-diff-val { text-align: left; margin-bottom: 4px; }
-}
 
 .flag-icon {
     width: 16px;
