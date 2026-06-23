@@ -127,6 +127,12 @@ foreach ($events as $i => $event) {
                         break;
                     }
                 }
+                // Confirmed real shape: the activity is nested under event['activity'] (an
+                // object) and its id is at event['activity']['id'] (e.g. "i159545797").
+                if ($activityId === '' && isset($event['activity']['id']) && is_scalar($event['activity']['id'])) {
+                    $activityId  = (string)$event['activity']['id'];
+                    $activityKey = 'activity.id';
+                }
 
                 if ($athlete === '' || $activityId === '') {
                     $outcomes[] = "[{$i}] {$type} athlete={$athlete} → skipped: missing athlete or activity id"
