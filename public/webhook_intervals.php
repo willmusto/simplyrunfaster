@@ -6,21 +6,16 @@
  * front controller has already loaded config + classes; this guard stops the file
  * from doing anything if it is somehow requested directly.
  *
- * Flow: verify the shared secret (constant-time) → log EVERY event to
- * intervals_webhook_log (status='received') → dispatch by event type → update the
- * log row's final status. Always returns 200 for handled-but-skipped/unknown events
- * so Intervals.icu doesn't retry-storm us; only a bad secret returns 401.
+ * Flow: log EVERY event to intervals_webhook_log (status='received') BEFORE auth so a
+ * rejected delivery is still visible → verify the shared secret (Intervals delivers it
+ * INSIDE THE PAYLOAD body — its Authorization-header field is blank — so we verify against
+ * the payload, constant-time; the header is only a fallback) → dispatch by event type →
+ * update the log row's final status. Always returns 200 for handled-but-skipped/unknown
+ * events so Intervals.icu doesn't retry-storm us; only a bad secret returns 401.
  */
 
 if (!class_exists('IntervalsService') || !defined('INTERVALS_WEBHOOK_SECRET')) {
     http_response_code(404);
-    exit;
-}
-
-// ── Verify shared secret (constant-time) ──────────────────────────────────
-$provided = $_SERVER['HTTP_X_INTERVALS_WEBHOOK_SECRET'] ?? '';
-if (INTERVALS_WEBHOOK_SECRET === '' || !hash_equals((string)INTERVALS_WEBHOOK_SECRET, (string)$provided)) {
-    http_response_code(401);
     exit;
 }
 
@@ -34,14 +29,15 @@ $activityId = (string)($payload['activity_id'] ?? $payload['activityId'] ?? $pay
 
 $db = Database::get();
 
-// ── Log immediately on receipt ────────────────────────────────────────────
+// ── Log immediately on receipt, BEFORE auth ───────────────────────────────
+// So a 401'd delivery (e.g. a secret mismatch) is still recorded and inspectable.
 $db->prepare(
     'INSERT INTO intervals_webhook_log (event_type, athlete_id, payload, received_at, status)
      VALUES (?, ?, ?, NOW(), "received")'
 )->execute([$eventType ?: 'UNKNOWN', $icuAthlete, $raw]);
 $logId = (int)$db->lastInsertId();
 
-/** Finalize the webhook_log row. */
+/** Finalize the webhook_log row and return 200. */
 $finish = function (string $status, ?string $error = null) use ($db, $logId): void {
     $db->prepare('UPDATE intervals_webhook_log SET status = ?, error_message = ?, processed_at = NOW() WHERE id = ?')
        ->execute([$status, $error, $logId]);
@@ -49,6 +45,34 @@ $finish = function (string $status, ?string $error = null) use ($db, $logId): vo
     echo 'ok';
     exit;
 };
+
+// ── Verify the shared secret (constant-time) ──────────────────────────────
+// Intervals.icu includes the webhook secret in the PAYLOAD (their "Webhook Secret … included
+// in the payload" — the separate Authorization-header field is blank). We accept the secret
+// wherever Intervals places it in the payload by matching its value (not a guessed field name);
+// the X-Intervals-Webhook-Secret header is kept only as a fallback in case it is ever populated.
+$secret = (string)INTERVALS_WEBHOOK_SECRET;
+$authed = false;
+if ($secret !== '') {
+    $hdr = (string)($_SERVER['HTTP_X_INTERVALS_WEBHOOK_SECRET'] ?? '');
+    if ($hdr !== '' && hash_equals($secret, $hdr)) {
+        $authed = true;
+    } else {
+        foreach ($payload as $value) {
+            if (is_string($value) && $value !== '' && hash_equals($secret, $value)) {
+                $authed = true;
+                break;
+            }
+        }
+    }
+}
+if (!$authed) {
+    $db->prepare('UPDATE intervals_webhook_log SET status = "rejected", error_message = ?, processed_at = NOW() WHERE id = ?')
+       ->execute(['secret mismatch (no matching secret in payload or header)', $logId]);
+    http_response_code(401);
+    echo 'unauthorized';
+    exit;
+}
 
 try {
     switch ($eventType) {
