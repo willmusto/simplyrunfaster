@@ -842,8 +842,19 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                                     ? $raceConflictClass($date) : '';
                             ?>
                             <?php
+                            // Structured-editor pre-fill: the editable numeric fields for the 5
+                            // uniform-rep archetypes, read from archetype_params. null otherwise.
+                            $structuredFields = null;
+                            if (in_array((string)($w['archetype_code'] ?? ''), ['tempo_intervals','sustained_hill_repeats','equal_distance_repeats','short_speed_repeats','high_volume_time_intervals'], true)) {
+                                $apFields = json_decode((string)($w['archetype_params'] ?? '{}'), true) ?: [];
+                                $structuredFields = [];
+                                foreach (['rep_count','rep_duration_minutes','rep_duration_seconds','rep_distance_meters','work_duration_seconds','recovery_duration_seconds'] as $sf) {
+                                    $structuredFields[$sf] = isset($apFields[$sf]) ? (int)$apFields[$sf] : null;
+                                }
+                            }
                             $mwData = htmlspecialchars(json_encode([
                                 'id'              => (int)$w['id'],
+                                'structured'      => $structuredFields,
                                 'workout_type'    => (string)$w['workout_type'],
                                 'type_label'      => pill_label($w['workout_type'], $w['archetype_code'] ?? null),
                                 'type_class'      => pill_class($w['workout_type'], $w['archetype_code'] ?? null),
@@ -1297,6 +1308,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
 
             <div class="awd-tabs">
                 <button type="button" class="awd-tab is-active" data-ewd-tab="surface">Tweak</button>
+                <button type="button" class="awd-tab" data-ewd-tab="structure" id="ewd-tab-structure" style="display:none;">Structure</button>
                 <button type="button" class="awd-tab" data-ewd-tab="archetype">Replace from library</button>
                 <button type="button" class="awd-tab" data-ewd-tab="freeform" id="ewd-tab-freeform">Replace (custom)</button>
             </div>
@@ -1330,6 +1342,14 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                     <textarea id="ewd-s-notes" class="form-textarea" rows="2"></textarea>
                 </div>
                 <div class="awd-actions"><button type="button" id="ewd-save-surface" class="btn btn-primary btn-sm">Save changes</button></div>
+            </div>
+
+            <!-- MODE 1b — structured field editor (5 uniform-rep archetypes) -->
+            <div id="ewd-pane-structure" style="display:none;">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Edit the workout's structure. These push to the watch as real steps, and the description updates to match. You can override the usual rules.</div>
+                <div id="ewd-st-fields"></div>
+                <div class="awd-err" id="ewd-st-warn" style="display:none;background:var(--warn-bg, #fff7ed);color:var(--warn-text, #9a3412);"></div>
+                <div class="awd-actions"><button type="button" id="ewd-save-structured" class="btn btn-primary btn-sm">Save structure</button></div>
             </div>
 
             <!-- MODE 2 — archetype picker -->
@@ -1531,6 +1551,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             $id('ewd-ff-dur').value = editData.target_duration || '';
             $id('ewd-ff-instr').value = editData.instructions || '';
             $id('ewd-ff-notes').value = editData.coach_notes || '';
+            buildStructuredEditor();
             setEwdTab('surface');
             renderEArchList('all');
             hideEErr();
@@ -1540,6 +1561,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
         function setEwdTab(tab) {
             document.querySelectorAll('#ewd .awd-tab').forEach(function (t) { t.classList.toggle('is-active', t.getAttribute('data-ewd-tab') === tab); });
             $id('ewd-pane-surface').style.display   = tab === 'surface'   ? '' : 'none';
+            $id('ewd-pane-structure').style.display = tab === 'structure' ? '' : 'none';
             $id('ewd-pane-archetype').style.display = tab === 'archetype' ? '' : 'none';
             $id('ewd-pane-freeform').style.display  = tab === 'freeform'  ? '' : 'none';
             hideEErr();
@@ -1625,9 +1647,96 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                     d.title = w.title; d.target_duration = w.target_duration; d.summary = w.summary || ''; d.description = w.description || '';
                     d.coach_locked = 1; d.instructions = w.athlete_instructions || ''; d.coach_notes = w.coach_notes || '';
                     d.archetype_code = w.archetype_code || ''; d.archetype_variant = w.archetype_variant || '';
+                    // After a structured edit, refresh the cached field values so reopening shows them.
+                    if (pendingStructured && d.structured) { Object.keys(pendingStructured).forEach(function (k) { d.structured[k] = pendingStructured[k]; }); }
+                    pendingStructured = null;
                     btn.setAttribute('data-mw', JSON.stringify(d));
                 } catch (e) {}
             }
+        }
+
+        // ── Structured field editor (5 uniform-rep archetypes) ──
+        var STRUCT_SPEC = {
+            tempo_intervals: [
+                {key:'rep_count', label:'Reps', type:'num', min:1, max:40},
+                {key:'rep_duration_minutes', label:'Rep length (min)', type:'num', min:1, max:60},
+                {key:'recovery_duration_seconds', label:'Recovery (sec)', type:'num', min:5, max:1200}
+            ],
+            equal_distance_repeats: [
+                {key:'rep_count', label:'Reps', type:'num', min:1, max:40},
+                {key:'rep_distance_meters', label:'Rep distance', type:'sel', options:[400,600,800,1000,1200,1600]},
+                {key:'recovery_duration_seconds', label:'Recovery (sec)', type:'num', min:5, max:1200}
+            ],
+            short_speed_repeats: [
+                {key:'rep_count', label:'Reps', type:'num', min:1, max:40},
+                {key:'rep_distance_meters', label:'Rep distance', type:'sel', options:[60,80,100,150,200,300,400]},
+                {key:'recovery_duration_seconds', label:'Recovery (sec)', type:'num', min:5, max:1200}
+            ],
+            sustained_hill_repeats: [
+                {key:'rep_count', label:'Reps', type:'num', min:1, max:40},
+                {key:'rep_duration_seconds', label:'Rep length (sec)', type:'num', min:10, max:1800},
+                {key:'recovery_duration_seconds', label:'Recovery (sec)', type:'num', min:5, max:1200}
+            ],
+            high_volume_time_intervals: [
+                {key:'rep_count', label:'Reps', type:'num', min:1, max:40},
+                {key:'work_duration_seconds', label:'On (sec)', type:'num', min:10, max:1800},
+                {key:'recovery_duration_seconds', label:'Off (sec)', type:'num', min:5, max:1200}
+            ]
+        };
+        var pendingStructured = null;
+        function buildStructuredEditor() {
+            var tab = $id('ewd-tab-structure');
+            var spec = (editData && editData.structured && STRUCT_SPEC[editData.archetype_code]) || null;
+            if (!spec) { tab.style.display = 'none'; return; }
+            tab.style.display = '';
+            var wrap = $id('ewd-st-fields'); wrap.innerHTML = '';
+            spec.forEach(function (f) {
+                var cur = editData.structured[f.key];
+                var grp = document.createElement('div'); grp.className = 'form-group';
+                var lab = document.createElement('label'); lab.className = 'form-label'; lab.setAttribute('for', 'ewd-st-' + f.key); lab.textContent = f.label;
+                grp.appendChild(lab);
+                var input;
+                if (f.type === 'sel') {
+                    input = document.createElement('select'); input.className = 'form-select'; input.style.maxWidth = '160px';
+                    f.options.forEach(function (o) { var op = document.createElement('option'); op.value = o; op.textContent = o + ' m'; if (cur != null && parseInt(cur, 10) === o) op.selected = true; input.appendChild(op); });
+                } else {
+                    input = document.createElement('input'); input.type = 'number'; input.className = 'form-input'; input.style.maxWidth = '120px';
+                    if (f.min != null) input.min = f.min; if (f.max != null) input.max = f.max;
+                    if (cur != null) input.value = cur;
+                }
+                input.id = 'ewd-st-' + f.key; input.setAttribute('data-stkey', f.key);
+                grp.appendChild(input); wrap.appendChild(grp);
+            });
+            $id('ewd-st-warn').style.display = 'none';
+        }
+        function collectStructured() {
+            var out = {};
+            document.querySelectorAll('#ewd-st-fields [data-stkey]').forEach(function (el) {
+                var v = parseInt(el.value, 10); if (!isNaN(v)) out[el.getAttribute('data-stkey')] = v;
+            });
+            return out;
+        }
+        function structuredWarnings(v) {
+            var w = [];
+            if (v.rep_count != null && (v.rep_count < 1 || v.rep_count > 30)) w.push('Rep count of ' + v.rep_count + ' is unusual.');
+            var durS = v.rep_duration_seconds != null ? v.rep_duration_seconds
+                     : (v.rep_duration_minutes != null ? v.rep_duration_minutes * 60
+                     : (v.work_duration_seconds != null ? v.work_duration_seconds : null));
+            if (durS != null && (durS < 30 || durS > 1800)) w.push('A single rep of ' + (durS >= 60 ? Math.round(durS / 60) + ' min' : durS + ' sec') + ' is unusual.');
+            if (v.rep_distance_meters != null && (v.rep_distance_meters < 100 || v.rep_distance_meters > 5000)) w.push('A rep distance of ' + v.rep_distance_meters + ' m is unusual.');
+            var per = durS || (v.rep_distance_meters ? Math.round(v.rep_distance_meters / 1609.34 * 390) : 0);
+            if ((v.rep_count || 0) > 0 && per > 0 && (v.rep_count * per) > 5400) w.push('Total work of about ' + Math.round(v.rep_count * per / 60) + ' min is very large.');
+            return w;
+        }
+        function saveStructured(btn) {
+            if (!editData || !editData.structured) return;
+            hideEErr();
+            var vals = collectStructured();
+            var warns = structuredWarnings(vals);
+            if (warns.length && !confirm('This is unusual:\n\n' + warns.join('\n') + '\n\nSave anyway?')) return;
+            pendingStructured = vals;
+            var body = {}; Object.keys(vals).forEach(function (k) { body[k] = vals[k]; }); body.mode = 'structured';
+            saveEdit(body, btn);
         }
 
         // ── Calendar DOM helpers ──
@@ -1940,6 +2049,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 }, e.target);
                 return;
             }
+            if (e.target.id === 'ewd-save-structured') { saveStructured(e.target); return; }
         });
         document.addEventListener('keydown', function (e) {
             if (e.key !== 'Escape') return;

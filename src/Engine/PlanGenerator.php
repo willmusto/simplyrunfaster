@@ -1237,6 +1237,157 @@ class PlanGenerator
         ];
     }
 
+    /** The 5 uniform-rep archetypes the structured editor supports (Phase 1; mixed is Phase 2). */
+    public const STRUCTURED_EDIT_CODES = [
+        'tempo_intervals', 'sustained_hill_repeats', 'equal_distance_repeats',
+        'short_speed_repeats', 'high_volume_time_intervals',
+    ];
+
+    public static function isStructuredEditable(?string $code): bool
+    {
+        return $code !== null && in_array($code, self::STRUCTURED_EDIT_CODES, true);
+    }
+
+    /**
+     * Structured workout editor (Phase 1): rebuild a workout's structure from a coach's
+     * EXPLICIT field edits, then re-render title/instructions/summary from that structure via
+     * the same render path generation uses, so app, watch, and description agree. Unlike the
+     * archetype-swap edit (which re-runs the engine and re-samples), this keeps the coach's
+     * values: addDerivedParams() runs in $manual mode, skipping all ranging/cap/snap so the
+     * edited rep_count / durations / distances / recovery are preserved (a coach can set 7x7).
+     *
+     * @param array $edits keys among: rep_count, rep_duration_minutes, rep_duration_seconds,
+     *                     rep_distance_meters, work_duration_seconds, recovery_duration_seconds.
+     * @return array|null the planned_workouts column set to persist, or null if the workout is
+     *                    not one of the 5 supported archetypes / not found.
+     */
+    public static function composeStructuredEdit(int $plannedWorkoutId, array $edits, ?PDO $db = null): ?array
+    {
+        $db   = $db ?? Database::get();
+        $stmt = $db->prepare('SELECT athlete_id, archetype_code, archetype_variant, archetype_params FROM planned_workouts WHERE id = ? LIMIT 1');
+        $stmt->execute([$plannedWorkoutId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+        $code = (string)($row['archetype_code'] ?? '');
+        if (!self::isStructuredEditable($code)) return null;
+
+        $athleteId = (int)$row['athlete_id'];
+        $profile   = self::loadProfile($athleteId, $db);
+        if (!$profile) return null;
+
+        self::$paceZones = (!empty($profile['pace_zones_visible'])
+            && PaceZones::isPopulated($profile['pace_zones'] ?? null))
+            ? (json_decode($profile['pace_zones'] ?? 'null', true) ?: null)
+            : null;
+        $rawDistance    = self::normalizeDistance($profile['goal_race_distance'] ?? '5K');
+        $classification = self::classifyAthlete($profile, $rawDistance);
+        self::$planDistance  = $rawDistance;
+        self::$cycleProgress = null;
+        $goalDistance = self::selectorDistance($rawDistance);
+        $phase        = 'base';
+
+        $selector  = new ArchetypeSelector($db);
+        $archetype = $selector->getByCode($code);
+        if (!$archetype) { self::$paceZones = null; self::$planDistance = null; return null; }
+        $archetype = $selector->resolveParameters($archetype, $classification);
+
+        // Start from the existing instance params (preserves warmup/cooldown/effort/recovery_model).
+        $params = json_decode((string)($row['archetype_params'] ?? '{}'), true) ?: [];
+        foreach (['warmup_minutes', 'cooldown_minutes'] as $k) {
+            if (!isset($params[$k]) && isset($archetype['resolved_params'][$k])) {
+                $params[$k] = $archetype['resolved_params'][$k];
+            }
+        }
+        $variant = self::variantByCode($archetype, (string)($row['archetype_variant'] ?? ''));
+
+        $intOr = static fn($v, $min, $cur) => $v === null ? $cur : max($min, (int)$v);
+
+        $params['rep_count'] = $intOr($edits['rep_count'] ?? null, 1, (int)($params['rep_count'] ?? 1));
+
+        if ($code === 'tempo_intervals') {
+            $params['rep_duration_minutes'] = $intOr($edits['rep_duration_minutes'] ?? null, 1, (int)($params['rep_duration_minutes'] ?? 1));
+            $pace = self::tempoPaceMinPerMile($classification, $goalDistance);
+            $params['rep_distance_miles'] = $pace > 0 ? round((int)$params['rep_duration_minutes'] / $pace, 2) : ($params['rep_distance_miles'] ?? 0);
+        } elseif ($code === 'sustained_hill_repeats') {
+            $params['rep_duration_seconds'] = $intOr($edits['rep_duration_seconds'] ?? null, 1, (int)($params['rep_duration_seconds'] ?? 1));
+            $params['rep_duration_display'] = self::formatSecondsLabel((int)$params['rep_duration_seconds']);
+        } elseif (in_array($code, ['equal_distance_repeats', 'short_speed_repeats'], true)) {
+            if (isset($edits['rep_distance_meters'])) {
+                $params['rep_distance_meters'] = max(1, (int)$edits['rep_distance_meters']);
+                unset($params['rep_duration_seconds']); // re-derive from the new distance below
+                $vm = self::variantByDistance($archetype, (int)$params['rep_distance_meters']);
+                if ($vm !== null) $variant = $vm;
+            }
+            if ($code === 'short_speed_repeats') $params['effort_zone'] = $params['effort_zone'] ?? 'repetition';
+        } elseif ($code === 'high_volume_time_intervals') {
+            $params['work_duration_seconds'] = $intOr($edits['work_duration_seconds'] ?? null, 1, (int)($params['work_duration_seconds'] ?? 1));
+        }
+        if (isset($edits['recovery_duration_seconds'])) {
+            $params['recovery_duration_seconds'] = max(1, (int)$edits['recovery_duration_seconds']);
+        }
+
+        if ($variant !== null) $archetype['resolved_variant'] = $variant;
+        $archetype['resolved_params'] = $params;
+
+        // Manual mode: keep the explicit values, run only the display/structure tail.
+        $instance = self::addDerivedParams($archetype, 60, $phase, $goalDistance, $classification, true);
+
+        $display      = $instance['display'] ?? [];
+        $title        = self::renderTemplate($display['title_template'] ?? '', $instance);
+        $summary      = self::renderTemplate($display['summary_template'] ?? '', $instance);
+        $instructions = self::renderTemplate($display['description_template'] ?? '', $instance);
+        $instructions = self::normalizeInstructionText($instructions, $instance);
+        $instructions = self::wrapWithWarmupCooldown($instructions, $instance['resolved_params'] ?? [], $instance['code'] ?? '');
+        $instructions = self::appendPaceCitation($instructions, $instance);
+
+        $sig             = self::computeInstanceSignature($instance);
+        $resolvedVariant = $instance['resolved_variant']['code'] ?? null;
+        $finalParams     = $instance['resolved_params'] ?? [];
+        $structure       = self::resolveStructure($instance);
+        $variantWorkout  = $instance['resolved_variant']['workout_type'] ?? null;
+        $metadataWorkout = $instance['metadata']['workout_type'] ?? $instance['workout_type'] ?? null;
+        $workoutType     = $variantWorkout ?? $metadataWorkout ?? 'easy';
+        $variantIF       = $instance['resolved_variant']['intensity_factor'] ?? null;
+        $intensityFactor = (float)($variantIF ?? $instance['generation']['intensity_factor'] ?? 0.5);
+        $storedDuration  = self::computeActualDuration($instance) ?? (int)($finalParams['duration_minutes'] ?? 1);
+        $load            = round($storedDuration * $intensityFactor, 2);
+
+        self::$paceZones = null;
+        self::$planDistance = null;
+
+        return [
+            'workout_type'               => $workoutType,
+            'archetype_code'             => $instance['code'],
+            'archetype_variant'          => $resolvedVariant,
+            'archetype_params'           => json_encode($finalParams),
+            'instance_signature'         => $sig ?: null,
+            'structure'                  => $structure ? json_encode($structure) : null,
+            'display_title'              => $title ?: null,
+            'display_summary'            => $summary ?: null,
+            'athlete_instructions'       => $instructions ?: null,
+            'target_duration'            => $storedDuration,
+            'intensity_load'             => $load,
+        ];
+    }
+
+    /** Find an archetype variant by its code, or null. */
+    private static function variantByCode(array $archetype, string $code): ?array
+    {
+        foreach (($archetype['variants'] ?? []) as $v) {
+            if (($v['code'] ?? null) === $code) return $v;
+        }
+        return null;
+    }
+
+    /** Find an archetype variant whose rep_distance_meters equals $meters, or null. */
+    private static function variantByDistance(array $archetype, int $meters): ?array
+    {
+        foreach (($archetype['variants'] ?? []) as $v) {
+            if ((int)($v['rep_distance_meters'] ?? 0) === $meters) return $v;
+        }
+        return null;
+    }
+
     /**
      * Read-only archetype preview for the coach Library browser. Runs the same
      * resolve → render pipeline as composeManualWorkout() but against a throwaway
@@ -3159,8 +3310,14 @@ class PlanGenerator
      */
     private static function addDerivedParams(
         array $archetype, int $targetMinutes,
-        string $phase, string $goalDistance, string $classification
+        string $phase, string $goalDistance, string $classification,
+        bool $manual = false
     ): array {
+        // $manual = a coach structured edit: keep the explicit resolved_params values and
+        // skip every block that would re-range or re-clamp them (distribution, fit-to-slot,
+        // phase cap, even-or-3 snap, mile bias). The display/structure tail still runs, so
+        // title, instructions, structure, distance, and duration re-derive from the edit.
+        // Default false leaves generation byte-for-byte unchanged.
         $params  = $archetype['resolved_params'] ?? [];
         $display = $archetype['display'] ?? [];
 
@@ -3330,7 +3487,7 @@ class PlanGenerator
         // variant. Runs here, after the variant is chosen, so the variant finally drives
         // structure (rep length -> rep count) instead of only tagging workout_type.
         // Stage A is variety + coherence only; no across-cycle progression yet (Stage B).
-        if (($archetype['code'] ?? '') === 'tempo_intervals') {
+        if (!$manual && ($archetype['code'] ?? '') === 'tempo_intervals') {
             $params = self::distributeTempoIntervals(
                 $params,
                 $archetype['resolved_variant'] ?? [],
@@ -3344,12 +3501,12 @@ class PlanGenerator
         // high-volume time intervals. Both SHARPEN toward peak (inverted vs tempo): more/
         // longer reps in base, fewer/shorter at peak. Gated on code; tempo and the other
         // four parameterized archetypes are untouched.
-        if (($archetype['code'] ?? '') === 'sustained_hill_repeats') {
+        if (!$manual && ($archetype['code'] ?? '') === 'sustained_hill_repeats') {
             $params = self::distributeSustainedHillRepeats(
                 $params, $archetype['resolved_variant'] ?? [], $classification, $goalDistance
             );
         }
-        if (($archetype['code'] ?? '') === 'high_volume_time_intervals') {
+        if (!$manual && ($archetype['code'] ?? '') === 'high_volume_time_intervals') {
             $params = self::distributeHighVolumeTimeIntervals($params, $classification, $goalDistance);
         }
 
@@ -3357,7 +3514,7 @@ class PlanGenerator
         // variant fixes the ordering; the engine builds a coherent track-standard sequence
         // (3-9 rungs, more in base, fewer at peak, scaled by goal). Description/title are
         // overridden to show the actual ladder. SHARPEN direction, like Batches 1-2.
-        if (($archetype['code'] ?? '') === 'mixed_distance_repeats') {
+        if (!$manual && ($archetype['code'] ?? '') === 'mixed_distance_repeats') {
             $params = self::distributeMixedDistanceRepeats(
                 $params, $archetype['resolved_variant'] ?? [], $archetype['parameters'] ?? [],
                 $classification, $goalDistance, $targetMinutes
@@ -3372,7 +3529,7 @@ class PlanGenerator
 
         // Mile rep-distance bias (mile spec Part 10): for equal_distance_repeats, prefer the
         // shortest rep distance (≤800m suits milers), overriding the random variant pick.
-        if (self::$planDistance === 'mile' && ($archetype['code'] ?? '') === 'equal_distance_repeats') {
+        if (!$manual && self::$planDistance === 'mile' && ($archetype['code'] ?? '') === 'equal_distance_repeats') {
             $best = null; $bestDist = PHP_INT_MAX;
             foreach (($archetype['variants'] ?? []) as $v) {
                 $rd = (int)($v['rep_distance_meters'] ?? 0);
@@ -3394,7 +3551,7 @@ class PlanGenerator
         // quality-volume target is resolved by distance (short rep -> low end, long rep ->
         // high end), goal distance (marathoner > 5K), and phase (SHARPEN toward peak: more
         // volume/reps in base, fewer at peak). rep_count = volume / rep_distance, even-or-3.
-        if (in_array($archetype['code'], ['short_speed_repeats', 'equal_distance_repeats'], true)) {
+        if (!$manual && in_array($archetype['code'], ['short_speed_repeats', 'equal_distance_repeats'], true)) {
             $params = self::distributeDistanceRepeats(
                 $params,
                 $archetype['resolved_variant'] ?? [],
@@ -3429,7 +3586,7 @@ class PlanGenerator
         $cooldownMins = (int)($params['cooldown_minutes'] ?? 0);
         $available    = max(0, $targetMinutes - $warmupMins - $cooldownMins);
 
-        switch ($archetype['code']) {
+        if (!$manual) switch ($archetype['code']) {
             case 'tempo_intervals':
                 // Safety cap only: the variant distribution above already set a coherent
                 // rep_count. Never drop below 2 reps (1 long rep is a continuous tempo, a
@@ -3499,7 +3656,7 @@ class PlanGenerator
         // their phase direction (sharpen toward peak) inside distributeDistanceRepeats, so
         // this build-direction cap would fight it and block base sessions from reaching the
         // 9+ checkpoint band. Their slot-fit caps in the switch above still apply.
-        if (in_array($archetype['code'] ?? '', ['mixed_distance_repeats'], true)
+        if (!$manual && in_array($archetype['code'] ?? '', ['mixed_distance_repeats'], true)
             && !empty($params['rep_count'])) {
             $params['rep_count'] = min((int)$params['rep_count'], self::phaseRepCap($phase));
         }
@@ -3508,7 +3665,7 @@ class PlanGenerator
         // idiomatic (no 5/7/9) and, for hills, matches the conditional checkpoint math
         // (halfway = rep_count / 2 stays a clean integer). Snaps DOWN so it never exceeds the
         // fit-to-slot / phase cap. Tempo is snapped in its own distribution path.
-        if (in_array($archetype['code'] ?? '', ['sustained_hill_repeats', 'equal_distance_repeats', 'high_volume_time_intervals', 'short_speed_repeats'], true)
+        if (!$manual && in_array($archetype['code'] ?? '', ['sustained_hill_repeats', 'equal_distance_repeats', 'high_volume_time_intervals', 'short_speed_repeats'], true)
             && !empty($params['rep_count'])) {
             $params['rep_count'] = self::snapDownEvenOr3((int)$params['rep_count']);
         }

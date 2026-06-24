@@ -880,7 +880,7 @@ class CoachController
 
         $in      = !empty($_POST) ? $_POST : self::jsonBody();
         $mode    = (string)($in['mode'] ?? 'surface');
-        if (!in_array($mode, ['surface', 'archetype', 'freeform'], true)) $mode = 'surface';
+        if (!in_array($mode, ['surface', 'archetype', 'freeform', 'structured'], true)) $mode = 'surface';
         $preview = !empty($in['preview']);
 
         $row = $db->prepare('SELECT * FROM planned_workouts WHERE id = ? LIMIT 1');
@@ -1077,6 +1077,40 @@ class CoachController
                     // structure is NULL here; the watch already falls back to the text. Keep
                     // the flag cleared so a later structured edit behaves predictably.
                     'push_text_only'             => 0,
+                ],
+            ];
+        }
+
+        if ($mode === 'structured') {
+            // Phase 1: edit the structured fields of one of the 5 uniform-rep archetypes. The
+            // engine rebuilds structure + re-renders title/instructions from the explicit
+            // values (no re-sampling), and clears push_text_only so the watch gets the edited
+            // STRUCTURE (not the text fallback). Idiomatic rules are NOT applied (coach owns it).
+            if (!PlanGenerator::isStructuredEditable($oldArch)) {
+                return ['error' => 'not_structured', 'message' => 'This workout cannot be edited field by field.'];
+            }
+            $edits = [];
+            foreach (['rep_count', 'rep_duration_minutes', 'rep_duration_seconds', 'rep_distance_meters', 'work_duration_seconds', 'recovery_duration_seconds'] as $f) {
+                if (isset($in[$f]) && $in[$f] !== '') $edits[$f] = (int)$in[$f];
+            }
+            $composed = PlanGenerator::composeStructuredEdit((int)$before['id'], $edits, $db);
+            if (!$composed) return ['error' => 'structured_failed', 'message' => 'Could not rebuild that workout.'];
+            return [
+                'change_type' => 'archetype_substitution',
+                'composed'    => $composed,
+                'columns'     => [
+                    'workout_type'         => $composed['workout_type'],
+                    'archetype_variant'    => $composed['archetype_variant'],
+                    'archetype_params'     => $composed['archetype_params'],
+                    'instance_signature'   => $composed['instance_signature'],
+                    'structure'            => $composed['structure'],
+                    'display_title'        => $composed['display_title'],
+                    'display_summary'      => $composed['display_summary'],
+                    'athlete_instructions' => $composed['athlete_instructions'],
+                    'description'          => $composed['athlete_instructions'],
+                    'target_duration'      => (int)$composed['target_duration'],
+                    'intensity_load'       => $composed['intensity_load'],
+                    'push_text_only'       => 0,
                 ],
             ];
         }
@@ -3809,7 +3843,7 @@ class CoachController
                     pw.archetype_code, pw.archetype_variant, pw.notes, pw.display_title, pw.display_summary, pw.athlete_instructions,
                     pw.display_title                                          AS template_name,
                     COALESCE(pw.athlete_instructions, pw.description, pw.display_summary, \'\') AS description,
-                    pw.structure, pw.target_duration, pw.intensity_load,
+                    pw.structure, pw.archetype_params, pw.target_duration, pw.intensity_load,
                     pw.coach_locked, pw.visible_to_athlete, pw.added_by_role, pw.carried_over_from_plan_id,
                     (
                         SELECT cw.compliance_score

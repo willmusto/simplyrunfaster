@@ -369,14 +369,16 @@ class IntervalsService
         elseif (isset($seg['rep_duration_seconds'])) $workSec = (int)$seg['rep_duration_seconds'];
         elseif (isset($params['work_duration_seconds'])) $workSec = (int)$params['work_duration_seconds'];
 
+        // An explicit recovery (set by a coach structured edit) wins over the model default.
+        $explicitRec = (int)($params['recovery_duration_seconds'] ?? 0);
         $cite = self::citationSuffix($seg, $params, $context);
         if ($workSec > 0) {
-            $recSec = self::roundSecs(self::modelRecoverySeconds($recModel, $workSec));
+            $recSec = $explicitRec > 0 ? self::roundSecs($explicitRec) : self::roundSecs(self::modelRecoverySeconds($recModel, $workSec));
             return self::repeatBlock($n, '- ' . self::fmtSeconds($workSec) . ' ' . $zone . $cite, $recSec);
         }
         if (isset($seg['rep_distance_miles'])) {
             $meters = (int)round((float)$seg['rep_distance_miles'] * self::METERS_PER_MILE);
-            $recSec = self::roundSecs(self::modelRecoverySeconds($recModel, self::estimateRepSeconds($meters, 'half_marathon', $context)));
+            $recSec = $explicitRec > 0 ? self::roundSecs($explicitRec) : self::roundSecs(self::modelRecoverySeconds($recModel, self::estimateRepSeconds($meters, 'half_marathon', $context)));
             return self::repeatBlock($n, '- ' . self::fmtMeters($meters) . ' ' . $zone . $cite, $recSec);
         }
         return '';
@@ -392,8 +394,10 @@ class IntervalsService
         $n      = (int)($seg['repetitions'] ?? $seg['rep_count'] ?? $params['rep_count'] ?? 0);
         $durSec = (int)($seg['rep_duration_seconds'] ?? $seg['duration_seconds'] ?? 0);
         if ($n < 1 || $durSec < 1) return '';
+        // An explicit recovery (coach structured edit) wins over the jog-back default.
+        $explicitRec = (int)($params['recovery_duration_seconds'] ?? 0);
         $recMin = (int)($seg['recovery']['minimum_recovery_seconds'] ?? 0);
-        $recSec = self::roundSecs($recMin > 0 ? $recMin : max(90, $durSec));
+        $recSec = self::roundSecs($explicitRec > 0 ? $explicitRec : ($recMin > 0 ? $recMin : max(90, $durSec)));
 
         $effortCue = $type === 'hill_sprints'
             ? 'uphill sprint: near-maximal but controlled'
