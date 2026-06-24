@@ -2080,9 +2080,9 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             if (addBtn) { openAwd(addBtn.getAttribute('data-add-date')); return; }
 
             if (e.target.id === 'awd-bd' || e.target.id === 'awd-close') { closeAwd(); return; }
-            var tab = e.target.closest('.awd-tab'); if (tab) { setAwdTab(tab.getAttribute('data-awd-tab')); return; }
-            var fb = e.target.closest('.awd-filter-btn'); if (fb) { renderArchList(fb.getAttribute('data-cat')); return; }
-            var arch = e.target.closest('.awd-arch'); if (arch) { selectArch(arch.getAttribute('data-arch-code')); return; }
+            var tab = e.target.closest('#awd .awd-tab'); if (tab) { setAwdTab(tab.getAttribute('data-awd-tab')); return; }
+            var fb = e.target.closest('#awd .awd-filter-btn'); if (fb) { renderArchList(fb.getAttribute('data-cat')); return; }
+            var arch = e.target.closest('#awd .awd-arch'); if (arch) { selectArch(arch.getAttribute('data-arch-code')); return; }
             if (e.target.id === 'awd-preview-btn') { previewArch(); return; }
             if (e.target.id === 'awd-add-arch') { addArch(); return; }
             if (e.target.id === 'awd-add-ff') { addFreeform(); return; }
