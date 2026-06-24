@@ -1325,7 +1325,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                     <label class="form-label" for="ewd-s-title">Title</label>
                     <input type="text" id="ewd-s-title" class="form-input" maxlength="255">
                 </div>
-                <div class="form-group">
+                <div class="form-group" id="ewd-s-type-group">
                     <label class="form-label" for="ewd-s-type">Workout type</label>
                     <select id="ewd-s-type" class="form-select">
                         <option value="easy">Easy run</option><option value="long">Long run</option>
@@ -1338,6 +1338,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 <div class="form-group">
                     <label class="form-label" for="ewd-s-dur">Duration (minutes)</label>
                     <input type="number" id="ewd-s-dur" class="form-input" min="1" max="600" style="max-width:120px;">
+                    <div id="ewd-s-dur-hint" style="display:none;font-size:12px;color:var(--text-muted);margin-top:4px;">Set by the workout's structure. To change it, edit the reps in the Structure tab.</div>
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="ewd-s-instr">Instructions <span style="font-weight:400;color:var(--text-muted);">(shown to athlete)</span></label>
@@ -1552,6 +1553,18 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             $id('ewd-s-dur').value = editData.target_duration || '';
             $id('ewd-s-instr').value = editData.instructions || '';
             $id('ewd-s-notes').value = editData.coach_notes || '';
+            // Generated (archetype-backed) workouts: type is implied by the archetype (change it via
+            // "Replace from library") and duration is derived from the structure (change it via the
+            // Structure tab). Hide the type picker and make duration read-only so a surface tweak can't
+            // desync the badge/duration from the actual content. Free-form workouts (no archetype) keep
+            // both editable — there, type and duration are the only source of truth.
+            var ewdGenerated = !!(editData.archetype_code && editData.archetype_code !== '');
+            $id('ewd-s-type-group').style.display = ewdGenerated ? 'none' : '';
+            var ewdDur = $id('ewd-s-dur');
+            ewdDur.readOnly = ewdGenerated;
+            ewdDur.tabIndex = ewdGenerated ? -1 : 0;
+            ewdDur.style.opacity = ewdGenerated ? '0.6' : '';
+            $id('ewd-s-dur-hint').style.display = ewdGenerated ? '' : 'none';
             $id('ewd-ff-title').value = editData.title || '';
             setSelect('ewd-ff-type', editData.workout_type);
             $id('ewd-ff-dur').value = editData.target_duration || '';
