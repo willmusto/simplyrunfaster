@@ -4312,17 +4312,25 @@ class PlanGenerator
     }
 
     /**
-     * Batch 3 fartlek variant pick: the four standard shape variants at equal weight plus an
-     * OCCASIONAL (~9%) code-synthesized "diminishing_descending" family (built parametrically
-     * in addDerivedParams; no DB variant row needed).
+     * Batch 3 fartlek variant pick: the standard shape variants at equal weight, the
+     * "diminishing_descending" family OCCASIONAL (~9%). The family is now a DB variant row
+     * (coach-pickable in the Library); it is weighted low here so auto-roll frequency is
+     * unchanged. If the DB row is absent (fresh env before the migration), the family is
+     * still synthesized so in-code generation keeps working either way.
      */
     private static function pickFartlekVariantWeighted(array $variants): array
     {
-        $candidates = [];
-        foreach ($variants as $v) $candidates[] = ['v' => $v, 'w' => 10];
-        $candidates[] = ['v' => ['code' => 'diminishing_descending', 'name' => 'Diminishing Descending Ladder'], 'w' => 4];
+        $candidates = []; $hasDiminishing = false;
+        foreach ($variants as $v) {
+            $isDim = ($v['code'] ?? '') === 'diminishing_descending';
+            if ($isDim) $hasDiminishing = true;
+            $candidates[] = ['v' => $v, 'w' => $isDim ? 4 : 10];
+        }
+        if (!$hasDiminishing) {
+            $candidates[] = ['v' => ['code' => 'diminishing_descending', 'name' => 'Diminishing Descending Ladder'], 'w' => 4];
+        }
         $total = array_sum(array_column($candidates, 'w'));
-        $r = mt_rand(1, $total); $acc = 0;
+        $r = mt_rand(1, max(1, $total)); $acc = 0;
         foreach ($candidates as $e) { $acc += $e['w']; if ($r <= $acc) return $e['v']; }
         return $candidates[array_key_last($candidates)]['v'];
     }

@@ -576,6 +576,9 @@ $archetypes = [
             ['code' => 'ascending',       'name' => 'Ascending Fartlek Ladder',   'examples' => ['1-2-3-4', '2-3-4-5']],
             ['code' => 'symmetric',       'name' => 'Symmetric Fartlek Ladder',   'examples' => ['1-2-3-2-1']],
             ['code' => 'sharp_descending','name' => 'Sharp Descending Fartlek',   'examples' => ['60-30-15']],
+            // Parameterized nested-descent family; the engine samples start/step/stacks at
+            // generation time (no fixed allowed_pattern) -- see PlanGenerator::buildDiminishingLadder.
+            ['code' => 'diminishing_descending', 'name' => 'Diminishing Descending Ladder', 'examples' => ['90-80-...-10, 80-...-10, 70-...-10']],
         ],
         'parameters' => [
             'warmup_minutes'         => ['type' => 'integer', 'workable' => ['min' => 15, 'max' => 20], 'well_trained' => ['min' => 15, 'max' => 20]],

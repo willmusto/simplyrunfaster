@@ -1036,6 +1036,13 @@
         "examples": [
           "60-30-15"
         ]
+      },
+      {
+        "code": "diminishing_descending",
+        "name": "Diminishing Descending Ladder",
+        "examples": [
+          "90-80-...-10, 80-...-10, 70-...-10"
+        ]
       }
     ],
     "parameters": {
