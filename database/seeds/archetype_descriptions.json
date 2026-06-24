@@ -80,7 +80,7 @@
   },
   {
     "code": "structured_fartlek_ladder",
-    "description_template": "A quality session of faster efforts arranged as a ladder, with easy running to recover between each. Run the longer efforts strong but controlled and let the shorter ones come a little quicker, staying smooth throughout. It's real work without the rigidity of the track, so respond to effort and feel rather than chasing exact splits.",
+    "description_template": "{{round_count}} x {{fartlek_ladder_sequence}} fartlek ladder, with easy running to recover between each. Run the longer efforts strong but controlled and let the shorter ones come a little quicker, staying smooth throughout. It's real work without the rigidity of the track, so respond to effort and feel rather than chasing exact splits.",
     "intended_use": "Flexible quality session for base, development, maintenance, and lighter build/peak work. Useful when the athlete needs quality without the rigidity of track intervals.",
     "special_rules": [
       "Time-based even though it is a quality session.",

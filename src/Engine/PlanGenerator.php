@@ -1277,13 +1277,20 @@ class PlanGenerator
         $code = (string)($row['archetype_code'] ?? '');
         // Scoped to archetypes whose descriptions are fully token-driven, so a re-render reproduces
         // the specifics faithfully (the 5 uniform-rep + mixed gain the lead line + refreshed pace;
-        // continuous_progression_tempo renders {{progression_instruction}} + warm/cool from stored
-        // params, which addDerivedParams rebuilds unconditionally even in $manual mode). Still
-        // EXCLUDED: structured_fartlek_ladder + fast_finish_long, whose instance-specific copy
-        // (e.g. the fartlek ladder sequence) is built via conditional code paths that do not
-        // re-trigger on re-render, so a re-render would lose their specifics.
-        $recomposeCodes = array_merge(self::STRUCTURED_EDIT_CODES, ['continuous_progression_tempo']);
+        // continuous_progression_tempo renders {{progression_instruction}} + warm/cool, and STANDARD
+        // structured_fartlek_ladder renders {{round_count}}/{{fartlek_ladder_sequence}}, all from
+        // stored params). fast_finish_long stays EXCLUDED (its copy is built via conditional code
+        // paths that do not re-trigger on re-render).
+        $recomposeCodes = array_merge(self::STRUCTURED_EDIT_CODES, ['continuous_progression_tempo', 'structured_fartlek_ladder']);
         if (!in_array($code, $recomposeCodes, true)) return null;
+        // The diminishing_descending fartlek variant's description is built by an addDerivedParams
+        // code override that only fires on fresh generation (empty work_intervals_seconds); a
+        // re-render would drop its bespoke "Each stack counts down..." copy, so refuse it. Standard
+        // variants render their ladder from the stored tokens and re-render faithfully.
+        if ($code === 'structured_fartlek_ladder'
+            && (string)($row['archetype_variant'] ?? '') === 'diminishing_descending') {
+            return null;
+        }
 
         $athleteId = (int)$row['athlete_id'];
         $profile   = self::loadProfile($athleteId, $db);
