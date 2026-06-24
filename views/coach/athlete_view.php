@@ -1312,6 +1312,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             <div style="font-size:15px;font-weight:600;margin-bottom:2px;padding-right:28px;">Edit workout</div>
             <div id="ewd-date-label" style="font-size:12px;color:var(--text-muted);margin-bottom:12px;"></div>
 
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">How do you want to edit this?</div>
             <div class="awd-tabs">
                 <button type="button" class="awd-tab is-active" data-ewd-tab="surface">Tweak</button>
                 <button type="button" class="awd-tab" data-ewd-tab="structure" id="ewd-tab-structure" style="display:none;">Structure</button>
@@ -1321,6 +1322,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
 
             <!-- MODE 1 — surface tweak -->
             <div id="ewd-pane-surface">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Adjust the title, instructions, or notes. The workout type and duration come from its structure (change those in Structure or Replace).</div>
                 <div class="form-group">
                     <label class="form-label" for="ewd-s-title">Title</label>
                     <input type="text" id="ewd-s-title" class="form-input" maxlength="255">
@@ -1361,6 +1363,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
 
             <!-- MODE 2 — archetype picker -->
             <div id="ewd-pane-archetype" style="display:none;">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Swap this workout for a different type from the library.</div>
                 <div class="awd-filter" id="ewd-filter">
                     <button type="button" class="awd-filter-btn is-active" data-ecat="all">All</button>
                     <button type="button" class="awd-filter-btn" data-ecat="easy">Easy run</button>
@@ -1392,6 +1395,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
 
             <!-- MODE 3 — free-form -->
             <div id="ewd-pane-freeform" style="display:none;">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Replace this with a custom workout you write yourself.</div>
                 <div class="form-group">
                     <label class="form-label" for="ewd-ff-title">Title</label>
                     <input type="text" id="ewd-ff-title" class="form-input" maxlength="255">
