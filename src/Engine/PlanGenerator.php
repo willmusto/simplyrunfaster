@@ -3229,34 +3229,67 @@ class PlanGenerator
             $params['mapped_effort'] = $mapped;
         }
 
-        // structured_fartlek_ladder: pick variant early to derive the correct work-interval
-        // pattern, then format it as a human-readable sequence for description templates.
+        // structured_fartlek_ladder (Batch 3): widen pattern-selection variety + add the
+        // parameterized "diminishing descending ladder" family. The variant is picked with a
+        // weighted draw (four standard shapes, plus the diminishing family occasionally). For
+        // standard variants the engine now varies WHICH allowed_pattern it uses within the
+        // variant's shape (not one frozen pattern) and samples round_count (more in base,
+        // fewer at peak). The diminishing family builds a nested-descent sequence from sampled
+        // start/step/stacks, so it produces many distinct variations.
         if ($archetype['code'] === 'structured_fartlek_ladder' && empty($params['work_intervals_seconds'])) {
             if (!isset($archetype['resolved_variant'])) {
-                $archetype['resolved_variant'] = self::pickVariant($archetype);
+                $archetype['resolved_variant'] = self::pickFartlekVariantWeighted($archetype['variants'] ?? []);
             }
-            $variantCode = $archetype['resolved_variant']['code'] ?? 'descending';
-            $patternMap  = [
-                'descending'       => [90, 60, 30],
-                'ascending'        => [60, 120, 180, 240],
-                'symmetric'        => [60, 120, 180, 120, 60],
-                'sharp_descending' => [60, 30, 15],
-            ];
-            $pattern = $patternMap[$variantCode] ?? [90, 60, 30];
-            $params['work_intervals_seconds'] = $pattern;
-            $allWholeMin = max($pattern) >= 60
-                && array_sum(array_map(fn($s) => $s % 60, $pattern)) === 0;
-            $params['fartlek_ladder_sequence'] = $allWholeMin
-                ? implode('–', array_map(fn($s) => $s / 60, $pattern)) . ' min'
-                : implode('–', $pattern) . ' sec';
-            // Cap round_count so warmup + (rounds × 2 × interval-sum) + cooldown ≤ targetMinutes
+            $variantCode  = $archetype['resolved_variant']['code'] ?? 'descending';
             $warmupMins   = (int)($params['warmup_minutes']   ?? 0);
             $cooldownMins = (int)($params['cooldown_minutes'] ?? 0);
             $avail        = max(0, $targetMinutes - $warmupMins - $cooldownMins);
-            $roundSec     = 2 * array_sum($pattern); // work + equal recovery
-            if ($roundSec > 0) {
-                $maxRounds = max(1, (int)floor($avail * 60 / $roundSec));
-                $params['round_count'] = min((int)($params['round_count'] ?? 1), $maxRounds);
+
+            if ($variantCode === 'diminishing_descending') {
+                $ladder = self::buildDiminishingLadder($avail * 60);
+                $params['work_intervals_seconds'] = $ladder['flat'];
+                $params['fartlek_ladder_sequence'] = $ladder['display'];
+                $params['round_count'] = 1; // the nested ladder is the full session
+                $display['title_template'] = '{{variant_name}}';
+                $display['description_template'] =
+                    'A diminishing descending ladder: {{fartlek_ladder_sequence}}. Each stack counts down to '
+                    . 'the shortest surge, and the next stack starts one step lower than the last. Run every '
+                    . 'surge controlled and a touch quicker as it shortens, with equal easy recovery between efforts.';
+                $archetype['display'] = $display;
+            } else {
+                // Vary which allowed_pattern is used within the variant's shape.
+                $allowed = $archetype['parameters']['work_intervals_seconds']['allowed_patterns'] ?? [];
+                $wantShape = match ($variantCode) {
+                    'ascending' => 'ascending',
+                    'symmetric' => 'symmetric',
+                    default     => 'descending', // descending + sharp_descending
+                };
+                $group = array_values(array_filter($allowed, fn($p) => is_array($p) && self::classifyFartlekPattern($p) === $wantShape));
+                if ($variantCode === 'sharp_descending') {
+                    $sharp = array_values(array_filter($group, fn($p) => min($p) <= 30));
+                    if (!empty($sharp)) $group = $sharp;
+                }
+                if (empty($group)) $group = [[90, 60, 30]];
+                $pattern = $group[array_rand($group)];
+                $params['work_intervals_seconds'] = $pattern;
+                $allWholeMin = max($pattern) >= 60 && array_sum(array_map(fn($s) => $s % 60, $pattern)) === 0;
+                $params['fartlek_ladder_sequence'] = $allWholeMin
+                    ? implode('–', array_map(fn($s) => $s / 60, $pattern)) . ' min'
+                    : implode('–', $pattern) . ' sec';
+
+                // round_count: sampled, MORE in base and FEWER at peak (sharpen), then slot-capped.
+                $rcSpec   = $archetype['parameters']['round_count'][$classification]
+                    ?? $archetype['parameters']['round_count']['well_trained'] ?? ['min' => 1, 'max' => 2];
+                $rcMin    = (int)($rcSpec['min'] ?? 1);
+                $rcMax    = (int)($rcSpec['max'] ?? 2);
+                $center   = $rcMin + ($rcMax - $rcMin) * (1.0 - self::cycleFraction());
+                $rounds   = max($rcMin, min($rcMax, (int)round($center + self::randFloat(-0.6, 0.6))));
+                $roundSec = 2 * array_sum($pattern); // work + equal recovery
+                if ($roundSec > 0) {
+                    $maxRounds = max(1, (int)floor($avail * 60 / $roundSec));
+                    $rounds = min($rounds, $maxRounds);
+                }
+                $params['round_count'] = max(1, $rounds);
             }
         }
 
@@ -3318,6 +3351,23 @@ class PlanGenerator
         }
         if (($archetype['code'] ?? '') === 'high_volume_time_intervals') {
             $params = self::distributeHighVolumeTimeIntervals($params, $classification, $goalDistance);
+        }
+
+        // archetype-ranging-rollout Batch 3: dynamic ladder for mixed_distance_repeats. The
+        // variant fixes the ordering; the engine builds a coherent track-standard sequence
+        // (3-9 rungs, more in base, fewer at peak, scaled by goal). Description/title are
+        // overridden to show the actual ladder. SHARPEN direction, like Batches 1-2.
+        if (($archetype['code'] ?? '') === 'mixed_distance_repeats') {
+            $params = self::distributeMixedDistanceRepeats(
+                $params, $archetype['resolved_variant'] ?? [], $archetype['parameters'] ?? [],
+                $classification, $goalDistance, $targetMinutes
+            );
+            $display['title_template']       = '{{variant_name}}';
+            $display['description_template'] =
+                'A mixed-distance ladder: {{mixed_ladder_sequence}}, run at a controlled hard effort. '
+                . 'Stay controlled through the early reps and hold your quality across the full sequence, '
+                . 'with easy jog recovery between each one.';
+            $archetype['display'] = $display;
         }
 
         // Mile rep-distance bias (mile spec Part 10): for equal_distance_repeats, prefer the
@@ -4158,6 +4208,167 @@ class PlanGenerator
             if ($r <= $acc) return $e['v'];
         }
         return $weighted[array_key_last($weighted)]['v'];
+    }
+
+    // ── archetype-ranging-rollout Batch 3 (mixed_distance / structured_fartlek) ────
+
+    /** Track-standard rung distances for mixed-distance ladders. */
+    private const MIXED_TRACK = [200, 300, 400, 600, 800, 1000, 1200, 1600];
+
+    /**
+     * Batch 3: DYNAMIC SEQUENCE generation for mixed_distance_repeats. The session is a
+     * ladder of DIFFERENT track-standard distances (not N reps of one), so even-or-3 does
+     * not apply. The variant fixes the ORDERING (long_to_short / strength_speed = descending;
+     * short_to_long / speed_strength = ascending; combo_set = pyramid). Rung count is 3-9
+     * (~5 typical), MORE in base and FEWER toward peak (sharpen), and higher for longer goal
+     * distances. The quality_volume_meters anchor (goal + phase scaled) sets the average rung
+     * distance; the rungs are chosen as a coherent window of track standards and arranged by
+     * the variant so the engine never emits a random jumble. Truncated to fit the slot.
+     */
+    private static function distributeMixedDistanceRepeats(
+        array $params, array $variant, array $allParams,
+        string $classification, string $goalDistance, int $targetMinutes
+    ): array {
+        $vRange = $allParams['quality_volume_meters'][$classification]
+            ?? $allParams['quality_volume_meters']['well_trained'] ?? ['min' => 3000, 'max' => 6000];
+        $vMin = (float)($vRange['min'] ?? 3000);
+        $vMax = (float)($vRange['max'] ?? 6000);
+
+        $goalFrac  = match ($goalDistance) { 'marathon' => 0.9, 'half' => 0.65, '10K' => 0.4, default => 0.2 };
+        $cycleFrac = self::cycleFraction();
+        $phaseFrac = 1.0 - $cycleFrac;
+        $pVol      = max(0.0, min(1.0, 0.55 * $goalFrac + 0.45 * $phaseFrac + self::randFloat(-0.07, 0.07)));
+        $volTarget = (int)round($vMin + ($vMax - $vMin) * $pVol);
+
+        // Rung count: base more, peak fewer; goal distance raises the base ceiling. Hard cap 9.
+        $goalBoost = match ($goalDistance) { 'marathon' => 2, 'half' => 1, '10K' => 1, default => 0 };
+        $baseHigh  = min(8, 6 + $goalBoost);
+        $rungCount = (int)round(4 + ($baseHigh - 4) * $phaseFrac);
+        $rungCount = max(3, min(9, $rungCount));
+
+        $variantCode = $variant['code'] ?? 'long_to_short';
+        $pace = $classification === 'well_trained' ? 6.5 : 9.0; // min/mile quality proxy
+        $warm = (int)($params['warmup_minutes'] ?? 0);
+        $cool = (int)($params['cooldown_minutes'] ?? 0);
+        $available = max(10, $targetMinutes - $warm - $cool);
+        $estMin = static fn(array $s): float => array_sum(array_map(fn($m) => $m / 1609.34 * $pace * 2, $s));
+
+        $seq = self::buildMixedLadder($variantCode, $volTarget, $rungCount);
+        $guard = 0;
+        while ($estMin($seq) > $available && $rungCount > 3 && $guard++ < 8) {
+            $rungCount--;
+            $volTarget = (int)round($volTarget * 0.88);
+            $seq = self::buildMixedLadder($variantCode, $volTarget, $rungCount);
+        }
+
+        $params['interval_distances']    = $seq;
+        $params['rung_count']            = count($seq);
+        $params['quality_volume_meters'] = array_sum($seq);
+        $params['mixed_ladder_sequence'] = implode(' - ', $seq) . ' m';
+        return $params;
+    }
+
+    /**
+     * Build a coherent ladder of $rungCount track-standard distances around the average
+     * (volume / count), arranged by the variant ordering. Ascending/descending take a
+     * distinct window of track standards; combo_set builds a pyramid (ascending to a peak,
+     * then mirrored down). strength_speed/speed_strength shift the window toward longer/
+     * shorter distances respectively.
+     */
+    private static function buildMixedLadder(string $variant, int $volTarget, int $rungCount): array
+    {
+        $track = self::MIXED_TRACK;
+        $n     = count($track);
+        $order = match ($variant) {
+            'long_to_short', 'strength_speed' => 'desc',
+            'short_to_long', 'speed_strength' => 'asc',
+            default                           => 'pyramid', // combo_set
+        };
+        $shift = match ($variant) { 'strength_speed' => 1, 'speed_strength' => -1, default => 0 };
+
+        if ($order === 'pyramid') {
+            $k   = max(2, (int)ceil($rungCount / 2)); // ascending half incl peak
+            $avg = $volTarget / max(1, $rungCount);
+            $idx = self::nearestIndex($track, $avg);
+            $start = max(0, min($n - $k, $idx - (int)floor($k / 2) + $shift));
+            $up  = array_slice($track, $start, $k);              // ascending distinct
+            return array_merge($up, array_reverse(array_slice($up, 0, $k - 1)));
+        }
+
+        $rungCount = min($rungCount, $n);
+        $avg   = $volTarget / max(1, $rungCount);
+        $idx   = self::nearestIndex($track, $avg);
+        $start = max(0, min($n - $rungCount, $idx - (int)floor($rungCount / 2) + $shift));
+        $win   = array_slice($track, $start, $rungCount);        // ascending distinct
+        return $order === 'desc' ? array_reverse($win) : $win;
+    }
+
+    /** Index of the list entry nearest $value. */
+    private static function nearestIndex(array $list, float $value): int
+    {
+        $best = 0; $bd = INF;
+        foreach ($list as $i => $v) { $d = abs($v - $value); if ($d < $bd) { $bd = $d; $best = $i; } }
+        return $best;
+    }
+
+    /**
+     * Batch 3 fartlek variant pick: the four standard shape variants at equal weight plus an
+     * OCCASIONAL (~9%) code-synthesized "diminishing_descending" family (built parametrically
+     * in addDerivedParams; no DB variant row needed).
+     */
+    private static function pickFartlekVariantWeighted(array $variants): array
+    {
+        $candidates = [];
+        foreach ($variants as $v) $candidates[] = ['v' => $v, 'w' => 10];
+        $candidates[] = ['v' => ['code' => 'diminishing_descending', 'name' => 'Diminishing Descending Ladder'], 'w' => 4];
+        $total = array_sum(array_column($candidates, 'w'));
+        $r = mt_rand(1, $total); $acc = 0;
+        foreach ($candidates as $e) { $acc += $e['w']; if ($r <= $acc) return $e['v']; }
+        return $candidates[array_key_last($candidates)]['v'];
+    }
+
+    /**
+     * Batch 3: parameterized "diminishing descending ladder" surge sequence. A nested descent:
+     * each stack counts down from its top to the floor by a fixed step; each stack starts one
+     * step lower than the last. start_point 60-120s, step 10/15s, 3-5 stacks (sampled), so it
+     * produces many distinct variations rather than one fixed monster. Truncated so the full
+     * work + equal-recovery footprint fits the available main-set seconds. Returns the flat
+     * surge list plus a stack-grouped display string.
+     */
+    private static function buildDiminishingLadder(int $availSeconds): array
+    {
+        $start = [60, 75, 90, 105, 120][array_rand([60, 75, 90, 105, 120])];
+        $step  = [10, 15][array_rand([10, 15])];
+        $floor = $step >= 15 ? 15 : 10;
+        $maxStacks = mt_rand(3, 5);
+
+        $flat = []; $stacks = []; $used = 0;
+        for ($s = 0; $s < $maxStacks; $s++) {
+            $top = $start - $s * $step;
+            if ($top < $floor + $step) break; // a stack needs at least two surges
+            $stack = [];
+            for ($v = $top; $v >= $floor; $v -= $step) {
+                if ($used + $v * 2 > $availSeconds && !empty($flat)) { $stacks[] = $stack; break 2; }
+                $stack[] = $v; $flat[] = $v; $used += $v * 2;
+            }
+            $stacks[] = $stack;
+        }
+        $stacks  = array_values(array_filter($stacks, fn($s) => !empty($s)));
+        $display = implode(', ', array_map(fn($st) => implode('-', $st), $stacks)) . ' sec';
+        return ['flat' => $flat, 'display' => $display];
+    }
+
+    /** Classify a fartlek work-interval pattern by shape (for varied selection within a variant). */
+    private static function classifyFartlekPattern(array $p): string
+    {
+        $inc = true; $dec = true;
+        for ($i = 1, $c = count($p); $i < $c; $i++) {
+            if ($p[$i] <= $p[$i - 1]) $inc = false;
+            if ($p[$i] >= $p[$i - 1]) $dec = false;
+        }
+        if ($inc) return 'ascending';
+        if ($dec) return 'descending';
+        return 'symmetric';
     }
 
     /** Pick a random variant from the archetype's variants array. */
