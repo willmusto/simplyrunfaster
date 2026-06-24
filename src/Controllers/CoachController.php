@@ -1120,9 +1120,16 @@ class CoachController
         }
 
         // surface — tweak in place; archetype_code + instance_signature unchanged.
+        // On a GENERATED (archetype-backed) workout the structure is the source of truth for type and
+        // duration, so a surface edit must NEVER write them (mirrors the UI, which hides the type picker
+        // and makes duration read-only on these rows — commit d921162). Type changes go through Replace
+        // from library; duration changes go through the Structure tab (reps -> duration). Only free-form
+        // rows (archetype_code NULL) accept workout_type / target_duration here, where they are the only
+        // source of truth. Title / instructions / coach notes stay editable for all rows below.
+        $isGenerated = $oldArch !== null;
         $validTypes = ['easy','long','interval','hill','fartlek','tempo','race','race_pace','speed','plyometric','recovery','cross_train'];
-        $type   = in_array($in['workout_type'] ?? '', $validTypes, true) ? (string)$in['workout_type'] : $oldType;
-        $newDur = (isset($in['target_duration']) && (int)$in['target_duration'] > 0) ? (int)$in['target_duration'] : ($oldDur ?? 0);
+        $type   = (!$isGenerated && in_array($in['workout_type'] ?? '', $validTypes, true)) ? (string)$in['workout_type'] : $oldType;
+        $newDur = (!$isGenerated && isset($in['target_duration']) && (int)$in['target_duration'] > 0) ? (int)$in['target_duration'] : ($oldDur ?? 0);
 
         // Preserve the row's effective intensity factor; recompute load for the new duration.
         $factor = ($oldLoad !== null && $oldLoad > 0 && $oldDur) ? $oldLoad / $oldDur : (self::FREEFORM_LOAD_FACTOR[$type] ?? 0.5);
