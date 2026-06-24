@@ -3280,9 +3280,15 @@ class PlanGenerator
         }
 
         // Pick a variant if not already set (must happen before fit-to-slot capping
-        // so the variant is available, though capping below is param-driven not variant-driven)
+        // so the variant is available, though capping below is param-driven not variant-driven).
+        // Batch 2 FREQUENCY bias: for the distance-based interval pair, weight the variant
+        // pick by rep distance so long-rep sessions (1000-1600m) come up more often than
+        // short-rep ones (400/600m) -- Will's "6x1000 is common, 6 miles of 400s is rare".
         if (!isset($archetype['resolved_variant'])) {
-            $archetype['resolved_variant'] = self::pickVariant($archetype);
+            $archetype['resolved_variant'] =
+                in_array($archetype['code'] ?? '', ['equal_distance_repeats', 'short_speed_repeats'], true)
+                    ? self::pickDistanceVariantWeighted($archetype['variants'] ?? [])
+                    : self::pickVariant($archetype);
         }
 
         // tempo_intervals (resolveParameters-ranging-spec Stage A): replace the frozen
@@ -3333,26 +3339,21 @@ class PlanGenerator
             $params['rep_distance_meters'] = (int)round($params['quality_volume_meters'] / $params['rep_count'] / 10) * 10;
         }
 
-        // short_speed_repeats and equal_distance_repeats: each variant prescribes a distinct
-        // discrete rep distance (data-driven from the variant JSON) — so variants render distinct
-        // titles and produce distinct instance signatures (resolves Item 10). rep_count is then
-        // derived from the quality-volume target so total volume stays within the archetype's band
-        // regardless of distance (longer reps → fewer reps), clamped to the classification's
-        // rep_count range so it never drops below minimum_viable_params.
+        // archetype-ranging-rollout Batch 2: volume-anchored ranging for the distance-based
+        // interval pair. The selected variant sets the rep distance (track standard); the
+        // quality-volume target is resolved by distance (short rep -> low end, long rep ->
+        // high end), goal distance (marathoner > 5K), and phase (SHARPEN toward peak: more
+        // volume/reps in base, fewer at peak). rep_count = volume / rep_distance, even-or-3.
         if (in_array($archetype['code'], ['short_speed_repeats', 'equal_distance_repeats'], true)) {
-            $variantDist = $archetype['resolved_variant']['rep_distance_meters'] ?? null;
-            $default     = $archetype['code'] === 'short_speed_repeats' ? 200 : 800;
-            $params['rep_distance_meters'] = (int)($variantDist ?? $params['rep_distance_meters'] ?? $default);
-            if ($archetype['code'] === 'short_speed_repeats') {
-                $params['effort_zone'] = $params['effort_zone'] ?? 'repetition';
-            }
-            if (!empty($params['quality_volume_meters']) && $params['rep_distance_meters'] > 0) {
-                $rcSpec = $archetype['parameters']['rep_count'][$classification] ?? ['min' => 4, 'max' => 10];
-                $rcMin  = (int)($rcSpec['min'] ?? 4);
-                $rcMax  = (int)($rcSpec['max'] ?? 10);
-                $params['rep_count'] = max($rcMin, min($rcMax,
-                    (int)round($params['quality_volume_meters'] / $params['rep_distance_meters'])));
-            }
+            $params = self::distributeDistanceRepeats(
+                $params,
+                $archetype['resolved_variant'] ?? [],
+                $archetype['variants'] ?? [],
+                $archetype['parameters'] ?? [],
+                $classification,
+                $goalDistance,
+                $archetype['code']
+            );
         }
         // Derive rep_duration_seconds for distance-based interval archetypes. Used by
         // fit-to-slot capping and computeMainSetMinutes for sum-of-parts duration honesty.
@@ -3425,6 +3426,16 @@ class PlanGenerator
                     : max(1, (int)floor($available / 3));
                 $params['rep_count'] = min((int)($params['rep_count'] ?? 1), $maxReps);
                 break;
+            case 'short_speed_repeats':
+                // Rep cycle = sprint + ~90 sec generous movement recovery (speed_standard model),
+                // matching computeMainSetMinutes. Batch 2 phase-scales reps in the distribution,
+                // so this is a slot-fit safety cap (the old phaseRepCap no longer applies here).
+                $repSec  = (int)($params['rep_duration_seconds'] ?? 0);
+                if ($repSec > 0) {
+                    $maxReps = max(1, (int)floor($available * 60 / ($repSec + 90)));
+                    $params['rep_count'] = min((int)($params['rep_count'] ?? 1), $maxReps);
+                }
+                break;
             case 'continuous_progression_tempo':
                 if (!empty($params['continuous_work_minutes']) && (int)$params['continuous_work_minutes'] > $available) {
                     $params['continuous_work_minutes'] = max(10, $available);
@@ -3432,10 +3443,13 @@ class PlanGenerator
                 break;
         }
 
-        // FIX 2: cap rep counts by phase for short/distance repeat archetypes so base phase
-        // carries less volume than build/peak (base 8, build 12, peak 16). Runs after the
-        // fit-to-slot cap so it is the final word, and before total_distance below.
-        if (in_array($archetype['code'] ?? '', ['short_speed_repeats', 'equal_distance_repeats', 'mixed_distance_repeats'], true)
+        // FIX 2: cap rep counts by phase (base 8, build 12, peak 16) so base carries less
+        // volume than build/peak. Now ONLY mixed_distance_repeats (still on the build
+        // direction, Batch 3). equal_distance / short_speed were removed: Batch 2 inverts
+        // their phase direction (sharpen toward peak) inside distributeDistanceRepeats, so
+        // this build-direction cap would fight it and block base sessions from reaching the
+        // 9+ checkpoint band. Their slot-fit caps in the switch above still apply.
+        if (in_array($archetype['code'] ?? '', ['mixed_distance_repeats'], true)
             && !empty($params['rep_count'])) {
             $params['rep_count'] = min((int)$params['rep_count'], self::phaseRepCap($phase));
         }
@@ -3444,7 +3458,7 @@ class PlanGenerator
         // idiomatic (no 5/7/9) and, for hills, matches the conditional checkpoint math
         // (halfway = rep_count / 2 stays a clean integer). Snaps DOWN so it never exceeds the
         // fit-to-slot / phase cap. Tempo is snapped in its own distribution path.
-        if (in_array($archetype['code'] ?? '', ['sustained_hill_repeats', 'equal_distance_repeats', 'high_volume_time_intervals'], true)
+        if (in_array($archetype['code'] ?? '', ['sustained_hill_repeats', 'equal_distance_repeats', 'high_volume_time_intervals', 'short_speed_repeats'], true)
             && !empty($params['rep_count'])) {
             $params['rep_count'] = self::snapDownEvenOr3((int)$params['rep_count']);
         }
@@ -4067,6 +4081,83 @@ class PlanGenerator
         $threeQuarter = self::snapDownEvenOr3((int)round($repCount * 0.75));
         return ' After the ' . self::ordinal($quarter) . ' and ' . self::ordinal($threeQuarter)
             . ' reps, ' . $action . '.';
+    }
+
+    /**
+     * archetype-ranging-rollout Batch 2: volume-anchored ranging for the distance-based
+     * interval pair (equal_distance_repeats, short_speed_repeats).
+     *
+     * The variant fixes the rep distance (a track standard). The quality-volume target is
+     * positioned within the classification's quality_volume_meters range by three levers:
+     *   - rep DISTANCE: short reps target the LOW end, long reps the HIGH end (so a 6x400
+     *     session stays small and a 6x1000 is larger -- Will's distance-biases-volume rule);
+     *   - GOAL distance: marathoner sits higher than a 5K runner (total scales up with goal);
+     *   - PHASE: SHARPEN toward peak -> more volume in base, less at peak (inverted cycle
+     *     fraction, same direction as Batch 1).
+     * rep_count = round(volume / rep_distance), clamped to the classification band and snapped
+     * even-or-3. So short reps yield MORE reps at a SMALLER total, long reps FEWER at a LARGER
+     * total; a high-volume base session can reach the 9+ band and fire the checkpoint clause
+     * (equal_distance). short_speed stays low-total by design (its narrow volume band).
+     */
+    private static function distributeDistanceRepeats(
+        array $params, array $variant, array $variants, array $allParams,
+        string $classification, string $goalDistance, string $code
+    ): array {
+        $default = $code === 'short_speed_repeats' ? 200 : 800;
+        $repDist = (int)($variant['rep_distance_meters'] ?? $params['rep_distance_meters'] ?? $default);
+
+        // Position of this rep distance among the archetype's selectable variant distances.
+        $dists = array_values(array_filter(array_map(fn($v) => (int)($v['rep_distance_meters'] ?? 0), $variants)));
+        $dmin = $dists ? min($dists) : $repDist;
+        $dmax = $dists ? max($dists) : $repDist;
+        $distFrac = $dmax > $dmin ? ($repDist - $dmin) / ($dmax - $dmin) : 0.5;
+
+        $goalFrac  = match ($goalDistance) { 'marathon' => 0.9, 'half' => 0.65, '10K' => 0.4, default => 0.2 };
+        $phaseFrac = 1.0 - self::cycleFraction(); // base -> 1 (more volume), peak -> 0 (sharpen)
+
+        $vRange = $allParams['quality_volume_meters'][$classification]
+            ?? $allParams['quality_volume_meters']['well_trained'] ?? ['min' => 2400, 'max' => 6000];
+        $vMin = (float)($vRange['min'] ?? 2400);
+        $vMax = (float)($vRange['max'] ?? 6000);
+        $pVol = 0.40 * $distFrac + 0.35 * $goalFrac + 0.25 * $phaseFrac;
+        $pVol = max(0.0, min(1.0, $pVol + self::randFloat(-0.08, 0.08)));
+        $volTarget = $vMin + ($vMax - $vMin) * $pVol;
+
+        $rcSpec = $allParams['rep_count'][$classification] ?? $allParams['rep_count']['well_trained'] ?? ['min' => 4, 'max' => 12];
+        $rcMin  = (int)($rcSpec['min'] ?? 4);
+        $rcMax  = (int)($rcSpec['max'] ?? 12);
+        $repCount = (int)round($volTarget / max(1, $repDist));
+        $repCount = self::snapDownEvenOr3(max($rcMin, min($rcMax, $repCount)));
+
+        $params['rep_distance_meters'] = $repDist;
+        $params['rep_count']           = max(2, $repCount);
+        $params['quality_volume_meters'] = (int)round($volTarget);
+        if ($code === 'short_speed_repeats') {
+            $params['effort_zone'] = $params['effort_zone'] ?? 'repetition';
+        }
+        return $params;
+    }
+
+    /**
+     * Batch 2 FREQUENCY bias: weighted variant pick favouring LONGER rep distances, so long-
+     * rep interval sessions are prescribed more often than short-rep ones (weight is linear in
+     * rep distance). Falls back to a uniform pick when distances are absent.
+     */
+    private static function pickDistanceVariantWeighted(array $variants): array
+    {
+        if (empty($variants)) return ['code' => 'standard', 'name' => 'Standard'];
+        $total = 0; $weighted = [];
+        foreach ($variants as $v) {
+            $w = max(1, (int)($v['rep_distance_meters'] ?? 0));
+            $weighted[] = ['v' => $v, 'w' => $w];
+            $total += $w;
+        }
+        $r = mt_rand(1, $total); $acc = 0;
+        foreach ($weighted as $e) {
+            $acc += $e['w'];
+            if ($r <= $acc) return $e['v'];
+        }
+        return $weighted[array_key_last($weighted)]['v'];
     }
 
     /** Pick a random variant from the archetype's variants array. */
