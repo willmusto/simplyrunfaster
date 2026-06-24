@@ -223,6 +223,20 @@ class PlanGenerator
     private static ?string $planDistance = null;
 
     /**
+     * Stage B tempo across-cycle progression context for the week currently being
+     * generated, or null outside a progressing cycle (ad-hoc preview / manual compose /
+     * maintenance), in which case tempo falls back to Stage A per-instance ranging.
+     *   fraction — 0..1 position on the volume build-trend (cycle start → peak ceiling),
+     *              read AFTER weekly progression is applied; slides the tempo target from
+     *              the low part of its classification band (early) to the high part (peak).
+     *   cutback  — multiplier (<=1) applied on cutback weeks so the tempo target dips
+     *              subtly (half the percentage total volume drops); 1.0 otherwise.
+     * Set per-week in the race-cycle / development generators; consumed in
+     * distributeTempoIntervals(). Tempo-only; no other archetype reads it.
+     */
+    private static ?array $tempoCycleProgress = null;
+
+    /**
      * Coaching Intelligence Layer (Part 7) decision-resolver state for the current
      * generation. $coachingDecisions holds the active decisions loaded for the athlete's
      * coaches; the rest accumulate which decisions fired and any conflict notes across
@@ -756,6 +770,10 @@ class PlanGenerator
         // signature (mile tempo pace band + mile short-rep distance bias).
         self::$planDistance = self::normalizeDistance($profile['goal_race_distance'] ?? '5K');
 
+        // Stage B tempo progression is set per-week by the progressing generators; null
+        // here so any non-progressing path (maintenance, recovery, RTR) keeps Stage A.
+        self::$tempoCycleProgress = null;
+
         // Persist the engine's base classification at generation time (BUG 1). It is
         // computed here from the athlete's goal distance + current volume profile and
         // cached on athlete_profiles so downstream consumers (UI, future regenerations,
@@ -842,8 +860,9 @@ class PlanGenerator
             self::createApprovalQueueEntry($planId, $athleteId, $trigger, $db);
         }
 
-        self::$planDistance      = null;
-        self::$coachingDecisions = [];
+        self::$planDistance       = null;
+        self::$coachingDecisions  = [];
+        self::$tempoCycleProgress = null;
         return $planId;
     }
 
@@ -1145,6 +1164,7 @@ class PlanGenerator
         // Archetypes/pace maps key on marathon for ultras / 5K for mile (selectorDistance);
         // classification + planDistance keep the real key for distance-specific behaviour.
         self::$planDistance = $rawDistance;
+        self::$tempoCycleProgress = null; // ad-hoc: no cycle context -> Stage A tempo ranging
         $goalDistance   = self::selectorDistance($rawDistance);
         $phase          = 'base';
 
@@ -1241,6 +1261,7 @@ class PlanGenerator
 
         self::$paceZones   = null;          // effort-only — no athlete zones to cite
         self::$planDistance = $goalDistance;
+        self::$tempoCycleProgress = null;   // ad-hoc preview: no cycle context -> Stage A tempo ranging
 
         $selector  = new ArchetypeSelector($db);
         $archetype = $selector->getByCode($archetypeCode);
@@ -1448,6 +1469,7 @@ class PlanGenerator
         }
         $longestRun     = max(30, (int)($profile['longest_recent_run_mins'] ?? 60));
         $buildBase      = self::resolveStartingWeeklyMins($athleteId, $profile, $trigger, $currentMins, $peakCeiling, $db);
+        $volumeFloor    = $buildBase; // cycle-start volume; the build-trend floor for Stage B tempo progression
 
         $planId         = self::createPlanRecord($athleteId, 'race_cycle', $startDate, $raceDate, $raceDate, $trigger, $db);
         $maxLongRun     = $longestRun;
@@ -1551,6 +1573,13 @@ class PlanGenerator
 
             if ($week === 1) self::maybeRaiseScheduleRampFlag($athleteId, $weeklyMins, $profile, $db);
 
+            // Stage B: tempo target tracks the volume build-trend ($buildBase is the undipped
+            // trend; $weeklyMins is this week's actual, dipped on cutback). Read after the
+            // weeklyMins progression above so the target scales off the progressed volume.
+            self::$tempoCycleProgress = self::tempoProgressContext(
+                $isCutback, $buildBase, $weeklyMins, $volumeFloor, $peakCeiling
+            );
+
             $weekStart  = date('Y-m-d', strtotime($startDate . ' +' . (($week - 1) * 7) . ' days'));
             $schedule   = self::buildDaySchedule($profile, $phase, $weeklyMins, $isRaceWeek, $isPreRaceWeek, $athleteId, $db, 'race_cycle', $week, $isCutback, $ultra);
             $maxLongRun = self::insertWeekWorkouts(
@@ -1561,6 +1590,7 @@ class PlanGenerator
             );
         }
 
+        self::$tempoCycleProgress = null; // clear so post-generation steps see no cycle context
         return $planId;
     }
 
@@ -1597,6 +1627,7 @@ class PlanGenerator
         $currentMins    = max(60, (int)($profile['current_weekly_minutes'] ?? 120));
         $peakCeiling    = max($currentMins, (int)($profile['peak_volume_ceiling_mins'] ?? (int)round($currentMins * 1.4)));
         $buildBase      = self::resolveStartingWeeklyMins($athleteId, $profile, $trigger, $currentMins, $peakCeiling, $db);
+        $volumeFloor    = $buildBase; // cycle-start volume; the build-trend floor for Stage B tempo progression
 
         $planId         = self::createPlanRecord($athleteId, 'development_plan', $startDate, $endDate, null, $trigger, $db);
         $maxLongRun     = max(30, (int)($profile['longest_recent_run_mins'] ?? 60));
@@ -1624,6 +1655,12 @@ class PlanGenerator
 
             if ($week === 1) self::maybeRaiseScheduleRampFlag($athleteId, $weeklyMins, $profile, $db);
 
+            // Stage B: tempo target tracks the volume build-trend (see race cycle). Set after
+            // the weeklyMins progression so it scales off the progressed volume.
+            self::$tempoCycleProgress = self::tempoProgressContext(
+                $isCutback, $buildBase, $weeklyMins, $volumeFloor, $peakCeiling
+            );
+
             $weekStart  = date('Y-m-d', strtotime($codeWeekStart . ' +' . (($week - 1) * 7) . ' days'));
             $schedule   = self::buildDaySchedule($profile, 'base', $weeklyMins, false, false, $athleteId, $db, 'development_plan', $week, $isCutback);
             // Capture code-week-1's pattern/volume so the lead-in can mirror it (below).
@@ -1632,6 +1669,7 @@ class PlanGenerator
                 $leadInSchedule   = $schedule;
                 $leadInMins       = $weeklyMins;
                 $leadInMaxLongRun = $maxLongRun;
+                $leadInProgress   = self::$tempoCycleProgress; // lead-in mirrors week 1
             }
             $maxLongRun = self::insertWeekWorkouts(
                 $planId, $athleteId, $weekStart, $endDate,
@@ -1643,6 +1681,7 @@ class PlanGenerator
         // Lead-in (days between plan_start_date and the first Monday) mirrors code-week 1's
         // day-type pattern. Uncounted toward the 12-week progression; generated last so the
         // code-week trajectory is unaffected. No-op when plan_start_date is a Monday.
+        self::$tempoCycleProgress = $leadInProgress ?? null; // lead-in mirrors week 1's progression
         self::insertLeadInWorkouts(
             $planId, $athleteId, $startDate, $codeWeekStart, $endDate,
             $leadInSchedule ?? [], $leadInMins ?? 0, 'base',
@@ -1651,6 +1690,7 @@ class PlanGenerator
             $db, $selector, $leadInHistory
         );
 
+        self::$tempoCycleProgress = null; // clear so post-generation steps see no cycle context
         return $planId;
     }
 
@@ -3655,6 +3695,36 @@ class PlanGenerator
     }
 
     /**
+     * Stage B: build the per-week tempo progression context from the volume curve.
+     *
+     * Couples the tempo target to the engine's existing weekly volume progression: the
+     * fraction is the position of the build-TREND volume (cutback weeks do not advance
+     * the trend) between the cycle's starting volume and the peak ceiling, read AFTER
+     * progression is applied. On a cutback week the target is reduced subtly, by HALF the
+     * percentage the actual (dipped) volume falls below the trend, so quality dips less
+     * than easy volume.
+     *
+     * @param int $trendVol   the undipped build-trend volume for this week (buildBase)
+     * @param int $dippedVol  the actual resolved weekly volume (lower than trend on cutback)
+     * @param int $floorVol   the cycle's starting weekly volume (build-trend floor)
+     * @param int $peakVol    the peak volume ceiling (build-trend ceiling)
+     */
+    private static function tempoProgressContext(
+        bool $isCutback, int $trendVol, int $dippedVol, int $floorVol, int $peakVol
+    ): array {
+        $denom    = $peakVol - $floorVol;
+        $fraction = $denom > 0 ? max(0.0, min(1.0, ($trendVol - $floorVol) / $denom)) : 1.0;
+
+        $cutback = 1.0;
+        if ($isCutback && $trendVol > 0 && $dippedVol < $trendVol) {
+            $volumeDropPct = ($trendVol - $dippedVol) / $trendVol;
+            $cutback = 1.0 - 0.5 * $volumeDropPct; // tempo dips half as much as total volume
+        }
+
+        return ['fraction' => $fraction, 'cutback' => $cutback];
+    }
+
+    /**
      * Volume-anchored tempo distribution (resolveParameters-ranging-spec Stage A).
      *
      * Replaces the frozen midpoint with a sampled total-work target distributed into
@@ -3698,18 +3768,40 @@ class PlanGenerator
             default    => 0.00, // 5K
         };
 
-        // Sampling window as a fraction of the range. well_trained is pinned to the upper
-        // part (floor 0.40) so it always out-totals workable at the same goal; both shift
-        // up with goal distance. The window is wide on purpose: variety spans the range.
+        // Classification band as a fraction of the range. well_trained is pinned to the
+        // upper part (floor 0.40) so it always out-totals workable at the same goal/week;
+        // both shift up with goal distance.
         if ($classification === 'well_trained') {
-            $winLo = min(0.85, 0.40 + $goalBias);
-            $winHi = 1.00;
+            $bandLo = min(0.85, 0.40 + $goalBias);
+            $bandHi = 1.00;
         } else { // workable / insufficient (insufficient borrowed the well_trained range)
-            $winLo = min(0.50, $goalBias);
-            $winHi = min(1.00, 0.65 + $goalBias);
+            $bandLo = min(0.50, $goalBias);
+            $bandHi = min(1.00, 0.65 + $goalBias);
         }
-        $target = $tMin + $span * self::randFloat($winLo, $winHi);
-        $target = max($tMin, min($tMax, $target)); // ceiling guard
+
+        // Stage B: across-cycle progression. When a cycle context is present, slide the
+        // sampling sub-window from the low part of the band (cycle start) to the high part
+        // (peak) along the volume build-trend, so a peak-phase tempo out-totals a base-phase
+        // one for the same athlete. A sub-window (not a point) preserves within-week variety;
+        // variant + rep-length sampling supply the rest. Outside a progressing cycle (ad-hoc
+        // preview / manual compose / maintenance) the context is null and the full band is
+        // sampled, i.e. Stage A behaviour is unchanged.
+        $progress = self::$tempoCycleProgress;
+        $cutback  = 1.0;
+        if ($progress === null) {
+            $frac = self::randFloat($bandLo, $bandHi);
+        } else {
+            $p       = max(0.0, min(1.0, (float)($progress['fraction'] ?? 0.0)));
+            $cutback = (float)($progress['cutback'] ?? 1.0);
+            $center  = $bandLo + ($bandHi - $bandLo) * $p;
+            $half    = 0.10; // within-week spread around the progression center
+            $lo      = max($bandLo, $center - $half);
+            $hi      = min($bandHi, $center + $half);
+            $frac    = self::randFloat($lo, $hi);
+        }
+
+        $target = ($tMin + $span * $frac) * $cutback;
+        $target = max($tMin, min($tMax, $target)); // ceiling + floor guard
 
         // 2. Rep length: a CONVENTIONAL value within the selected variant's band (the
         //    durations/distances a coach actually writes), not raw sampling across the
