@@ -223,18 +223,19 @@ class PlanGenerator
     private static ?string $planDistance = null;
 
     /**
-     * Stage B tempo across-cycle progression context for the week currently being
-     * generated, or null outside a progressing cycle (ad-hoc preview / manual compose /
-     * maintenance), in which case tempo falls back to Stage A per-instance ranging.
+     * Across-cycle progression context for the week currently being generated, or null
+     * outside a progressing cycle (ad-hoc preview / manual compose / maintenance), in which
+     * case the volume-anchored archetypes fall back to per-instance ranging.
      *   fraction — 0..1 position on the volume build-trend (cycle start → peak ceiling),
-     *              read AFTER weekly progression is applied; slides the tempo target from
-     *              the low part of its classification band (early) to the high part (peak).
+     *              read AFTER weekly progression is applied. tempo slides its target UP with
+     *              it (build); hills / high-volume intervals INVERT it (sharpen toward peak).
      *   cutback  — multiplier (<=1) applied on cutback weeks so the tempo target dips
-     *              subtly (half the percentage total volume drops); 1.0 otherwise.
-     * Set per-week in the race-cycle / development generators; consumed in
-     * distributeTempoIntervals(). Tempo-only; no other archetype reads it.
+     *              subtly (half the percentage total volume drops); 1.0 otherwise. Tempo only.
+     * Set per-week in the race-cycle / development generators; consumed by the
+     * distribute*() methods for tempo_intervals, sustained_hill_repeats, and
+     * high_volume_time_intervals.
      */
-    private static ?array $tempoCycleProgress = null;
+    private static ?array $cycleProgress = null;
 
     /**
      * Coaching Intelligence Layer (Part 7) decision-resolver state for the current
@@ -772,7 +773,7 @@ class PlanGenerator
 
         // Stage B tempo progression is set per-week by the progressing generators; null
         // here so any non-progressing path (maintenance, recovery, RTR) keeps Stage A.
-        self::$tempoCycleProgress = null;
+        self::$cycleProgress = null;
 
         // Persist the engine's base classification at generation time (BUG 1). It is
         // computed here from the athlete's goal distance + current volume profile and
@@ -862,7 +863,7 @@ class PlanGenerator
 
         self::$planDistance       = null;
         self::$coachingDecisions  = [];
-        self::$tempoCycleProgress = null;
+        self::$cycleProgress = null;
         return $planId;
     }
 
@@ -1164,7 +1165,7 @@ class PlanGenerator
         // Archetypes/pace maps key on marathon for ultras / 5K for mile (selectorDistance);
         // classification + planDistance keep the real key for distance-specific behaviour.
         self::$planDistance = $rawDistance;
-        self::$tempoCycleProgress = null; // ad-hoc: no cycle context -> Stage A tempo ranging
+        self::$cycleProgress = null; // ad-hoc: no cycle context -> Stage A tempo ranging
         $goalDistance   = self::selectorDistance($rawDistance);
         $phase          = 'base';
 
@@ -1261,7 +1262,7 @@ class PlanGenerator
 
         self::$paceZones   = null;          // effort-only — no athlete zones to cite
         self::$planDistance = $goalDistance;
-        self::$tempoCycleProgress = null;   // ad-hoc preview: no cycle context -> Stage A tempo ranging
+        self::$cycleProgress = null;   // ad-hoc preview: no cycle context -> Stage A tempo ranging
 
         $selector  = new ArchetypeSelector($db);
         $archetype = $selector->getByCode($archetypeCode);
@@ -1576,7 +1577,7 @@ class PlanGenerator
             // Stage B: tempo target tracks the volume build-trend ($buildBase is the undipped
             // trend; $weeklyMins is this week's actual, dipped on cutback). Read after the
             // weeklyMins progression above so the target scales off the progressed volume.
-            self::$tempoCycleProgress = self::tempoProgressContext(
+            self::$cycleProgress = self::cycleProgressContext(
                 $isCutback, $buildBase, $weeklyMins, $volumeFloor, $peakCeiling
             );
 
@@ -1590,7 +1591,7 @@ class PlanGenerator
             );
         }
 
-        self::$tempoCycleProgress = null; // clear so post-generation steps see no cycle context
+        self::$cycleProgress = null; // clear so post-generation steps see no cycle context
         return $planId;
     }
 
@@ -1657,7 +1658,7 @@ class PlanGenerator
 
             // Stage B: tempo target tracks the volume build-trend (see race cycle). Set after
             // the weeklyMins progression so it scales off the progressed volume.
-            self::$tempoCycleProgress = self::tempoProgressContext(
+            self::$cycleProgress = self::cycleProgressContext(
                 $isCutback, $buildBase, $weeklyMins, $volumeFloor, $peakCeiling
             );
 
@@ -1669,7 +1670,7 @@ class PlanGenerator
                 $leadInSchedule   = $schedule;
                 $leadInMins       = $weeklyMins;
                 $leadInMaxLongRun = $maxLongRun;
-                $leadInProgress   = self::$tempoCycleProgress; // lead-in mirrors week 1
+                $leadInProgress   = self::$cycleProgress; // lead-in mirrors week 1
             }
             $maxLongRun = self::insertWeekWorkouts(
                 $planId, $athleteId, $weekStart, $endDate,
@@ -1681,7 +1682,7 @@ class PlanGenerator
         // Lead-in (days between plan_start_date and the first Monday) mirrors code-week 1's
         // day-type pattern. Uncounted toward the 12-week progression; generated last so the
         // code-week trajectory is unaffected. No-op when plan_start_date is a Monday.
-        self::$tempoCycleProgress = $leadInProgress ?? null; // lead-in mirrors week 1's progression
+        self::$cycleProgress = $leadInProgress ?? null; // lead-in mirrors week 1's progression
         self::insertLeadInWorkouts(
             $planId, $athleteId, $startDate, $codeWeekStart, $endDate,
             $leadInSchedule ?? [], $leadInMins ?? 0, 'base',
@@ -1690,7 +1691,7 @@ class PlanGenerator
             $db, $selector, $leadInHistory
         );
 
-        self::$tempoCycleProgress = null; // clear so post-generation steps see no cycle context
+        self::$cycleProgress = null; // clear so post-generation steps see no cycle context
         return $planId;
     }
 
@@ -3300,6 +3301,19 @@ class PlanGenerator
             );
         }
 
+        // archetype-ranging-rollout Batch 1: volume-anchored ranging for hills and
+        // high-volume time intervals. Both SHARPEN toward peak (inverted vs tempo): more/
+        // longer reps in base, fewer/shorter at peak. Gated on code; tempo and the other
+        // four parameterized archetypes are untouched.
+        if (($archetype['code'] ?? '') === 'sustained_hill_repeats') {
+            $params = self::distributeSustainedHillRepeats(
+                $params, $archetype['resolved_variant'] ?? [], $classification, $goalDistance
+            );
+        }
+        if (($archetype['code'] ?? '') === 'high_volume_time_intervals') {
+            $params = self::distributeHighVolumeTimeIntervals($params, $classification, $goalDistance);
+        }
+
         // Mile rep-distance bias (mile spec Part 10): for equal_distance_repeats, prefer the
         // shortest rep distance (≤800m suits milers), overriding the random variant pick.
         if (self::$planDistance === 'mile' && ($archetype['code'] ?? '') === 'equal_distance_repeats') {
@@ -3353,16 +3367,9 @@ class PlanGenerator
             $params['rep_duration_seconds'] = max(20, (int)round($repDistMiles * (($paces[0] + $paces[1]) / 2) * 60));
         }
 
-        // FIX 1: sustained hill repeats are capped to 30-90 sec per rep (well-trained
-        // midpoints otherwise resolve to ~150 sec). Clamp before fit-to-slot so rep_count
-        // is computed against the capped rep duration, and expose the display label.
-        if (($archetype['code'] ?? '') === 'sustained_hill_repeats') {
-            $rd = (int)($params['rep_duration_seconds'] ?? 0);
-            if ($rd > 0) {
-                $params['rep_duration_seconds'] = max(30, min(90, $rd));
-            }
-            $params['rep_duration_display'] = self::formatSecondsLabel((int)($params['rep_duration_seconds'] ?? 0));
-        }
+        // (sustained_hill_repeats rep_duration_seconds + rep_duration_display are now set
+        // by distributeSustainedHillRepeats from the selected variant's band, 45-240 sec;
+        // the former 30-90 sec clamp is gone so Long Sustained reps reach their full range.)
 
         // Fit-to-slot: cap the scalable dimension so warmup + main + cooldown ≤ targetMinutes.
         // Prevents classification midpoints from producing sessions that far exceed the
@@ -3433,11 +3440,11 @@ class PlanGenerator
             $params['rep_count'] = min((int)$params['rep_count'], self::phaseRepCap($phase));
         }
 
-        // Even-or-3 rep snapping for the rep-based checkpoint archetypes, so the generated
-        // rep_count matches the conditional checkpoint math (halfway = rep_count / 2 stays a
-        // clean integer) and a 7-rep hill is never produced. Snaps DOWN so it never exceeds
-        // the fit-to-slot / phase cap. Tempo is snapped in its own distribution path.
-        if (in_array($archetype['code'] ?? '', ['sustained_hill_repeats', 'equal_distance_repeats'], true)
+        // Even-or-3 rep snapping for the rep-based archetypes, so the generated rep_count is
+        // idiomatic (no 5/7/9) and, for hills, matches the conditional checkpoint math
+        // (halfway = rep_count / 2 stays a clean integer). Snaps DOWN so it never exceeds the
+        // fit-to-slot / phase cap. Tempo is snapped in its own distribution path.
+        if (in_array($archetype['code'] ?? '', ['sustained_hill_repeats', 'equal_distance_repeats', 'high_volume_time_intervals'], true)
             && !empty($params['rep_count'])) {
             $params['rep_count'] = self::snapDownEvenOr3((int)$params['rep_count']);
         }
@@ -3709,7 +3716,7 @@ class PlanGenerator
      * @param int $floorVol   the cycle's starting weekly volume (build-trend floor)
      * @param int $peakVol    the peak volume ceiling (build-trend ceiling)
      */
-    private static function tempoProgressContext(
+    private static function cycleProgressContext(
         bool $isCutback, int $trendVol, int $dippedVol, int $floorVol, int $peakVol
     ): array {
         $denom    = $peakVol - $floorVol;
@@ -3786,7 +3793,7 @@ class PlanGenerator
         // variant + rep-length sampling supply the rest. Outside a progressing cycle (ad-hoc
         // preview / manual compose / maintenance) the context is null and the full band is
         // sampled, i.e. Stage A behaviour is unchanged.
-        $progress = self::$tempoCycleProgress;
+        $progress = self::$cycleProgress;
         $cutback  = 1.0;
         if ($progress === null) {
             $frac = self::randFloat($bandLo, $bandHi);
@@ -3897,6 +3904,116 @@ class PlanGenerator
     {
         if ($hi <= $lo) return $lo;
         return $lo + (mt_rand() / mt_getrandmax()) * ($hi - $lo);
+    }
+
+    /**
+     * Across-cycle position in [0,1] (0 = base / cycle start, 1 = peak), from the shared
+     * volume build-trend context. Outside a progressing cycle (ad-hoc preview / manual
+     * compose / maintenance) there is no cycle position, so sample uniformly for variety.
+     */
+    private static function cycleFraction(): float
+    {
+        $c = self::$cycleProgress;
+        if ($c !== null && isset($c['fraction'])) {
+            return max(0.0, min(1.0, (float)$c['fraction']));
+        }
+        return self::randFloat(0.0, 1.0);
+    }
+
+    /** Nearest value from a list of conventional values (keeps durations idiomatic). */
+    private static function snapToList(float $value, array $list): int
+    {
+        $best = (int)$list[0]; $bestDelta = INF;
+        foreach ($list as $v) {
+            $d = abs($v - $value);
+            if ($d < $bestDelta) { $bestDelta = $d; $best = (int)$v; }
+        }
+        return $best;
+    }
+
+    /**
+     * archetype-ranging-rollout Batch 1: volume-anchored ranging for sustained_hill_repeats.
+     *
+     * Variant sets the rep-duration band (Short 45-75s, Standard 75-150s, Long 150-240s),
+     * snapped to conventional values. Rep count is INVERTED phase scaling (sharpen toward
+     * peak): base (cycle start) carries MORE reps, peak FEWER, sampled along the shared
+     * cycle fraction. The base end is extended above the old 10 cap so base sessions reach
+     * the 9-16 band and the already-built checkpoint clause activates at halfway (peak stays
+     * <=8, clause-free). Goal distance raises the base ceiling so a marathoner's hills carry
+     * more total work than a 5K's. Even-or-3 is enforced here and re-applied post fit-to-slot.
+     */
+    private static function distributeSustainedHillRepeats(
+        array $params, array $variant, string $classification, string $goalDistance
+    ): array {
+        $bands = [
+            'short_sustained'    => [45, 60, 75],
+            'standard_sustained' => [75, 90, 120, 150],
+            'long_sustained'     => [150, 180, 210, 240],
+        ];
+        // hill_circuit / any unmapped variant falls back to the standard band.
+        $list   = $bands[$variant['code'] ?? ''] ?? $bands['standard_sustained'];
+        $repDur = (int)$list[array_rand($list)];
+
+        // Goal distance raises the base rep ceiling (total work scales up for longer races).
+        $goalBoost = match ($goalDistance) { 'marathon' => 3, 'half' => 2, '10K' => 1, default => 0 };
+        if ($classification === 'well_trained') { $peakLow = 6; $baseHigh = min(12, 10 + $goalBoost); }
+        else                                    { $peakLow = 4; $baseHigh = min(10, 8 + $goalBoost); }
+
+        // Inverted phase scaling: base (fraction 0) -> baseHigh, peak (fraction 1) -> peakLow.
+        $p         = self::cycleFraction();
+        $repTarget = $peakLow + ($baseHigh - $peakLow) * (1.0 - $p);
+        $repCount  = self::snapDownEvenOr3((int)round($repTarget));
+
+        $params['rep_count']            = max(2, $repCount);
+        $params['rep_duration_seconds'] = $repDur;
+        $params['rep_duration_display'] = self::formatSecondsLabel($repDur);
+        return $params;
+    }
+
+    /**
+     * archetype-ranging-rollout Batch 1: range AROUND the classic 20 x 2min-on/1min-off
+     * for high_volume_time_intervals instead of freezing at it.
+     *
+     * The canonical 20x120/60 still comes up frequently. Otherwise: on-duration sharpens
+     * toward peak (longer in base ~210s, shorter at peak ~90s), the on/off ratio is sampled
+     * (2:1 classic, 3:2, 1:1 much harder), and rep_count is even-or-3 scaled up with goal
+     * distance (marathoner more reps -> more total work than a 5K). Durations snap to
+     * conventional values. well_trained-only (the selection gate is unchanged).
+     */
+    private static function distributeHighVolumeTimeIntervals(
+        array $params, string $classification, string $goalDistance
+    ): array {
+        // Keep the canonical session a frequent (not constant) outcome.
+        if (mt_rand(1, 100) <= 30) {
+            $params['rep_count']                 = 20;
+            $params['work_duration_seconds']     = 120;
+            $params['recovery_duration_seconds'] = 60;
+            return $params;
+        }
+
+        $p = self::cycleFraction();
+
+        // On-duration sharpens toward peak (base longer, peak shorter), snapped conventional.
+        $workConv   = [90, 120, 150, 180, 210, 240];
+        $workTarget = 210 - (210 - 90) * $p + self::randFloat(-25, 25);
+        $work       = self::snapToList($workTarget, $workConv);
+
+        // On/off ratio variety: 2:1 (classic), 3:2, 1:1 (recovery == work, much harder).
+        // Recovery is capped at 120s, so a 1:1 ratio pairs with shorter on-reps while a long
+        // on-rep keeps a tighter effective ratio (it stays a high-volume session, not a few
+        // long intervals).
+        $mults    = [0.5, 0.6667, 1.0];
+        $recovery = self::snapToList($work * $mults[array_rand($mults)], [30, 45, 60, 90, 120]);
+
+        // Rep count even-or-3 within the 12-20 band, centred higher for longer goals.
+        $goalFrac  = match ($goalDistance) { 'marathon' => 0.9, 'half' => 0.65, '10K' => 0.4, default => 0.2 };
+        $center    = 12 + $goalFrac * 8; // 12..20
+        $repCount  = self::snapDownEvenOr3((int)round(max(12.0, min(20.0, $center + self::randFloat(-2, 2)))));
+
+        $params['rep_count']                 = $repCount;
+        $params['work_duration_seconds']     = $work;
+        $params['recovery_duration_seconds'] = $recovery;
+        return $params;
     }
 
     /**
