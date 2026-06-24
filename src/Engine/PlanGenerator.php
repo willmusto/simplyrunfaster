@@ -183,8 +183,9 @@ class PlanGenerator
     // display correction). Split by whether the warmup finishes with strides.
     // Intentionally absent — these already describe their own warmup/cooldown, so
     // wrapping them would double it: run_walk_intervals, standalone_strides, and
-    // continuous_progression_tempo (its description_template is "Warm up N min easy.
-    // {{progression_instruction}} Cool down N min easy.").
+    // continuous_progression_tempo (its description_template self-supplies the wrapper:
+    // "Warm up with {{warmup_minutes}} minutes of easy running. {{progression_instruction}}
+    // ... Cool down with {{cooldown_minutes}} minutes of easy running.").
     const WARMUP_WITH_STRIDES_ARCHETYPES = [
         'equal_distance_repeats', 'short_speed_repeats', 'sustained_hill_repeats',
         'hill_sprints', 'plyometric_hill_circuits', 'hill_sprint_ladder',
@@ -1274,13 +1275,15 @@ class PlanGenerator
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$row) return null;
         $code = (string)($row['archetype_code'] ?? '');
-        // Scoped to the 6 templated quality archetypes whose descriptions are fully token-driven
-        // (rep_count / durations / distances are template tokens), so a re-render reproduces the
-        // specifics faithfully and only gains the lead line + refreshed pace. Other quality
-        // archetypes (continuous_progression_tempo, structured_fartlek_ladder, fast_finish_long)
-        // build instance-specific copy via code paths that do NOT re-trigger on re-render, so a
-        // re-render would lose their specifics (e.g. the fartlek ladder sequence) — excluded.
-        if (!self::isStructuredEditable($code)) return null;
+        // Scoped to archetypes whose descriptions are fully token-driven, so a re-render reproduces
+        // the specifics faithfully (the 5 uniform-rep + mixed gain the lead line + refreshed pace;
+        // continuous_progression_tempo renders {{progression_instruction}} + warm/cool from stored
+        // params, which addDerivedParams rebuilds unconditionally even in $manual mode). Still
+        // EXCLUDED: structured_fartlek_ladder + fast_finish_long, whose instance-specific copy
+        // (e.g. the fartlek ladder sequence) is built via conditional code paths that do not
+        // re-trigger on re-render, so a re-render would lose their specifics.
+        $recomposeCodes = array_merge(self::STRUCTURED_EDIT_CODES, ['continuous_progression_tempo']);
+        if (!in_array($code, $recomposeCodes, true)) return null;
 
         $athleteId = (int)$row['athlete_id'];
         $profile   = self::loadProfile($athleteId, $db);

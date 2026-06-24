@@ -190,7 +190,7 @@
   },
   {
     "code": "continuous_progression_tempo",
-    "description_template": "A continuous tempo with no breaks, where the effort builds gradually from start to finish. Settle in early and let each gear arrive naturally, keeping the transitions smooth so there's never a jarring jump. Holding and lifting a sustained effort without resetting is some of the most race-like aerobic strength work you can do, so stay relaxed and let it climb.",
+    "description_template": "Warm up with {{warmup_minutes}} minutes of easy running. {{progression_instruction}} The skill is holding and lifting a sustained effort without resetting, so settle in early, keep the transitions smooth, and let the effort climb. This is some of the most race-like aerobic strength work you can do. Cool down with {{cooldown_minutes}} minutes of easy running.",
     "intended_use": "Continuous threshold development and aerobic strength without stopping or resetting effort.",
     "special_rules": [
       "No recovery breaks.",
