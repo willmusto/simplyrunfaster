@@ -65,6 +65,40 @@ class PaceZones
         return $pace >= self::MIN_PLAUSIBLE_PACE_SECS && $pace <= self::MAX_PLAUSIBLE_PACE_SECS;
     }
 
+    // ── Shared rep-second estimate ───────────────────────────────────────────
+    // Single source for both the watch renderer (IntervalsService) and the
+    // athlete-facing description (PlanGenerator lead line), so the recovery each
+    // derives from a rep's duration agrees.
+
+    /**
+     * Estimate a single rep's duration (seconds) from rep distance + target effort,
+     * using the athlete's visible pace zones (seconds/mile) when available, else a
+     * ~6:30/mi (390 s/mi) fallback. $zones is the decoded pace_zones map (or null).
+     */
+    public static function estimateRepSeconds(int $meters, string $effort, ?array $zones): int
+    {
+        $miles = $meters / 1609.34;
+        $key   = self::paceKeyForEffort($effort);
+        if (is_array($zones) && isset($zones[$key]) && is_numeric($zones[$key]) && (int)$zones[$key] > 0) {
+            return (int)round($miles * (int)$zones[$key]); // secs/mile * miles
+        }
+        return (int)round($miles * 390);
+    }
+
+    /** Pace-zone key (output-profile keys) nearest to a rep target effort. */
+    public static function paceKeyForEffort(string $effort): string
+    {
+        $e = strtolower(trim($effort));
+        return match (true) {
+            in_array($e, ['400', '800', 'mile', 'speed', 'z6'], true) => $e === '400' ? '400' : ($e === '800' ? '800' : 'mile'),
+            in_array($e, ['3k', '5k', 'z5'], true)                    => '5K',
+            in_array($e, ['10k'], true)                               => '10K',
+            in_array($e, ['half_marathon', 'threshold', 'tempo', 'z4'], true) => 'half_marathon',
+            in_array($e, ['marathon', 'z3'], true)                    => 'marathon',
+            default                                                   => '5K',
+        };
+    }
+
     /**
      * Easy pace is treated as ~20% slower (in pace) than marathon pace.
      * Used to convert an entered easy pace into a marathon-pace projection

@@ -1204,6 +1204,7 @@ class PlanGenerator
         $instructions = self::normalizeInstructionText($instructions, $instance);
         $instructions = self::wrapWithWarmupCooldown($instructions, $instance['resolved_params'] ?? [], $instance['code'] ?? '');
         $instructions = self::appendPaceCitation($instructions, $instance);
+        $instructions = self::prependPrescriptionLead($instructions, $instance);
 
         $sig             = self::computeInstanceSignature($instance);
         $resolvedVariant = $instance['resolved_variant']['code'] ?? null;
@@ -1357,6 +1358,7 @@ class PlanGenerator
         $instructions = self::normalizeInstructionText($instructions, $instance);
         $instructions = self::wrapWithWarmupCooldown($instructions, $instance['resolved_params'] ?? [], $instance['code'] ?? '');
         $instructions = self::appendPaceCitation($instructions, $instance);
+        $instructions = self::prependPrescriptionLead($instructions, $instance);
 
         $sig             = self::computeInstanceSignature($instance);
         $resolvedVariant = $instance['resolved_variant']['code'] ?? null;
@@ -1501,6 +1503,7 @@ class PlanGenerator
         $instructions = self::normalizeInstructionText($instructions, $instance);
         $instructions = self::wrapWithWarmupCooldown($instructions, $instance['resolved_params'] ?? [], $instance['code'] ?? '');
         $instructions = self::appendPaceCitation($instructions, $instance);
+        $instructions = self::prependPrescriptionLead($instructions, $instance);
 
         $params          = $instance['resolved_params'] ?? [];
         $structure       = self::resolveStructure($instance);
@@ -2268,6 +2271,7 @@ class PlanGenerator
         $instructions = self::normalizeInstructionText($instructions, $instance);
         $instructions = self::wrapWithWarmupCooldown($instructions, $instance['resolved_params'] ?? [], $instance['code'] ?? '');
         $instructions = self::appendPaceCitation($instructions, $instance);
+        $instructions = self::prependPrescriptionLead($instructions, $instance);
 
         $sig             = self::computeInstanceSignature($instance);
         $variantCode     = $instance['resolved_variant']['code'] ?? null;
@@ -2333,6 +2337,7 @@ class PlanGenerator
         $instructions = self::normalizeInstructionText($instructions, $instance);
         $instructions = self::wrapWithWarmupCooldown($instructions, $instance['resolved_params'] ?? [], $instance['code'] ?? '');
         $instructions = self::appendPaceCitation($instructions, $instance);
+        $instructions = self::prependPrescriptionLead($instructions, $instance);
 
         $sig             = self::computeInstanceSignature($instance);
         $variantCode     = $instance['resolved_variant']['code'] ?? null;
@@ -3066,6 +3071,7 @@ class PlanGenerator
             $instructions = self::normalizeInstructionText($instructions, $instance);
             $instructions = self::wrapWithWarmupCooldown($instructions, $instance['resolved_params'] ?? [], $instance['code'] ?? '');
             $instructions = self::appendPaceCitation($instructions, $instance);
+            $instructions = self::prependPrescriptionLead($instructions, $instance);
 
             // Trail ultra long-run cue + power-hiking guidance (ultra spec Parts 12/13).
             if ($ultra !== null && $slotType === 'long_run') {
@@ -4823,6 +4829,129 @@ class PlanGenerator
      * appendPaceCitation(), so the cooldown sentence sits before any pace citation:
      *   [Warmup]. [Main-set description]. [Cooldown]. [Pace citation if any].
      */
+    /**
+     * Prepend a concrete prescription lead line to a templated quality session's
+     * description, so the athlete reads the actual numbers (reps, length, effort,
+     * recovery), not only the coaching prose. Format:
+     *   "N × [length] at [effort], [recovery] between reps." then the prose unchanged.
+     *
+     * Recovery is resolved through RecoveryModel::resolveSeconds — the SAME shared
+     * resolver the watch renderer uses — so the description's recovery and the watch's
+     * recovery step are guaranteed to agree (and an explicit coach override wins in both).
+     * For distance reps the rep duration is estimated via PaceZones::estimateRepSeconds
+     * with the athlete's visible zones, identical to the watch.
+     *
+     * Scope: the 5 uniform-rep templated archetypes. mixed_distance_repeats and the
+     * fartlek ladder already lead with their full sequence (distances + effort +
+     * recovery) in their own templates, so they are intentionally not re-led here.
+     * The effort phrase uses words only; the numeric pace stays in the end-of-description
+     * citation (appendPaceCitation), so pace is never double-cited.
+     */
+    private static function prependPrescriptionLead(string $instructions, array $instance): string
+    {
+        $code = (string)($instance['code'] ?? '');
+        $p    = $instance['resolved_params'] ?? [];
+        $n    = (int)($p['rep_count'] ?? 0);
+        $override = (int)($p['recovery_duration_seconds'] ?? 0);
+        $model    = (string)($p['recovery_model'] ?? '');
+
+        $lead = '';
+        switch ($code) {
+            case 'tempo_intervals':
+                $repMin = (float)($p['rep_duration_minutes'] ?? 0);
+                if ($n < 1 || $repMin <= 0) break;
+                $rec = RecoveryModel::resolveSeconds($model ?: 'threshold_standard', (int)round($repMin * 60), $override);
+                $lead = $n . ' × ' . self::leadMinutesLabel($repMin) . ' at comfortably hard (tempo) effort, '
+                      . '~' . self::leadSecondsLabel($rec) . ' easy jog between reps.';
+                break;
+
+            case 'high_volume_time_intervals':
+                $work = (int)($p['work_duration_seconds'] ?? 0);
+                if ($n < 1 || $work < 1) break;
+                $rec = RecoveryModel::resolveSeconds($model ?: 'vo2_standard', $work, $override);
+                $lead = $n . ' × ' . self::leadSecondsLabel($work) . ' at a hard, controlled effort, '
+                      . '~' . self::leadSecondsLabel($rec) . ' easy jog between reps.';
+                break;
+
+            case 'sustained_hill_repeats':
+                $durSec = (int)($p['rep_duration_seconds'] ?? 0);
+                if ($n < 1 || $durSec < 1) break;
+                // hill_standard recovery is a jog back down to the start (full recovery), a
+                // defined cue rather than a fixed count — matching the watch's hill renderer.
+                $lead = $n . ' × ' . self::leadSecondsLabel($durSec) . ' uphill at a strong, controlled effort, '
+                      . 'jog back down to the start between reps.';
+                break;
+
+            case 'equal_distance_repeats':
+            case 'short_speed_repeats':
+                $meters = (int)($p['rep_distance_meters'] ?? 0);
+                if ($n < 1 || $meters < 1) break;
+                $effort = self::leadWorkSegmentEffort($instance);
+                if ($code === 'short_speed_repeats') {
+                    $rec  = RecoveryModel::resolveSeconds($model ?: 'speed_standard', 0, $override);
+                    $lead = $n . ' × ' . $meters . 'm at a fast, near-sprint effort, '
+                          . '~' . self::leadSecondsLabel($rec) . ' full recovery between reps.';
+                } else {
+                    $repSec = PaceZones::estimateRepSeconds($meters, $effort, self::$paceZones);
+                    $rec    = RecoveryModel::resolveSeconds($model ?: 'vo2_standard', $repSec, $override);
+                    $lead   = $n . ' × ' . $meters . 'm at ' . self::leadEffortPhrase($effort) . ', '
+                            . '~' . self::leadSecondsLabel($rec) . ' easy jog between reps.';
+                }
+                break;
+        }
+
+        if ($lead === '') return $instructions;
+        $instructions = trim($instructions);
+        return $instructions === '' ? $lead : $lead . ' ' . $instructions;
+    }
+
+    /** Effort of the main work segment (matches what the watch renderer reads). */
+    private static function leadWorkSegmentEffort(array $instance): string
+    {
+        $structure = self::resolveStructure($instance);
+        foreach (($structure['segments'] ?? []) as $s) {
+            if (!is_array($s)) continue;
+            if (isset($s['rep_distance_meters'])
+                || in_array((string)($s['segment_type'] ?? ''), ['repeats', 'speed_repeats'], true)) {
+                return (string)($s['target_effort'] ?? $s['effort'] ?? $s['effort_zone'] ?? '');
+            }
+        }
+        return (string)(($instance['resolved_params'] ?? [])['target_effort'] ?? '');
+    }
+
+    /** Human effort phrase for a distance-rep target effort token. */
+    private static function leadEffortPhrase(string $effort): string
+    {
+        $e = strtolower(trim($effort));
+        return match (true) {
+            in_array($e, ['3k'], true)                 => '3K effort',
+            in_array($e, ['5k', 'z5'], true)           => '5K effort',
+            in_array($e, ['10k'], true)                => '10K effort',
+            in_array($e, ['mile'], true)               => 'mile-race effort',
+            in_array($e, ['800', '400', 'speed', 'sprint', 'z6'], true) => 'fast, near-sprint effort',
+            in_array($e, ['half_marathon', 'threshold', 'tempo', 'z4'], true) => 'comfortably hard (tempo) effort',
+            default                                    => 'a hard, controlled (around 5K) effort',
+        };
+    }
+
+    /** "14 min" / "12.5 min" from a minutes value. */
+    private static function leadMinutesLabel(float $minutes): string
+    {
+        if (abs($minutes - round($minutes)) < 0.05) return (int)round($minutes) . ' min';
+        return rtrim(rtrim(number_format($minutes, 1), '0'), '.') . ' min';
+    }
+
+    /** "45 sec" / "90 sec" / "2 min" / "2 min 30 sec" from a seconds value. */
+    private static function leadSecondsLabel(int $seconds): string
+    {
+        $seconds = max(0, $seconds);
+        if ($seconds < 120 && $seconds % 60 !== 0) return $seconds . ' sec';
+        $m = intdiv($seconds, 60);
+        $r = $seconds % 60;
+        if ($m < 1) return $seconds . ' sec';
+        return $r === 0 ? $m . ' min' : $m . ' min ' . $r . ' sec';
+    }
+
     private static function wrapWithWarmupCooldown(
         string $instructions, array $resolvedParams, string $archetypeCode
     ): string {

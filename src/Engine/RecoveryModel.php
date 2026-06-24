@@ -166,4 +166,48 @@ class RecoveryModel
     {
         return self::get($model)['description'];
     }
+
+    // ── Shared recovery-seconds resolver ─────────────────────────────────────
+    // Single source of truth for the concrete recovery between reps. Both the watch
+    // renderer (IntervalsService) and the athlete-facing description (PlanGenerator
+    // lead line) call resolveSeconds(), so the recovery they show is guaranteed to
+    // agree. The math was previously private to IntervalsService (roundSecs +
+    // modelRecoverySeconds + the "explicit override wins" rule); it lives here now.
+
+    /** Round a recovery duration to a tidy value (5s under 1min, 15s under 3min, else 30s). */
+    public static function roundSeconds(int $s): int
+    {
+        if ($s <= 0)   return 0;
+        if ($s < 60)   return (int)(round($s / 5) * 5);
+        if ($s < 180)  return (int)(round($s / 15) * 15);
+        return (int)(round($s / 30) * 30);
+    }
+
+    /** Recovery seconds from a recovery-model slug applied to a work duration (unrounded). */
+    public static function modelSeconds(string $model, int $workSeconds): int
+    {
+        $r = self::get($model ?: 'vo2_standard');
+        if (($r['type'] ?? '') === 'ratio' && $r['ratio'] !== null && $workSeconds > 0) {
+            return (int)round($workSeconds * (float)$r['ratio']);
+        }
+        if ($r['fixed_seconds'] !== null) {
+            return (int)$r['fixed_seconds'];
+        }
+        return $workSeconds > 0 ? $workSeconds : 90;
+    }
+
+    /**
+     * Concrete recovery seconds between reps: an explicit coach override
+     * (recovery_duration_seconds) wins; otherwise the model is applied to the work
+     * duration. Always rounded to a tidy value. Returns 0 only when the override is 0
+     * and the model resolves to 0 (which it never does — every model has a ratio,
+     * fixed_seconds, or the 90s default), so callers always get a concrete value.
+     */
+    public static function resolveSeconds(string $model, int $workSeconds, int $explicitOverride = 0): int
+    {
+        if ($explicitOverride > 0) {
+            return self::roundSeconds($explicitOverride);
+        }
+        return self::roundSeconds(self::modelSeconds($model, $workSeconds));
+    }
 }

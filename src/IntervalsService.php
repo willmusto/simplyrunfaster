@@ -498,42 +498,36 @@ class IntervalsService
         return implode("\n", $lines);
     }
 
-    /** Round a recovery duration to a tidy value (5s under 1min, 15s under 3min, else 30s). */
+    /** Round a recovery duration to a tidy value. Delegates to the shared resolver
+     *  (RecoveryModel) so the watch and the description round identically. */
     private static function roundSecs(int $s): int
     {
+        if (class_exists('RecoveryModel')) {
+            return RecoveryModel::roundSeconds($s);
+        }
         if ($s <= 0)   return 0;
         if ($s < 60)   return (int)(round($s / 5) * 5);
         if ($s < 180)  return (int)(round($s / 15) * 15);
         return (int)(round($s / 30) * 30);
     }
 
-    /** Estimate a single rep's duration (seconds) from pace zones, else a flat guess. */
+    /** Estimate a single rep's duration (seconds) from pace zones, else a flat guess.
+     *  Delegates to the shared PaceZones estimate so the watch and the description
+     *  derive recovery from the identical rep-second figure. */
     private static function estimateRepSeconds(int $meters, $effort, array $context): int
     {
         $zones = $context['pace_zones'] ?? null;
-        $miles = $meters / self::METERS_PER_MILE;
-        $key   = self::paceKeyForEffort((string)$effort);
-        if (is_array($zones) && isset($zones[$key]) && is_numeric($zones[$key]) && (int)$zones[$key] > 0) {
-            return (int)round($miles * (int)$zones[$key]); // secs/mile * miles
-        }
-        // ~6:30/mi fallback when zones are hidden/absent.
-        return (int)round($miles * 390);
+        return PaceZones::estimateRepSeconds($meters, (string)$effort, is_array($zones) ? $zones : null);
     }
 
-    /** Recovery seconds from a recovery-model slug applied to a work duration. */
+    /** Recovery seconds from a recovery-model slug applied to a work duration. Delegates
+     *  to the shared resolver (RecoveryModel) so the watch and the description agree. */
     private static function modelRecoverySeconds(string $model, int $workSeconds): int
     {
         if (!class_exists('RecoveryModel')) {
             return $workSeconds > 0 ? $workSeconds : 90;
         }
-        $r = RecoveryModel::get($model ?: 'vo2_standard');
-        if (($r['type'] ?? '') === 'ratio' && $r['ratio'] !== null && $workSeconds > 0) {
-            return (int)round($workSeconds * (float)$r['ratio']);
-        }
-        if ($r['fixed_seconds'] !== null) {
-            return (int)$r['fixed_seconds'];
-        }
-        return $workSeconds > 0 ? $workSeconds : 90;
+        return RecoveryModel::modelSeconds($model, $workSeconds);
     }
 
     // ── Effort / zone / formatting helpers ───────────────────────────────────
@@ -574,18 +568,11 @@ class IntervalsService
         };
     }
 
-    /** Pace-zone key (PaceZones output keys) nearest to a rep target effort. */
+    /** Pace-zone key (PaceZones output keys) nearest to a rep target effort. Delegates
+     *  to the shared PaceZones mapping. */
     private static function paceKeyForEffort(string $effort): string
     {
-        $e = strtolower(trim($effort));
-        return match (true) {
-            in_array($e, ['400', '800', 'mile', 'speed', 'z6'], true) => $e === '400' ? '400' : ($e === '800' ? '800' : 'mile'),
-            in_array($e, ['3k', '5k', 'z5'], true)                    => '5K',
-            in_array($e, ['10k'], true)                               => '10K',
-            in_array($e, ['half_marathon', 'threshold', 'tempo', 'z4'], true) => 'half_marathon',
-            in_array($e, ['marathon', 'z3'], true)                    => 'marathon',
-            default                                                   => '5K',
-        };
+        return PaceZones::paceKeyForEffort($effort);
     }
 
     // ── Quality pace-range citations (engine spec §18.9) ─────────────────────
