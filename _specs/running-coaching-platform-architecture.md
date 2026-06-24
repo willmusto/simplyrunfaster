@@ -1,4 +1,7 @@
 # Running Coaching Platform — System Architecture & Project Brief
+
+> **STATUS: REFERENCE.** Living document. Update as the system changes.
+
 *Version 1.0 — Greenfield*
 
 ---
@@ -432,6 +435,22 @@ Audit log written by the 90-day data-retention cron (`scripts/cron_delete_expire
 
 **All generated plans sit in `pending` status until a coach approves them.** Athletes see nothing until approval.
 
+#### 5.1a Parameter resolution — volume-anchored ranging + cross-cycle progression (tempo)
+
+Step 5's "resolve parameters to concrete values" is, for most archetypes, the midpoint of the per-classification range. The 7 parameterized quality archetypes are the exception — ranged in batches from the proven tempo pattern (rollout now COMPLETE). See `_specs/archive/resolveParameters-ranging-spec.md` and `_specs/archive/archetype-ranging-rollout-spec.md`. The shared `$cycleProgress` context (set per week by the generators) drives them off the volume build-trend:
+
+- `tempo_intervals` (Stage A/B) — BUILDS toward peak (target slides UP with the volume trend).
+- `sustained_hill_repeats` + `high_volume_time_intervals` (Batch 1) — SHARPEN toward peak (inverted): more/longer reps in base, fewer/shorter at peak. Base hills reach 9+ reps, activating the checkpoint clause.
+- `equal_distance_repeats` + `short_speed_repeats` (Batch 2) — volume-anchored + distance-biases-volume-AND-frequency: short reps target the low end of `quality_volume_meters` and are weighted rarer in variant selection, long reps the high end and more frequent (6×1000 common, 6 miles of 400s rare). Sharpen toward peak.
+- `mixed_distance_repeats` + `structured_fartlek_ladder` (Batch 3) — structurally different (sequence/pattern based, no even-or-3): mixed builds a coherent track-standard ladder per the variant ordering (descending / ascending / pyramid), 3-9 rungs scaled by phase + goal; fartlek varies which `allowed_pattern` it uses + round_count, and adds a parameterized "diminishing descending ladder" family (occasional). Both sharpen toward peak.
+
+No parameterized quality archetype remains on frozen-midpoint resolution for its primary structure.
+
+- **Stage A (volume-anchored ranging).** Tempo resolves a total-work target from `threshold_volume_minutes` (the anchor), then distributes it into reps shaped by the selected variant: the variant sets rep length (conventional values within its band), and total / length sets rep count. Counts are "even or 3" (no 5/7/9), clamped to 2..8, snapped to idiomatic (count, length) pairs (`distributeTempoIntervals` / `snapDownEvenOr3`). well_trained targets the upper part of its range, longer goal distances sit higher.
+- **Stage B (across-cycle progression, coupled to volume).** The tempo target is no longer per-instance: it grows across the cycle by tracking the engine's existing weekly volume progression (the same `× 1.08` / `× 1.10` build-trend / cutback logic in `generateDevelopmentPlan` / `generateRaceCycle`). Each week the generator sets a static context (`$cycleProgress`) with a 0..1 fraction = the build-trend volume's position between the cycle's starting volume and the peak ceiling, read AFTER weekly progression is applied; `distributeTempoIntervals` slides the sampling window from the low part of the classification band (cycle start) to the high part (peak). So a peak-phase tempo out-totals a base-phase one for the same athlete, and tempo scales proportionally with overall volume rather than on an independent curve. Cutback weeks reduce the tempo target subtly: half the percentage total volume drops. Outside a progressing cycle (ad-hoc preview, manual compose, maintenance) the context is null and per-instance ranging applies.
+
+- **Batch 1 rollout (hills + high-volume intervals).** `sustained_hill_repeats` and `high_volume_time_intervals` are volume-anchored too, but SHARPEN toward peak (the inverted direction): they read the same `$cycleProgress` fraction and invert it, so base = more/longer reps, peak = fewer/shorter/sharper. Hills pick a rep-duration band by variant (Short/Standard/Long) and scale rep count base→peak; base hills now reach 9-16 reps, which activates the conditional checkpoint clause at halfway (peak hills stay clause-free). High-volume intervals range around the canonical 20×120/60 (kept as a frequent outcome): on-duration sharpens toward peak, the on/off ratio is sampled (2:1 / 3:2 / 1:1), rep count is even-or-3 and goal-scaled. All reuse `snapDownEvenOr3` / `checkpointClause`. The other four parameterized archetypes remain on midpoint resolution pending later batches.
+
 ### 5.2 Rolling Adjustment (Post-Workout, Autonomous)
 
 Runs after each completed workout is synced. Operates only within the visible 7–10 day window and only within guardrail limits. Does not touch `coach_locked` workouts.
@@ -602,11 +621,12 @@ Coach accounts are tagged `role = coach` in `users`. A coach can be assigned to 
 - **Drag-to-reschedule.** Workout bubbles are draggable; dropping on another in-plan day persists via `POST /app/coach/athlete/:id/workout/reschedule` → `CoachController::rescheduleWorkout()` (coach-owns-athlete auth + CSRF). The handler validates the destination is a real date inside the plan window, then: warns (non-blocking) if it's a **must-off** day (`{error:'must_off'}`, client re-POSTs with `force:true` on confirm); reports a **conflict** if the day is occupied (`{error:'conflict', existing_workout}`, client offers a **swap**, sent as `swap_with` and applied as an atomic two-row date exchange in a transaction); otherwise `UPDATE scheduled_date`. The calendar DOM updates in place; any server error reverts the drag. (HTML5 drag is desktop; the stacked mobile list is tap-only.)
 - **Add workout.** Empty/rest day cells (coach view only) show a "+ Add workout" button opening a modal with two paths via `POST /app/coach/athlete/:id/workout/add` → `addWorkout()` (supports a `preview` flag). **Archetype picker:** filter by category (Easy/Long/Quality/Recovery) → pick archetype → variant + duration → live preview → add. Instances are resolved and rendered through the engine via the new `PlanGenerator::composeManualWorkout()` (and `PlanGenerator::manualArchetypeLibrary()` powers the picker), so all snapshot/display columns match generated workouts. **Free-form:** title, workout type (badge color), duration, athlete instructions, coach-only notes (stored in `planned_workouts.notes`), `archetype_code = NULL`. Both paths insert with `coach_locked = 1` and `visible_to_athlete = 1`.
 - **Remove workout.** A muted "Remove workout" action in the detail popout soft-deletes via `POST /app/coach/athlete/:id/workout/remove` → `removeWorkout()`: sets `cancelled = 1`, `cancelled_at`, `cancelled_by` (never a hard delete, preserving the training log). The day renders as rest with a faint coach-only "Removed" marker. **migration_012** adds `cancelled`/`cancelled_at`/`cancelled_by` to `planned_workouts`; **all** consumers now filter `cancelled = 0 OR cancelled IS NULL` — `getPlanWorkouts`, the athlete Today/Plan visible-workout and completed-match queries, `TrainingLoad`'s planned-workout join, `cron_notifications`, and `cron_update_visibility`.
-- **Edit workout (2026-06-18).** An "Edit workout" action in the detail popout (`#mwd`) — shown only for a **future, uncompleted, non-cancelled** workout — opens a three-mode modal (`#ewd`, mirroring the add modal) that edits the existing row via the (extended) `POST /app/coach/workouts/:id/edit` → `CoachController::editPlannedWorkout()`. One path, three modes (`mode` = surface | archetype | freeform), kept backward-compatible with the weekly-calendar's form-encoded surface edit:
-  - **Surface tweak** — duration / type badge / title / instructions / coach notes; `archetype_code` and `instance_signature` unchanged.
-  - **Archetype swap** — filter→archetype→variant→duration→live preview→save, re-resolved through `PlanGenerator::composeManualWorkout()`, overwriting the archetype snapshot + all display columns + `instance_signature` (a `preview` flag returns the render with no write).
-  - **Free-form** — title / type / duration / instructions / notes; `archetype_code = NULL`, `instance_signature = NULL`.
-  Every save sets `coach_locked = 1` + `coach_edited_by`/`coach_edited_at`, **recomputes `intensity_load`** (surface = the row's preserved factor × new duration; archetype = the variant/archetype intensity factor × duration via `composeManualWorkout`; free-form = the type's load factor × duration, identical to the free-form add), keeps display text consistent with the new duration (archetype regenerates all display; surface regenerates the one-line summary; free-form leaves it NULL → derived at render), and best-effort re-pushes to Intervals.icu (upsert by `srf_{id}`; a push failure can never fail the edit). It **never** calls `PlanGenerator::generate` — one row only. **Permissions:** head coach/admin get all three modes; assistant coaches get surface + archetype only (free-form denied), and assistant edits tag `added_by_role='assistant_coach'`. Allowing a coach-authored title on a locked row is a deliberate departure from the engine's "title/summary engine-owned" rule.
+- **Edit workout (2026-06-18; structured editor + surface scoping 2026-06-24).** An "Edit workout" action in the detail popout (`#mwd`) — shown only for a **future, uncompleted, non-cancelled** workout — opens a **four-mode** modal (`#ewd`, mirroring the add modal) that edits the existing row via the (extended) `POST /app/coach/workouts/:id/edit` → `CoachController::editPlannedWorkout()`. One path, four modes (`mode` = surface | structured | archetype | freeform), kept backward-compatible with the weekly-calendar's form-encoded surface edit. A muted "How do you want to edit this?" label sits above the four mode buttons with a one-line description under each pane (mutually-exclusive edit modes; pick one):
+  - **Surface tweak ("Tweak")** — title / instructions / coach notes for all workouts. **Workout type and duration are scoped to the workout's source of truth:** on a **generated (archetype-backed)** workout the type dropdown is **hidden** and duration is **read-only** (type changes go through Replace-from-library, duration through the Structure tab, since both are implied by the structure); on a **free-form** workout (`archetype_code = NULL`) both stay editable, as they are its only source of truth. The UI scoping (commit d921162) is **enforced server-side** (commit 05b9fe1): the surface branch ignores incoming `workout_type` / `target_duration` when `archetype_code` is non-null, so a hand-crafted POST can't desync the badge/duration from the structure. `archetype_code` and `instance_signature` unchanged.
+  - **Structured ("Structure")** — shown only for the **6 structured-editable quality archetypes** (`PlanGenerator::STRUCTURED_EDIT_CODES`: tempo_intervals, sustained_hill_repeats, equal_distance_repeats, short_speed_repeats, high_volume_time_intervals, mixed_distance_repeats). The coach edits the workout's **structured fields** directly — rep count / rep length / recovery for the 5 uniform-rep archetypes, or an ordered **rung editor** (track-standard distance dropdowns, add/remove/reorder) for `mixed_distance_repeats`. Save → `mode='structured'` → `PlanGenerator::composeStructuredEdit()` rebuilds `structure` + re-renders title/summary/instructions via the same render path generation uses, and **clears `push_text_only = 0`** so the genuinely-edited steps push to the watch (not the text fallback). `addDerivedParams()` runs in `$manual` mode (no ranging/cap/snap), so the coach's explicit values are honored (e.g. a 7×7 is allowed). Sanity floors are client-side **warn-not-block** popups (<2 / >12 reps or rungs, total ladder >12000 m). Full build spec: `_specs/structured-workout-editor-spec.md`. Assistant coaches get this mode (it is not free-form).
+  - **Archetype swap ("Replace from library")** — filter→archetype→variant→duration→live preview→save, re-resolved through `PlanGenerator::composeManualWorkout()`, overwriting the archetype snapshot + all display columns + `instance_signature` (a `preview` flag returns the render with no write).
+  - **Free-form ("Replace (custom)")** — title / type / duration / instructions / notes; `archetype_code = NULL`, `instance_signature = NULL`. This is the path that legitimizes an editable type/duration: it **converts** the workout to a genuine free-form session (nulls `archetype_code` / `archetype_variant` / `archetype_params` / `structure` / `instance_signature`), after which type + duration are authoritative.
+  Every save sets `coach_locked = 1` + `coach_edited_by`/`coach_edited_at`, **recomputes `intensity_load`** (surface = the row's preserved factor × new duration; archetype = the variant/archetype intensity factor × duration via `composeManualWorkout`; free-form = the type's load factor × duration, identical to the free-form add), keeps display text consistent with the new duration (archetype regenerates all display; surface regenerates the one-line summary; free-form leaves it NULL → derived at render), and best-effort re-pushes to Intervals.icu (upsert by `srf_{id}`; a push failure can never fail the edit). It **never** calls `PlanGenerator::generate` — one row only. **Permissions:** head coach/admin get all four modes; assistant coaches get surface + structured + archetype (free-form denied), and assistant edits tag `added_by_role='assistant_coach'`. Allowing a coach-authored title on a locked row is a deliberate departure from the engine's "title/summary engine-owned" rule.
 
 Coach dashboard also includes:
 - In-app messaging thread per athlete (see Section 14)
@@ -1061,8 +1081,8 @@ The Privacy Policy is live and the consent + retention machinery is built. (The 
 
 - **Policy page:** `GET /app/privacy` — public, no auth required (allowlisted in the athlete billing gate so a lapsed athlete can still read it). Rendered by `views/static/privacy.php` using the app layout (no authenticated nav). Effective 2026-06-16, covering US (CCPA), EU/UK (GDPR / UK GDPR), Canada (PIPEDA), and Mexico (LFPDPPP); Section 6 lists processors (NearlyFreeSpeech, Stripe, Resend, Intervals.icu). A "Privacy Policy" link appears in the global app footer (`views/layout/html_close.php`) on every page and on the marketing placeholder.
 - **Onboarding consent:** two required checkboxes (age/parental consent + Privacy Policy agreement) on the final onboarding step, validated server-side; recorded on `users` as `consent_age` / `consent_privacy` / `consent_given_at` (migration_013). See §9. Existing users at migration time are grandfathered as consented.
-- **90-day retention & deletion:** `scripts/cron_delete_expired_accounts.php` (daily NFSN cron, hour 4 UTC; supports `--dry-run`) enforces the policy's retention window. It selects **athlete-role** accounts only and only those with `subscription_status` in (`canceled`, `none`) — never `active`/`trialing`/`comped`/`past_due`, and never coach/admin — in two categories: `90_day_post_cancellation` (canceled, `subscription_end_date` > 90 days past) and `90_day_incomplete_onboarding` (`none`, signed up > 90 days ago, onboarding never completed). For each, it deletes **every** athlete- and user-scoped child row — athlete-scoped (`messages`, `session_notes`, `scheduled_messages`, `completed_workouts`, `planned_workouts`, `training_load`, `engine_flags`, `coaching_intelligence_flags`, `coach_adjustments`, `athlete_behavior_log`, `athlete_response_profiles`, `plan_approval_queue`, `plan_regeneration_requests`, `coach_assignments`, `races`, `personal_bests`, `watch_connections`, `athlete_profiles`, `training_plans`), user-scoped (`notification_preferences`, `device_notify_preferences`, `push_subscriptions`, `phone_verifications`, `password_reset_tokens`, `intervals_connections`), the Intervals append-only logs (`intervals_push_log`, `intervals_webhook_log`), and the `athletes` row — then **anonymizes** (does not hard-delete) the `users` row — `email = deleted_<id>@deleted.invalid`, `name = 'Deleted User'`, `password_hash = ''`, `phone_number = NULL`, `stripe_customer_id = NULL`, `deleted_at = NOW()` — so billing records that reference the user id survive (Privacy Policy §9: billing records retained 7 years). Each anonymization is logged to `account_deletions` (see §4). For Intervals the cron makes a **best-effort, non-blocking** token revoke (`IntervalsService::revokeToken`) before removing the local `intervals_connections` row, so a deleted account retains no live third-party credential even if Intervals.icu is unreachable. The sweep uses **no transaction** (production is MyISAM, where `BEGIN/COMMIT` are no-ops): it is ordered to be idempotent and resumable — child rows deleted by id, `deleted_at` set **last**, and the candidate query skips already-anonymized accounts — so a run that fails partway simply completes on the next run. *(History: the sweep previously covered only ~7 of these tables, leaking races, PBs, behavioral metrics, and encrypted OAuth tokens; completed in this pass — see `_specs/db_debt_audit.md` §4.)* *(Note: `users` has no `push_subscription` column — push data is removed via the `push_subscriptions` table delete.)*
-- **Growth retention (separate cron):** `scripts/cron_data_retention.php` (`--dry-run`-gated) is one extensible mechanism that prunes append-only / closed / soft-deleted rows that would otherwise grow without bound: Intervals webhook/push logs, closed `engine_flags` / `coaching_intelligence_flags` (180 d — the Flags tab shows only the last 90 d), `training_load` (2-year window), cancelled `planned_workouts` (180 d), archived `training_plans` (past `archived_at`, keeping the latest per athlete + cascading its `planned_workouts`), and `stripe_webhook_log` (1 year). `training_plans.archived_at` (migration_033, backfilled from `generated_at`) was added to enable age-based archive pruning and is set whenever a plan is archived. Built to also host generate-to-draft's future `plan_drafts` TTL as a one-line policy. See `_specs/db_debt_audit.md` §3.
+- **90-day retention & deletion:** `scripts/cron_delete_expired_accounts.php` (daily NFSN cron, hour 4 UTC; supports `--dry-run`) enforces the policy's retention window. It selects **athlete-role** accounts only and only those with `subscription_status` in (`canceled`, `none`) — never `active`/`trialing`/`comped`/`past_due`, and never coach/admin — in two categories: `90_day_post_cancellation` (canceled, `subscription_end_date` > 90 days past) and `90_day_incomplete_onboarding` (`none`, signed up > 90 days ago, onboarding never completed). For each, it deletes **every** athlete- and user-scoped child row — athlete-scoped (`messages`, `session_notes`, `scheduled_messages`, `completed_workouts`, `planned_workouts`, `training_load`, `engine_flags`, `coaching_intelligence_flags`, `coach_adjustments`, `athlete_behavior_log`, `athlete_response_profiles`, `plan_approval_queue`, `plan_regeneration_requests`, `coach_assignments`, `races`, `personal_bests`, `watch_connections`, `athlete_profiles`, `training_plans`), user-scoped (`notification_preferences`, `device_notify_preferences`, `push_subscriptions`, `phone_verifications`, `password_reset_tokens`, `intervals_connections`), the Intervals append-only logs (`intervals_push_log`, `intervals_webhook_log`), and the `athletes` row — then **anonymizes** (does not hard-delete) the `users` row — `email = deleted_<id>@deleted.invalid`, `name = 'Deleted User'`, `password_hash = ''`, `phone_number = NULL`, `stripe_customer_id = NULL`, `deleted_at = NOW()` — so billing records that reference the user id survive (Privacy Policy §9: billing records retained 7 years). Each anonymization is logged to `account_deletions` (see §4). For Intervals the cron makes a **best-effort, non-blocking** token revoke (`IntervalsService::revokeToken`) before removing the local `intervals_connections` row, so a deleted account retains no live third-party credential even if Intervals.icu is unreachable. The sweep uses **no transaction** (production is MyISAM, where `BEGIN/COMMIT` are no-ops): it is ordered to be idempotent and resumable — child rows deleted by id, `deleted_at` set **last**, and the candidate query skips already-anonymized accounts — so a run that fails partway simply completes on the next run. *(History: the sweep previously covered only ~7 of these tables, leaking races, PBs, behavioral metrics, and encrypted OAuth tokens; completed in this pass — see `_specs/archive/db_debt_audit.md` §4.)* *(Note: `users` has no `push_subscription` column — push data is removed via the `push_subscriptions` table delete.)*
+- **Growth retention (separate cron):** `scripts/cron_data_retention.php` (`--dry-run`-gated) is one extensible mechanism that prunes append-only / closed / soft-deleted rows that would otherwise grow without bound: Intervals webhook/push logs, closed `engine_flags` / `coaching_intelligence_flags` (180 d — the Flags tab shows only the last 90 d), `training_load` (2-year window), cancelled `planned_workouts` (180 d), archived `training_plans` (past `archived_at`, keeping the latest per athlete + cascading its `planned_workouts`), and `stripe_webhook_log` (1 year). `training_plans.archived_at` (migration_033, backfilled from `generated_at`) was added to enable age-based archive pruning and is set whenever a plan is archived. Built to also host generate-to-draft's future `plan_drafts` TTL as a one-line policy. See `_specs/archive/db_debt_audit.md` §3.
 - **Config reminder:** `config/config.php` carries a non-wired comment that the `privacy@simplyrunfaster.com` mailbox must be set up and forwarded before beta launch.
 
 ### Terms of Service *(implemented — 2026-06-17, migration_020)*
@@ -1551,32 +1571,65 @@ See Section 28 for the full implementation map and the deviations (SMS deferred;
 Athletes and coaches can edit a training profile after onboarding. Implemented in
 `src/ProfileForm.php` (shared sanitize / diff / save) with two entry points:
 
+Both forms render the **same shared partial** (`views/partials/profile_form_fields.php`);
+field scope is enforced by `ProfileForm::sanitize($post, $coach)` against two whitelists —
+`ATHLETE_FIELDS` (shown on both forms) and `COACH_FIELDS` (coach form only).
+
 - **Athlete — Training Settings** (`GET/POST /app/settings/training`, linked from the
-  Settings tab). Single consolidated form: goal, current fitness, typical easy pace,
-  availability (incl. must-off days + fixed/flex scheduling), history, cross-training.
-  The **current-fitness** section uses the shared dual-path inputs
-  (`views/partials/fitness_inputs.php`): weekly volume and longest run can each be entered
-  by time **or** distance + average pace, both deriving the canonical minutes columns (§9a).
+  Settings tab). Single consolidated form: goal (distance / date / finish time), current
+  fitness, **most recent race** (distance + time + date), typical easy pace, availability
+  (must-off days + fixed/flex scheduling), **equipment & clearances** (cross-training plus
+  `hill_access` and `track_field_background` self-report), history. Return-to-running fields
+  (`medical_clearance_confirmed`, `return_time_off_band`) appear only when the athlete's
+  `plan_type` is `return_to_running`. The **current-fitness** section uses the shared
+  dual-path inputs (`views/partials/fitness_inputs.php`): weekly volume and longest run can
+  each be entered by time **or** distance + average pace, both deriving the canonical
+  minutes columns (§9a). Athletes **cannot** set `plan_type` or `plyometric_clearance`
+  (coach-only — see below).
 - **Coach — Edit Profile** (`GET/POST /app/coach/athlete/:id/edit`, button on the coach
-  athlete view). All athlete fields **plus** coach-only controls: `peak_volume_ceiling_mins`,
-  `pace_zones_visible` toggle, and `pace_zones_hidden_reason` (shown only when zones are
-  hidden, per §26). The page also surfaces pace-zone provenance (Verified / Estimated /
-  Manual / None).
+  athlete view). A **complete superset of onboarding**: every onboarding-captured and
+  engine-read field is coach-editable here. All athlete fields **plus** coach-only controls
+  (`COACH_FIELDS`): **`plan_type`** (a coaching decision — race_cycle / development /
+  maintenance / return_to_running; `recovery_block` preserved if already set), **`plyometric_clearance`**
+  (a higher-injury-risk readiness gate), `peak_volume_ceiling_mins`, `pace_zones_visible`
+  toggle, `pace_zones_hidden_reason` (shown only when zones are hidden, per §26), and an
+  athlete-timezone override. The page also surfaces pace-zone provenance (Verified /
+  Estimated / Manual / None). Changing `plan_type` takes effect on the **next** generation
+  (it does not rebuild the active plan); the coach form dynamically reveals the
+  return-to-running fields when `plan_type = return_to_running`.
+
+Race time (the most-recent-race field) is entered `h:mm:ss` / `mm:ss` and stored as
+canonical **seconds** via the shared `ProfileForm::parseRaceTime()` — never a raw-seconds
+field (the mis-parse that produced a "4-minute marathon" → garbage zones). The Hyrox goal
+pill posts `goal_race_distance='hyrox'`, translated to `mile` + `is_hyrox=1` in both
+controllers (`hyrox_ever` latches).
 
 ### Save behavior
 - **Required engine-critical fields + sanity (Stage A3/A4, 2026-06-23).** Both entry points
   run `ProfileForm::validateSubmission` before saving: the save is **blocked** when an
   engine-critical field is missing (`current_weekly_minutes`, `training_days_per_week`,
-  `longest_recent_run_mins`; `goal_race_distance` only when the stored `plan_type` is
-  `race_cycle`) or when the numbers are impossible (longest run > weekly total). Implausible
-  but possible combinations (e.g. high volume + a tiny longest run) save with a non-blocking
-  "double-check" note appended to the success flash. See §9a.
+  `longest_recent_run_mins`; `goal_race_distance` only when the **submitted** `plan_type` is
+  `race_cycle` — `plan_type` is coach-editable, so validation keys on the new value, falling
+  back to the stored one), when the numbers are impossible (longest run > weekly total), or
+  when a **race time is implausible** for its distance (the engine-spec §2 plausibility floor,
+  `PaceZones::isPlausibleRaceTime` — the *same* rule the onboarding door enforces, so the
+  form can't introduce a time onboarding would reject). Implausible-but-possible combinations
+  (e.g. high volume + a tiny longest run) save with a non-blocking "double-check" note. See §9a.
 - Writes `athlete_profiles` and bumps `updated_at`. **Does NOT trigger plan regeneration** —
   values are simply available for the next plan generation/rebuild to read.
-- If the typical easy-pace range changed and current zones are empty or
-  `pace_zones_source = 'easy_pace_estimate'`, zones are re-derived from the new easy pace
-  (engine spec §2, pathway 2). Verified (`race_result`) and `manual` zones are never
-  clobbered by an easy-pace edit.
+- **Pace-zone re-derivation on save** (`PaceZones::*`, never hand-written zones):
+  - If the typical easy-pace range changed and current zones are empty or
+    `pace_zones_source = 'easy_pace_estimate'`, zones are re-derived from the new easy pace
+    (engine spec §2, pathway 2).
+  - If the **most-recent-race result** changed to a valid (plausible, projectable) value,
+    zones are re-derived as **verified** `race_result` zones via `PaceZones::fromRace`
+    (`maybeDeriveRaceZones`) — this **takes precedence** over the easy-pace estimate.
+  - Verified (`race_result`) and `manual` zones are never clobbered by an easy-pace edit.
+- **Return-to-running fields** (`medical_clearance_confirmed`, `return_time_off_band`) are
+  gated in `save()` on the **effective** plan type (the coach's new value, else the stored
+  one — the athlete form doesn't post `plan_type`): off the RTR path those columns are left
+  untouched (a hidden/absent checkbox never zeroes a stored value). `medical_clearance_at` is
+  set as a derived timestamp side-effect, never an exposed field.
 
 ### Change flag (`profile_updated`)
 Every save with at least one changed field inserts a new `engine_flags` row:
