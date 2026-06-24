@@ -204,6 +204,14 @@ class IntervalsService
         $params    = json_decode((string)($workout['archetype_params'] ?? ''), true) ?: [];
         $fallback  = trim((string)($workout['athlete_instructions'] ?? $workout['description'] ?? ''));
 
+        // Surface/inline coach edits set push_text_only: the hand-edited instructions are the
+        // intent and the stored structure is now stale, so push the TEXT (matching the app),
+        // not the old structured steps. The structure is preserved on the row (not nulled) so
+        // a future structured editor can still use it; this only changes what reaches the watch.
+        if (!empty($workout['push_text_only'])) {
+            return $fallback;
+        }
+
         // Quality pace-range citations (engine spec §18.9) key off the archetype code.
         if (empty($context['archetype_code'])) {
             $context['archetype_code'] = (string)($workout['archetype_code'] ?? '');
@@ -305,6 +313,9 @@ class IntervalsService
 
             case 'fartlek_ladder':
                 return self::renderFartlek($seg, $params, $context);
+
+            case 'mixed_repeats':
+                return self::renderMixedRepeats($seg, $params, $context);
 
             default:
                 // Unknown segment: detect a distance/time rep block, else nothing.
@@ -415,6 +426,37 @@ class IntervalsService
             if ($w < 1) continue;
             $lines[] = '- ' . self::fmtSeconds($w) . ' ' . $zone . $cite;
             $lines[] = '- ' . self::fmtSeconds($w) . ' easy'; // ~1:1 float recovery
+        }
+        return count($lines) > 1 ? implode("\n", $lines) : '';
+    }
+
+    /**
+     * mixed_distance_repeats: a ladder of DIFFERENT distances (not N reps of one). Emit each
+     * rung as its own step, IN ORDER (the sequence is the point: descending stays descending,
+     * a pyramid peaks in the middle), with easy jog recovery between rungs (vo2_standard).
+     * Distances in miles + effort language + pace citation, matching renderDistanceRepeats.
+     */
+    private static function renderMixedRepeats(array $seg, array $params, array $context): string
+    {
+        $dists = $seg['interval_distances'] ?? $params['interval_distances'] ?? [];
+        if (is_string($dists)) $dists = json_decode($dists, true) ?: [];
+        if (!is_array($dists)) return '';
+        $dists = array_values(array_filter(array_map('intval', $dists), fn($m) => $m > 0));
+        if (empty($dists)) return '';
+
+        $effort = $seg['effort_zones'] ?? $params['effort_zones'] ?? '';
+        if (is_array($effort)) $effort = $effort[0] ?? '';
+        $zone     = self::zoneFor($effort, $context, 'interval effort');
+        $recModel = (string)($seg['recovery_model'] ?? $params['recovery_model'] ?? 'vo2_standard');
+
+        $lines = ['Main Set'];
+        $last  = count($dists) - 1;
+        foreach ($dists as $i => $m) {
+            $lines[] = '- ' . self::fmtMeters($m) . ' ' . $zone . self::citationSuffix($seg, $params, $context);
+            if ($i < $last) {
+                $recSec = self::roundSecs(self::modelRecoverySeconds($recModel, self::estimateRepSeconds($m, (string)$effort, $context)));
+                if ($recSec > 0) $lines[] = '- ' . self::fmtSeconds($recSec) . ' easy';
+            }
         }
         return count($lines) > 1 ? implode("\n", $lines) : '';
     }

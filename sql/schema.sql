@@ -439,6 +439,7 @@ CREATE TABLE IF NOT EXISTS `planned_workouts` (
   `coach_edited_at` datetime DEFAULT NULL,
   `visible_to_athlete` tinyint(1) NOT NULL DEFAULT '0',
   `pushed_to_watch` tinyint(1) NOT NULL DEFAULT '0',
+  `push_text_only` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'Surface/inline coach edit: push athlete_instructions text, not the (now-stale) structure (GAP A).',
   `pushed_at` datetime DEFAULT NULL,
   `intervals_event_id` varchar(64) COLLATE utf8_unicode_ci DEFAULT NULL COMMENT 'Intervals.icu calendar event id (srf_{id} upsert)',
   `original_scheduled_date` date DEFAULT NULL,

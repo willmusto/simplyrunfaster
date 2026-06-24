@@ -1040,6 +1040,8 @@ class CoachController
                     'description'                => $composed['athlete_instructions'],
                     'target_duration'            => (int)$composed['target_duration'],
                     'intensity_load'             => $composed['intensity_load'],
+                    // Fresh structured recompose: the watch pushes the (new) structure, not text.
+                    'push_text_only'             => 0,
                 ],
             ];
         }
@@ -1072,6 +1074,9 @@ class CoachController
                     'notes'                      => $coachNotes,
                     'target_duration'            => $duration,
                     'intensity_load'             => $load,
+                    // structure is NULL here; the watch already falls back to the text. Keep
+                    // the flag cleared so a later structured edit behaves predictably.
+                    'push_text_only'             => 0,
                 ],
             ];
         }
@@ -1083,7 +1088,11 @@ class CoachController
 
         // Preserve the row's effective intensity factor; recompute load for the new duration.
         $factor = ($oldLoad !== null && $oldLoad > 0 && $oldDur) ? $oldLoad / $oldDur : (self::FREEFORM_LOAD_FACTOR[$type] ?? 0.5);
-        $cols   = ['workout_type' => $type, 'target_duration' => $newDur, 'intensity_load' => round($newDur * $factor, 2)];
+        // push_text_only = 1: a surface edit changes display fields / instructions / duration but
+        // NOT the stored structure, which is now stale. The watch must push the coach's text (what
+        // the app shows), not the old structured steps. The structure stays on the row, preserved
+        // for a future structured editor; only the push rendering prefers the text (GAP A fix).
+        $cols   = ['workout_type' => $type, 'target_duration' => $newDur, 'intensity_load' => round($newDur * $factor, 2), 'push_text_only' => 1];
 
         // Coach owns title + instructions when supplied.
         if (array_key_exists('title', $in))                $cols['display_title']        = trim((string)$in['title']) ?: null;
