@@ -1253,6 +1253,92 @@ class PlanGenerator
     }
 
     /**
+     * Re-render a planned workout's DESCRIPTION ONLY from its EXISTING stored params +
+     * structure and the athlete's CURRENT pace zones, with NO change to the workout itself.
+     * Unlike composeStructuredEdit (which re-derives rep_distance_miles from the athlete's
+     * current pace to support edits), this uses the stored params verbatim, so the rebuilt
+     * structure is byte-identical to the stored one. addDerivedParams runs in $manual mode
+     * (no ranging/cap/snap/re-roll); only the display/render tail runs, picking up the
+     * prescription lead line and re-deriving pace citations from current zones.
+     *
+     * Returns ['display_title','display_summary','athlete_instructions','structure'] (the
+     * rebuilt structure is returned only so the caller can assert it equals the stored one;
+     * the caller persists TEXT columns only). Null if not a supported quality archetype or
+     * the row/profile is missing. Pure: no DB write.
+     */
+    public static function recomposeDescriptionOnly(int $plannedWorkoutId, ?PDO $db = null): ?array
+    {
+        $db   = $db ?? Database::get();
+        $stmt = $db->prepare('SELECT athlete_id, archetype_code, archetype_variant, archetype_params FROM planned_workouts WHERE id = ? LIMIT 1');
+        $stmt->execute([$plannedWorkoutId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+        $code = (string)($row['archetype_code'] ?? '');
+        // Scoped to the 6 templated quality archetypes whose descriptions are fully token-driven
+        // (rep_count / durations / distances are template tokens), so a re-render reproduces the
+        // specifics faithfully and only gains the lead line + refreshed pace. Other quality
+        // archetypes (continuous_progression_tempo, structured_fartlek_ladder, fast_finish_long)
+        // build instance-specific copy via code paths that do NOT re-trigger on re-render, so a
+        // re-render would lose their specifics (e.g. the fartlek ladder sequence) — excluded.
+        if (!self::isStructuredEditable($code)) return null;
+
+        $athleteId = (int)$row['athlete_id'];
+        $profile   = self::loadProfile($athleteId, $db);
+        if (!$profile) return null;
+
+        self::$paceZones = (!empty($profile['pace_zones_visible'])
+            && PaceZones::isPopulated($profile['pace_zones'] ?? null))
+            ? (json_decode($profile['pace_zones'] ?? 'null', true) ?: null)
+            : null;
+        $rawDistance    = self::normalizeDistance($profile['goal_race_distance'] ?? '5K');
+        $classification = self::classifyAthlete($profile, $rawDistance);
+        self::$planDistance  = $rawDistance;
+        self::$cycleProgress = null;
+        $goalDistance = self::selectorDistance($rawDistance);
+        $phase        = 'base';
+
+        $selector  = new ArchetypeSelector($db);
+        $archetype = $selector->getByCode($code);
+        if (!$archetype) { self::$paceZones = null; self::$planDistance = null; return null; }
+        $archetype = $selector->resolveParameters($archetype, $classification);
+
+        // Stored params verbatim (only backfill warmup/cooldown if a very old row lacks them).
+        $params = json_decode((string)($row['archetype_params'] ?? '{}'), true) ?: [];
+        foreach (['warmup_minutes', 'cooldown_minutes'] as $k) {
+            if (!isset($params[$k]) && isset($archetype['resolved_params'][$k])) {
+                $params[$k] = $archetype['resolved_params'][$k];
+            }
+        }
+        $variant = self::variantByCode($archetype, (string)($row['archetype_variant'] ?? ''));
+        if ($variant !== null) $archetype['resolved_variant'] = $variant;
+        $archetype['resolved_params'] = $params;
+
+        // Manual mode: no re-roll. Run only the display/render tail (same as generation).
+        $instance = self::addDerivedParams($archetype, 60, $phase, $goalDistance, $classification, true);
+
+        $display      = $instance['display'] ?? [];
+        $title        = self::renderTemplate($display['title_template'] ?? '', $instance);
+        $summary      = self::renderTemplate($display['summary_template'] ?? '', $instance);
+        $instructions = self::renderTemplate($display['description_template'] ?? '', $instance);
+        $instructions = self::normalizeInstructionText($instructions, $instance);
+        $instructions = self::wrapWithWarmupCooldown($instructions, $instance['resolved_params'] ?? [], $instance['code'] ?? '');
+        $instructions = self::appendPaceCitation($instructions, $instance);
+        $instructions = self::prependPrescriptionLead($instructions, $instance);
+        $structure    = self::resolveStructure($instance);
+
+        self::$paceZones = null;
+        self::$planDistance = null;
+
+        return [
+            'archetype_code'       => $code,
+            'display_title'        => $title ?: null,
+            'display_summary'      => $summary ?: null,
+            'athlete_instructions' => $instructions ?: null,
+            'structure'            => $structure ? json_encode($structure) : null,
+        ];
+    }
+
+    /**
      * Structured workout editor (Phase 1): rebuild a workout's structure from a coach's
      * EXPLICIT field edits, then re-render title/instructions/summary from that structure via
      * the same render path generation uses, so app, watch, and description agree. Unlike the
