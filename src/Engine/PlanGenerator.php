@@ -3143,15 +3143,11 @@ class PlanGenerator
         }
 
         // FIX 1: render sustained-hill-repeat rep durations with the coach-friendly label
-        // ("45 sec", "1m 30s") rather than raw seconds. The DB-seeded templates use
-        // "{{rep_duration_seconds}} sec", which reads wrong for capped 60-90 sec reps; the
-        // override lives here so it ships with the generator (no DB reseed needed).
+        // ("45 sec", "1m 30s") in the TITLE rather than raw seconds. The description now
+        // comes from the DB-seeded template (new athlete-facing copy with the conditional
+        // {{checkpoint_recovery_instruction}} clause), so only the title is overridden here.
         if (($archetype['code'] ?? '') === 'sustained_hill_repeats') {
-            $display['title_template']       = '{{rep_count}} × {{rep_duration_display}} Hill Repeats';
-            $display['description_template'] =
-                '{{rep_count}} × {{rep_duration_display}} uphill on a runnable 4-8% hill. Run each uphill '
-                . 'repeat at the assigned effort while keeping your mechanics strong. Jog back down easily '
-                . 'after each rep. {{checkpoint_recovery_instruction}}';
+            $display['title_template'] = '{{rep_count}} × {{rep_duration_display}} Hill Repeats';
             $archetype['display'] = $display;
         }
 
@@ -3262,14 +3258,6 @@ class PlanGenerator
                 $classification,
                 $goalDistance
             );
-            // Distance-Based Tempo reps read more naturally in miles than in minutes;
-            // swap the description template for that variant so it renders its own shape
-            // rather than the shared minute-based wording (variant no longer decorative).
-            if (($archetype['resolved_variant']['code'] ?? '') === 'distance_based') {
-                $display['description_template'] =
-                    '{{rep_count}} x {{rep_distance_display}} mile tempo reps at comfortably hard effort. {{tempo_recovery_instruction}}';
-                $archetype['display'] = $display;
-            }
         }
 
         // Mile rep-distance bias (mile spec Part 10): for equal_distance_repeats, prefer the
@@ -3352,12 +3340,10 @@ class PlanGenerator
                 // duration is recomputed honestly as warmup + main + cooldown.
                 if (!empty($params['rep_duration_minutes']) && (float)$params['rep_duration_minutes'] > 0) {
                     $maxReps = max(2, (int)floor($available / (float)$params['rep_duration_minutes']));
-                    $params['rep_count'] = max(2, min((int)($params['rep_count'] ?? 2), $maxReps));
-                    // The slot cap must not reintroduce a non-conventional 7 (the
-                    // distribution already excluded it); a capped 7 drops to 6.
-                    if ($params['rep_count'] === 7) {
-                        $params['rep_count'] = 6;
-                    }
+                    $capped  = max(2, min((int)($params['rep_count'] ?? 2), $maxReps));
+                    // The slot cap can land on a disallowed count (5, 7, ...); snap DOWN
+                    // to the nearest "even or 3" so it stays within the slot.
+                    $params['rep_count'] = self::snapDownEvenOr3($capped);
                 }
                 break;
             case 'high_volume_time_intervals':
@@ -3405,6 +3391,15 @@ class PlanGenerator
         if (in_array($archetype['code'] ?? '', ['short_speed_repeats', 'equal_distance_repeats', 'mixed_distance_repeats'], true)
             && !empty($params['rep_count'])) {
             $params['rep_count'] = min((int)$params['rep_count'], self::phaseRepCap($phase));
+        }
+
+        // Even-or-3 rep snapping for the rep-based checkpoint archetypes, so the generated
+        // rep_count matches the conditional checkpoint math (halfway = rep_count / 2 stays a
+        // clean integer) and a 7-rep hill is never produced. Snaps DOWN so it never exceeds
+        // the fit-to-slot / phase cap. Tempo is snapped in its own distribution path.
+        if (in_array($archetype['code'] ?? '', ['sustained_hill_repeats', 'equal_distance_repeats'], true)
+            && !empty($params['rep_count'])) {
+            $params['rep_count'] = self::snapDownEvenOr3((int)$params['rep_count']);
         }
 
         $params = self::addConditionalInstructionParams($archetype['code'], $params);
@@ -3506,16 +3501,12 @@ class PlanGenerator
     {
         switch ($code) {
             case 'sustained_hill_repeats':
-                $repCount = (int)($params['rep_count'] ?? 0);
-                if ($repCount >= 4) {
-                    $params['checkpoint_recovery_instruction'] =
-                        'At the quarter, halfway, and three-quarter points of the workout, take 45-90 seconds standing recovery if you need it.';
-                } elseif ($repCount >= 3) {
-                    $params['checkpoint_recovery_instruction'] =
-                        'If you need extra recovery, take one short 45-90 second standing reset around halfway.';
-                } else {
-                    $params['checkpoint_recovery_instruction'] = '';
-                }
+                // Conditional mid-set cue keyed on the actual (even-or-3) rep_count:
+                // <=8 omitted, 9-16 one at halfway, 17+ two at quarter/three-quarter.
+                $params['checkpoint_recovery_instruction'] = self::checkpointClause(
+                    (int)($params['rep_count'] ?? 0),
+                    'take an extra 45 to 90 seconds of standing recovery if you need it'
+                );
                 break;
 
             case 'hill_sprints':
@@ -3534,6 +3525,12 @@ class PlanGenerator
                 $params['repeat_consistency_instruction'] = ((int)($params['rep_count'] ?? 0) > 1)
                     ? 'Focus on even pacing and maintaining quality from the first rep to the last.'
                     : 'Focus on controlled, efficient mechanics for the full rep.';
+                // Same conditional mechanism as hills, but a form-check cue rather than
+                // standing recovery (shares the {{checkpoint_recovery_instruction}} token).
+                $params['checkpoint_recovery_instruction'] = self::checkpointClause(
+                    (int)($params['rep_count'] ?? 0),
+                    'do a quick form check and reset before continuing'
+                );
                 break;
 
             case 'high_volume_time_intervals':
@@ -3753,11 +3750,12 @@ class PlanGenerator
         [$repMinutes, $repMiles] = $candidates[array_rand($candidates)];
 
         // 3. Rep count: the CONVENTIONAL whole number in [2,8] whose total work lands
-        //    closest to the target without exceeding the ceiling. 7 is omitted on purpose
-        //    (7 x 7 reads oddly to a coach), so a raw count of 7 resolves to 6 or 8
-        //    depending on which total sits nearer the target. The total flexes to enable
-        //    a round (count, length) pairing; the >=2 / <=8 guards still hold.
-        $conventionalCounts = [2, 3, 4, 5, 6, 8];
+        //    closest to the target without exceeding the ceiling. Valid counts are "even
+        //    or 3" (a coaching idiom: 3x15 reads fine, but 5/7 reps do not), so 5 is
+        //    absent and a raw count near it resolves to 4 or 6, whichever total sits
+        //    nearer the target. The total flexes to enable a round (count, length)
+        //    pairing; the >=2 / <=8 guards still hold.
+        $conventionalCounts = [2, 3, 4, 6, 8];
         $repCount  = 2;
         $bestDelta = INF;
         foreach ($conventionalCounts as $c) {
@@ -3807,6 +3805,59 @@ class PlanGenerator
     {
         if ($hi <= $lo) return $lo;
         return $lo + (mt_rand() / mt_getrandmax()) * ($hi - $lo);
+    }
+
+    /**
+     * Snap a rep count DOWN to the nearest idiomatic "even or 3" value (floor 2). A rep
+     * count is valid iff it is even or exactly 3 (3x15 reads fine, but 5/7/9-rep sets do
+     * not). Snapping down rather than to-nearest keeps the result within whatever cap
+     * produced it (fit-to-slot, phase cap, or the tempo ceiling).
+     */
+    private static function snapDownEvenOr3(int $n): int
+    {
+        if ($n <= 2)        return 2;
+        if ($n === 3)       return 3;
+        if ($n % 2 === 0)   return $n;   // already even
+        return $n - 1;                   // disallowed odd (5, 7, 9, ...) -> next lower even
+    }
+
+    /** Ordinal form of a positive integer: 1st, 2nd, 3rd, 4th, 11th, 12th, 13th, 21st. */
+    private static function ordinal(int $n): string
+    {
+        $mod100 = $n % 100;
+        if ($mod100 >= 11 && $mod100 <= 13) {
+            return $n . 'th';
+        }
+        return $n . match ($n % 10) {
+            1 => 'st',
+            2 => 'nd',
+            3 => 'rd',
+            default => 'th',
+        };
+    }
+
+    /**
+     * Build the conditional mid-set checkpoint clause for a rep-based archetype, keyed on
+     * the instance's actual rep_count. Returns '' (omitted, not blank) for <= 8 reps; one
+     * checkpoint at halfway for 9-16; two at quarter and three-quarter for 17+. The cue
+     * fragment is archetype-specific (hills: standing recovery; equal_distance: form
+     * check). The clause carries a LEADING space when present, so a description can append
+     * {{checkpoint_recovery_instruction}} with no preceding space and read cleanly when the
+     * clause is omitted. rep_count is "even or 3", so the positions are clean integers.
+     */
+    private static function checkpointClause(int $repCount, string $action): string
+    {
+        if ($repCount <= 8) {
+            return '';
+        }
+        if ($repCount <= 16) {
+            $half = (int)round($repCount / 2);
+            return ' After the ' . self::ordinal($half) . ' rep, ' . $action . '.';
+        }
+        $quarter      = self::snapDownEvenOr3((int)round($repCount * 0.25));
+        $threeQuarter = self::snapDownEvenOr3((int)round($repCount * 0.75));
+        return ' After the ' . self::ordinal($quarter) . ' and ' . self::ordinal($threeQuarter)
+            . ' reps, ' . $action . '.';
     }
 
     /** Pick a random variant from the archetype's variants array. */

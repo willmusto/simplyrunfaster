@@ -1,0 +1,234 @@
+[
+  {
+    "code": "continuous_easy",
+    "description_template": "An easy, aerobic run, the foundation everything else is built on. Keep the effort genuinely conversational: if you couldn't talk in full sentences, you're working too hard. Days like this aren't filler, the easy running is where your engine actually grows, so protect the easy effort and let the pace be whatever it is today.",
+    "intended_use": "The default aerobic session for non-quality days, recovery days, and any rolling-adjustment downgrade. The volume backbone of every plan and phase.",
+    "special_rules": [
+      "Always prescribed by duration, never pace.",
+      "Distance range shown after duration from the athlete's easy-pace range.",
+      "Recovery variant capped at 30 minutes.",
+      "No RPE collected for standard easy runs.",
+      "HR zone 1 to 2 monitored passively, never enforced."
+    ],
+    "templating_note": null
+  },
+  {
+    "code": "easy_with_strides",
+    "description_template": "An easy run finished with {{stride_count}} short, relaxed strides. Run the bulk of it easy and conversational, then near the end roll through each stride: accelerate smoothly to controlled quick running, hold it briefly, and ease off, with a full recovery before the next. These wake up your turnover and mechanics without adding real fatigue, so think smooth and fast, never a sprint.",
+    "intended_use": "Neuromuscular preparation before workouts and races. Maintains economy and turnover without adding meaningful fatigue.",
+    "special_rules": [
+      "Target 1 to 2 stride sessions per week.",
+      "Prefer the day before a workout.",
+      "Prefer the day before a race.",
+      "Avoid the day after a workout.",
+      "Strides are controlled accelerations, not sprints.",
+      "Full recovery between strides.",
+      "Road, track, grass, or flat trail are all fine."
+    ],
+    "templating_note": null
+  },
+  {
+    "code": "continuous_long",
+    "description_template": "A steady aerobic long run, your single most important aerobic session of the week. Keep the effort relaxed and controlled the whole way; the goal is time on your feet, not pace. This run builds the deep endurance that holds everything else up, so settle into a rhythm you could sustain well past the finish and let it accumulate.",
+    "intended_use": "Foundational aerobic long run. Primary long-run archetype during base phase and development plans.",
+    "special_rules": [
+      "Duration derived from weekly volume target (approximately 28%).",
+      "Absolute minimum duration 60 minutes.",
+      "No embedded quality work.",
+      "No separate warmup or cooldown segments."
+    ],
+    "templating_note": null
+  },
+  {
+    "code": "progression_long",
+    "description_template": "A long run that starts comfortable and gradually builds effort the whole way through, finishing the strongest you've felt all run. Begin genuinely easy and let the effort rise on its own rather than forcing it, so the back half is quietly quicker than the front. This teaches your body to find another gear on tired legs, which is exactly what late-race running asks of you.",
+    "intended_use": "Bridge between purely aerobic long runs and long runs with embedded quality.",
+    "special_rules": [
+      "Progression is continuous rather than segmented.",
+      "Finish effort determined by phase and goal distance.",
+      "5K athletes may progress closer to threshold.",
+      "Marathon athletes may finish closer to marathon effort.",
+      "No separate warmup or cooldown segments."
+    ],
+    "templating_note": null
+  },
+  {
+    "code": "goal_pace_long_segments",
+    "description_template": "A long run with goal-race-pace work built into it. Run the easy portions relaxed, then lock into goal effort when the pace work comes, focusing on smooth rhythm and efficient form rather than forcing it. The point is to learn exactly how race effort feels deep into a run, when your legs are tired, so it is familiar on race day instead of a surprise.",
+    "intended_use": "Race-specific long run used primarily during build and peak phases.",
+    "special_rules": [
+      "Most common for half marathon and marathon athletes.",
+      "May be used sparingly for 10K athletes.",
+      "Rare for 5K athletes.",
+      "Can generate continuous, broken, or hybrid structures.",
+      "Goal-pace volume expands through the cycle."
+    ],
+    "templating_note": null
+  },
+  {
+    "code": "fast_finish_long",
+    "description_template": "A long run held aerobic for most of the way, then closed with a strong, deliberate final segment. Run the early miles relaxed and patient, then shift into a clear faster gear for the finish, staying controlled and efficient rather than emptying the tank. Closing hard on already-tired legs is one of the best ways to build the fatigue resistance that wins the last few miles of a race.",
+    "intended_use": "Develops fatigue resistance and teaches the athlete to run well late in a race.",
+    "special_rules": [
+      "Distinguished from progression runs by a clear late-run gear shift.",
+      "Finish intensity set by phase, goal distance, and classification.",
+      "Most common for half marathon and marathon athletes.",
+      "Can be used sparingly for 10K athletes.",
+      "No separate warmup or cooldown."
+    ],
+    "templating_note": null
+  },
+  {
+    "code": "structured_fartlek_ladder",
+    "description_template": "A quality session of faster efforts arranged as a ladder, with easy running to recover between each. Run the longer efforts strong but controlled and let the shorter ones come a little quicker, staying smooth throughout. It's real work without the rigidity of the track, so respond to effort and feel rather than chasing exact splits.",
+    "intended_use": "Flexible quality session for base, development, maintenance, and lighter build/peak work. Useful when the athlete needs quality without the rigidity of track intervals.",
+    "special_rules": [
+      "Time-based even though it is a quality session.",
+      "Can serve as primary or secondary quality.",
+      "Recovery generated from interval duration via the fartlek recovery model.",
+      "Longer efforts map to roughly 10K effort; shorter efforts may progress toward 5K or mile effort.",
+      "Sharp descending variant favored in build/peak, less for lower-volume workable athletes."
+    ],
+    "templating_note": "CANDIDATE — round_count. Slots e.g. {{quarter_round}} / {{three_quarter_round}} computed from round_count."
+  },
+  {
+    "code": "equal_distance_repeats",
+    "description_template": "A set of even-distance repeats run at one consistent, controlled effort, with easy recovery between each. The skill here is even pacing: the last rep should look like the first, so resist the urge to hammer the early ones. This is the work that sharpens your aerobic power and race-specific fitness. After the {{quarter_rep}}th and {{three_quarter_rep}}th reps, do a quick form check and reset before continuing.",
+    "intended_use": "Foundational interval archetype for aerobic power, VO2 development, and race-specific fitness.",
+    "special_rules": [
+      "Progress primarily by increasing total interval volume.",
+      "Generator may increase reps, rep distance, or both.",
+      "Recovery from the vo2_standard model.",
+      "Track preferred; road/GPS versions acceptable.",
+      "Target effort set by phase and goal distance.",
+      "Warmup includes strides by default."
+    ],
+    "templating_note": "CANDIDATE — rep_count. Slots e.g. {{quarter_rep}} / {{three_quarter_rep}} computed from rep_count."
+  },
+  {
+    "code": "mixed_distance_repeats",
+    "description_template": "An interval session that mixes different repeat lengths and speeds in one workout. Stay patient and controlled through the early reps so you can hold quality all the way to the end, adjusting effort as the distances change. Blending speeds in a single session builds both strength and race-specific sharpness at once, which is why it shows up as you get close to racing.",
+    "intended_use": "Advanced interval archetype creating variety, race specificity, and multiple stimuli within one session.",
+    "special_rules": [
+      "Can generate ladders, strength-plus-speed, or speed-plus-strength sets.",
+      "More common in peak phase.",
+      "Track preferred; road equivalents may be generated.",
+      "1600m segments follow equal_distance_repeats eligibility."
+    ],
+    "templating_note": null
+  },
+  {
+    "code": "short_speed_repeats",
+    "description_template": "Short, fast repeats run with relaxed, efficient speed and generous recovery between each. Chase clean mechanics and quick turnover rather than fatigue: every rep should feel smooth and repeatable, never a grind. The full recoveries are deliberate, they let you hold true form so the work sharpens your speed and economy without digging a deep hole.",
+    "intended_use": "Develops economy, turnover, speed, and speed endurance without excessive metabolic stress.",
+    "special_rules": [
+      "Recovery is intentionally generous.",
+      "Form quality prioritized over fatigue.",
+      "400m reps may appear here when the stimulus is speed endurance, not aerobic interval work.",
+      "Most heavily weighted for 5K athletes.",
+      "Can be used as a secondary quality session."
+    ],
+    "templating_note": "CANDIDATE — rep_count. Slots e.g. {{quarter_rep}} / {{three_quarter_rep}} computed from rep_count."
+  },
+  {
+    "code": "sustained_hill_repeats",
+    "description_template": "A hill session built on longer, sustained climbs run at a strong, driving effort. Focus on tall posture, a powerful push off each step, and steady rhythm to the top, then jog down easy to recover fully before the next. Hills build strength and economy with far less pounding than flat speedwork, which is why they earn a place in nearly every phase. Work the effort, not the clock, and after the {{quarter_rep}}th and {{three_quarter_rep}}th reps take an extra 45 to 90 seconds of standing recovery if you need it.",
+    "intended_use": "Builds strength, aerobic power, and climbing mechanics without requiring track access.",
+    "special_rules": [
+      "Prescribed by time, not distance.",
+      "Grade guidance (4 to 8%) recommended, not mandatory.",
+      "Effort mapped by goal distance and rep duration.",
+      "Shorter reps map to faster efforts; longer reps map to more controlled efforts.",
+      "Jog-back recovery is standard.",
+      "Optional standing recovery around 25/50/75% of the session, or halfway if reps are few.",
+      "Primary or secondary quality depending on phase and load."
+    ],
+    "templating_note": "CANDIDATE — rep_count. Slots e.g. {{quarter_rep}} / {{three_quarter_rep}} computed from rep_count."
+  },
+  {
+    "code": "hill_sprints",
+    "description_template": "Find a short, steep hill and sprint up it hard but controlled for {{sprint_duration_seconds}} seconds, then walk all the way down and recover fully before the next. These are about raw power and clean mechanics, not getting tired, so every sprint should feel explosive and sharp. If your form starts to break down, you're done for the day, that's the signal, not a number.",
+    "intended_use": "Neuromuscular speed and power development for all race distances.",
+    "special_rules": [
+      "Allowed for workable athletes.",
+      "Full recovery is required.",
+      "Do not turn this into an aerobic workout.",
+      "Stop if mechanics deteriorate.",
+      "Best as secondary quality or attached to an easy day.",
+      "Avoid the day after a workout and the day before races."
+    ],
+    "templating_note": "CANDIDATE — sprint_count. Slots e.g. {{quarter_sprint}} / {{three_quarter_sprint}} computed from sprint_count."
+  },
+  {
+    "code": "plyometric_hill_circuits",
+    "description_template": "A circuit of short uphill efforts paired with plyometric drills, done at low volume with full recovery between rounds. Every rep is about quality of movement: coordination, springy stiffness, and clean rhythm, not fatigue. This is how you build the elastic strength and economy that make your running feel light. If your mechanics start to get sloppy, stop, the value is in sharp movement, not extra reps.",
+    "intended_use": "Develops elastic strength, coordination, and running economy through low-volume, high-quality plyometric work.",
+    "special_rules": [
+      "Coach clearance required.",
+      "Plyometric clearance required on athlete profile.",
+      "Never prescribe during return-to-running plans.",
+      "Quality of movement over volume.",
+      "Stop if mechanics deteriorate.",
+      "Full recovery between circuits.",
+      "Best in base and early build.",
+      "Substitutable with flat-ground plyometric circuits if no hill access."
+    ],
+    "templating_note": "CANDIDATE — circuit_count. Slots e.g. {{quarter_circuit}} / {{three_quarter_circuit}} computed from circuit_count."
+  },
+  {
+    "code": "tempo_intervals",
+    "description_template": "A tempo session broken into sustained intervals at a comfortably hard effort, the kind of pace you could hold for about an hour of racing. Run each segment with steady rhythm and ease through the short recoveries without fully stopping the effort. This is the work that raises your aerobic ceiling and teaches your body to clear fatigue while still running well. Start the first rep a touch conservative so you finish the set as strong as you began it.",
+    "intended_use": "Primary threshold-development workout across all goal distances.",
+    "special_rules": [
+      "Time-based prescriptions preferred; distance-based available.",
+      "Recovery from the threshold_standard model.",
+      "Primary progression through threshold-volume expansion.",
+      "One of the highest-frequency quality archetypes.",
+      "Warmup includes strides by default."
+    ],
+    "templating_note": "CANDIDATE — rep_count. Slots e.g. {{quarter_rep}} / {{three_quarter_rep}} computed from rep_count."
+  },
+  {
+    "code": "continuous_progression_tempo",
+    "description_template": "A continuous tempo with no breaks, where the effort builds gradually from start to finish. Settle in early and let each gear arrive naturally, keeping the transitions smooth so there's never a jarring jump. Holding and lifting a sustained effort without resetting is some of the most race-like aerobic strength work you can do, so stay relaxed and let it climb.",
+    "intended_use": "Continuous threshold development and aerobic strength without stopping or resetting effort.",
+    "special_rules": [
+      "No recovery breaks.",
+      "Goal-distance-adjusted effort progression.",
+      "If easy recoveries are needed, use structured_fartlek_ladder instead.",
+      "Wave variants encouraged for well-trained athletes.",
+      "Favor float running over easy running where appropriate.",
+      "A primary development-plan quality archetype.",
+      "Warmup includes strides by default."
+    ],
+    "templating_note": "CANDIDATE — wave_count. Slots e.g. {{quarter_wave}} / {{three_quarter_wave}} computed from wave_count."
+  },
+  {
+    "code": "long_run_with_pickups",
+    "description_template": "An easy long run with {{pickup_count}} short pickups of {{pickup_duration_seconds}} seconds sprinkled throughout, returning to easy effort after each. Run the vast majority relaxed and aerobic; the pickups are just gentle rhythm changes, a brief lift in turnover, not mini-workouts. They keep your legs sharp and add a little fatigue resistance without ever turning the long run into a hard day.",
+    "intended_use": "Introduces rhythm changes, economy work, and light fatigue resistance inside a long run without making it race-specific.",
+    "special_rules": [
+      "Pickups generally time-based; distance-based allowed but uncommon.",
+      "Pickup effort ranges steady to 5K by duration, phase, goal distance, classification.",
+      "Return to easy effort between pickups.",
+      "If the run has sustained race-pace blocks, use goal_pace_long_segments.",
+      "If it has one substantial closing segment, use fast_finish_long.",
+      "No separate warmup or cooldown."
+    ],
+    "templating_note": "CANDIDATE — pickup_count. Slots e.g. {{quarter_pickup}} / {{three_quarter_pickup}} computed from pickup_count."
+  },
+  {
+    "code": "high_volume_time_intervals",
+    "description_template": "A high-volume, time-based interval session where total work is the whole point. Run the on segments at a controlled hard effort, not all-out, and keep the recoveries easy enough to hold rhythm and roll straight into the next rep. No single interval should feel heroic; it's the accumulated volume at a strong effort that drives the adaptation, so pace it to last and let the workload do the work.",
+    "intended_use": "High-volume threshold-oriented interval work for well-trained half marathon and marathon athletes.",
+    "special_rules": [
+      "Reserved for well-trained athletes.",
+      "Most appropriate for half marathon and marathon cycles.",
+      "Classic version is 20 by 2 min on / 1 min off.",
+      "Cumulative workload is the stimulus.",
+      "Recoveries usually easy; well-trained athletes may float them.",
+      "Do not prescribe in recovery block or return-to-running."
+    ],
+    "templating_note": "CANDIDATE — rep_count. Slots e.g. {{quarter_rep}} / {{three_quarter_rep}} computed from rep_count."
+  }
+]
