@@ -1237,10 +1237,13 @@ class PlanGenerator
         ];
     }
 
-    /** The 5 uniform-rep archetypes the structured editor supports (Phase 1; mixed is Phase 2). */
+    /**
+     * Archetypes the structured editor supports: the 5 uniform-rep ones (Phase 1, count +
+     * size + recovery) plus mixed_distance_repeats (Phase 2, an ordered rung ladder).
+     */
     public const STRUCTURED_EDIT_CODES = [
         'tempo_intervals', 'sustained_hill_repeats', 'equal_distance_repeats',
-        'short_speed_repeats', 'high_volume_time_intervals',
+        'short_speed_repeats', 'high_volume_time_intervals', 'mixed_distance_repeats',
     ];
 
     public static function isStructuredEditable(?string $code): bool
@@ -1302,28 +1305,43 @@ class PlanGenerator
 
         $intOr = static fn($v, $min, $cur) => $v === null ? $cur : max($min, (int)$v);
 
-        $params['rep_count'] = $intOr($edits['rep_count'] ?? null, 1, (int)($params['rep_count'] ?? 1));
+        if ($code === 'mixed_distance_repeats') {
+            // Phase 2: an ordered ladder. The coach's interval_distances array IS the workout
+            // (the order is descending / ascending / pyramid). rung_count + total derive from it.
+            $dists = is_array($edits['interval_distances'] ?? null)
+                ? array_values(array_filter(array_map('intval', $edits['interval_distances']), fn($m) => $m > 0))
+                : array_values(array_filter(array_map('intval', (array)($params['interval_distances'] ?? [])), fn($m) => $m > 0));
+            if (empty($dists)) { self::$paceZones = null; self::$planDistance = null; return null; }
+            $params['interval_distances']    = $dists;
+            $params['rung_count']            = count($dists);
+            $params['quality_volume_meters'] = array_sum($dists);
+            $params['mixed_ladder_sequence'] = implode(' - ', $dists) . ' m';
+            $ov = self::detectMixedVariant($archetype, $dists); // keep the title's ordering name coherent
+            if ($ov !== null) $variant = $ov;
+        } else {
+            $params['rep_count'] = $intOr($edits['rep_count'] ?? null, 1, (int)($params['rep_count'] ?? 1));
 
-        if ($code === 'tempo_intervals') {
-            $params['rep_duration_minutes'] = $intOr($edits['rep_duration_minutes'] ?? null, 1, (int)($params['rep_duration_minutes'] ?? 1));
-            $pace = self::tempoPaceMinPerMile($classification, $goalDistance);
-            $params['rep_distance_miles'] = $pace > 0 ? round((int)$params['rep_duration_minutes'] / $pace, 2) : ($params['rep_distance_miles'] ?? 0);
-        } elseif ($code === 'sustained_hill_repeats') {
-            $params['rep_duration_seconds'] = $intOr($edits['rep_duration_seconds'] ?? null, 1, (int)($params['rep_duration_seconds'] ?? 1));
-            $params['rep_duration_display'] = self::formatSecondsLabel((int)$params['rep_duration_seconds']);
-        } elseif (in_array($code, ['equal_distance_repeats', 'short_speed_repeats'], true)) {
-            if (isset($edits['rep_distance_meters'])) {
-                $params['rep_distance_meters'] = max(1, (int)$edits['rep_distance_meters']);
-                unset($params['rep_duration_seconds']); // re-derive from the new distance below
-                $vm = self::variantByDistance($archetype, (int)$params['rep_distance_meters']);
-                if ($vm !== null) $variant = $vm;
+            if ($code === 'tempo_intervals') {
+                $params['rep_duration_minutes'] = $intOr($edits['rep_duration_minutes'] ?? null, 1, (int)($params['rep_duration_minutes'] ?? 1));
+                $pace = self::tempoPaceMinPerMile($classification, $goalDistance);
+                $params['rep_distance_miles'] = $pace > 0 ? round((int)$params['rep_duration_minutes'] / $pace, 2) : ($params['rep_distance_miles'] ?? 0);
+            } elseif ($code === 'sustained_hill_repeats') {
+                $params['rep_duration_seconds'] = $intOr($edits['rep_duration_seconds'] ?? null, 1, (int)($params['rep_duration_seconds'] ?? 1));
+                $params['rep_duration_display'] = self::formatSecondsLabel((int)$params['rep_duration_seconds']);
+            } elseif (in_array($code, ['equal_distance_repeats', 'short_speed_repeats'], true)) {
+                if (isset($edits['rep_distance_meters'])) {
+                    $params['rep_distance_meters'] = max(1, (int)$edits['rep_distance_meters']);
+                    unset($params['rep_duration_seconds']); // re-derive from the new distance below
+                    $vm = self::variantByDistance($archetype, (int)$params['rep_distance_meters']);
+                    if ($vm !== null) $variant = $vm;
+                }
+                if ($code === 'short_speed_repeats') $params['effort_zone'] = $params['effort_zone'] ?? 'repetition';
+            } elseif ($code === 'high_volume_time_intervals') {
+                $params['work_duration_seconds'] = $intOr($edits['work_duration_seconds'] ?? null, 1, (int)($params['work_duration_seconds'] ?? 1));
             }
-            if ($code === 'short_speed_repeats') $params['effort_zone'] = $params['effort_zone'] ?? 'repetition';
-        } elseif ($code === 'high_volume_time_intervals') {
-            $params['work_duration_seconds'] = $intOr($edits['work_duration_seconds'] ?? null, 1, (int)($params['work_duration_seconds'] ?? 1));
-        }
-        if (isset($edits['recovery_duration_seconds'])) {
-            $params['recovery_duration_seconds'] = max(1, (int)$edits['recovery_duration_seconds']);
+            if (isset($edits['recovery_duration_seconds'])) {
+                $params['recovery_duration_seconds'] = max(1, (int)$edits['recovery_duration_seconds']);
+            }
         }
 
         if ($variant !== null) $archetype['resolved_variant'] = $variant;
@@ -1386,6 +1404,34 @@ class PlanGenerator
             if ((int)($v['rep_distance_meters'] ?? 0) === $meters) return $v;
         }
         return null;
+    }
+
+    /**
+     * Match a mixed_distance ladder's ORDER to its variant so the title's ordering name stays
+     * truthful after a reorder: strictly descending -> long_to_short, strictly ascending ->
+     * short_to_long, single-peak pyramid -> combo_set. An irregular order returns null (keep
+     * the existing variant; the ladder itself is the source of truth in structure/description).
+     */
+    private static function detectMixedVariant(array $archetype, array $dists): ?array
+    {
+        $n = count($dists);
+        if ($n < 2) return null;
+        $inc = true; $dec = true;
+        for ($i = 1; $i < $n; $i++) {
+            if ($dists[$i] <= $dists[$i - 1]) $inc = false;
+            if ($dists[$i] >= $dists[$i - 1]) $dec = false;
+        }
+        $isPyramid = false;
+        if (!$inc && !$dec) {
+            $peak = (int)array_search(max($dists), $dists, true);
+            if ($peak > 0 && $peak < $n - 1) {
+                $isPyramid = true;
+                for ($i = 1; $i <= $peak; $i++)       if ($dists[$i] <= $dists[$i - 1]) { $isPyramid = false; break; }
+                if ($isPyramid) for ($i = $peak + 1; $i < $n; $i++) if ($dists[$i] >= $dists[$i - 1]) { $isPyramid = false; break; }
+            }
+        }
+        $want = $dec ? 'long_to_short' : ($inc ? 'short_to_long' : ($isPyramid ? 'combo_set' : null));
+        return $want !== null ? self::variantByCode($archetype, $want) : null;
     }
 
     /**
@@ -3514,11 +3560,16 @@ class PlanGenerator
         // variant fixes the ordering; the engine builds a coherent track-standard sequence
         // (3-9 rungs, more in base, fewer at peak, scaled by goal). Description/title are
         // overridden to show the actual ladder. SHARPEN direction, like Batches 1-2.
-        if (!$manual && ($archetype['code'] ?? '') === 'mixed_distance_repeats') {
-            $params = self::distributeMixedDistanceRepeats(
-                $params, $archetype['resolved_variant'] ?? [], $archetype['parameters'] ?? [],
-                $classification, $goalDistance, $targetMinutes
-            );
+        if (($archetype['code'] ?? '') === 'mixed_distance_repeats') {
+            // Generation builds the ladder; a manual edit ($manual) supplies its own
+            // interval_distances (composeStructuredEdit), so only the distribution is gated.
+            // The ladder title/description overrides apply either way so the edit reads right.
+            if (!$manual) {
+                $params = self::distributeMixedDistanceRepeats(
+                    $params, $archetype['resolved_variant'] ?? [], $archetype['parameters'] ?? [],
+                    $classification, $goalDistance, $targetMinutes
+                );
+            }
             $display['title_template']       = '{{variant_name}}';
             $display['description_template'] =
                 'A mixed-distance ladder: {{mixed_ladder_sequence}}, run at a controlled hard effort. '

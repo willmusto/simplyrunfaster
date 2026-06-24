@@ -1093,6 +1093,10 @@ class CoachController
             foreach (['rep_count', 'rep_duration_minutes', 'rep_duration_seconds', 'rep_distance_meters', 'work_duration_seconds', 'recovery_duration_seconds'] as $f) {
                 if (isset($in[$f]) && $in[$f] !== '') $edits[$f] = (int)$in[$f];
             }
+            // mixed_distance_repeats (Phase 2): an ordered ladder of rung distances.
+            if (is_array($in['interval_distances'] ?? null)) {
+                $edits['interval_distances'] = array_values(array_map('intval', $in['interval_distances']));
+            }
             $composed = PlanGenerator::composeStructuredEdit((int)$before['id'], $edits, $db);
             if (!$composed) return ['error' => 'structured_failed', 'message' => 'Could not rebuild that workout.'];
             return [

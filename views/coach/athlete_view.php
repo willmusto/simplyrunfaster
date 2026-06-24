@@ -842,15 +842,21 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                                     ? $raceConflictClass($date) : '';
                             ?>
                             <?php
-                            // Structured-editor pre-fill: the editable numeric fields for the 5
-                            // uniform-rep archetypes, read from archetype_params. null otherwise.
+                            // Structured-editor pre-fill, read from archetype_params. null otherwise.
+                            // The 5 uniform-rep archetypes carry count + size + recovery; mixed_distance
+                            // carries an ordered interval_distances ladder (Phase 2 rung editor).
                             $structuredFields = null;
-                            if (in_array((string)($w['archetype_code'] ?? ''), ['tempo_intervals','sustained_hill_repeats','equal_distance_repeats','short_speed_repeats','high_volume_time_intervals'], true)) {
+                            $sCode = (string)($w['archetype_code'] ?? '');
+                            if (in_array($sCode, ['tempo_intervals','sustained_hill_repeats','equal_distance_repeats','short_speed_repeats','high_volume_time_intervals'], true)) {
                                 $apFields = json_decode((string)($w['archetype_params'] ?? '{}'), true) ?: [];
                                 $structuredFields = [];
                                 foreach (['rep_count','rep_duration_minutes','rep_duration_seconds','rep_distance_meters','work_duration_seconds','recovery_duration_seconds'] as $sf) {
                                     $structuredFields[$sf] = isset($apFields[$sf]) ? (int)$apFields[$sf] : null;
                                 }
+                            } elseif ($sCode === 'mixed_distance_repeats') {
+                                $apFields = json_decode((string)($w['archetype_params'] ?? '{}'), true) ?: [];
+                                $rungs = array_values(array_filter(array_map('intval', (array)($apFields['interval_distances'] ?? [])), fn($m) => $m > 0));
+                                $structuredFields = ['interval_distances' => $rungs];
                             }
                             $mwData = htmlspecialchars(json_encode([
                                 'id'              => (int)$w['id'],
@@ -1684,9 +1690,14 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             ]
         };
         var pendingStructured = null;
+        var MIXED_TRACK = [200, 300, 400, 600, 800, 1000, 1200, 1600];
+        var mixedRungs = [];
         function buildStructuredEditor() {
             var tab = $id('ewd-tab-structure');
-            var spec = (editData && editData.structured && STRUCT_SPEC[editData.archetype_code]) || null;
+            var st = editData && editData.structured;
+            if (!st) { tab.style.display = 'none'; return; }
+            if (editData.archetype_code === 'mixed_distance_repeats') { tab.style.display = ''; buildMixedRungEditor(); return; }
+            var spec = STRUCT_SPEC[editData.archetype_code];
             if (!spec) { tab.style.display = 'none'; return; }
             tab.style.display = '';
             var wrap = $id('ewd-st-fields'); wrap.innerHTML = '';
@@ -1709,7 +1720,56 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             });
             $id('ewd-st-warn').style.display = 'none';
         }
+        // ── mixed_distance_repeats rung editor (Phase 2: an ordered ladder) ──
+        function buildMixedRungEditor() {
+            mixedRungs = ((editData.structured && editData.structured.interval_distances) || []).slice();
+            if (!mixedRungs.length) mixedRungs = [800];
+            $id('ewd-st-fields').innerHTML =
+                '<div class="form-label" style="margin-bottom:6px;">Ladder (top to bottom is the order run)</div>'
+                + '<div id="ewd-rungs"></div>'
+                + '<button type="button" id="ewd-rung-add" class="btn btn-secondary btn-sm" style="margin-top:6px;">+ Add rung</button>';
+            renderMixedRungs();
+            $id('ewd-st-warn').style.display = 'none';
+        }
+        function renderMixedRungs() {
+            var box = $id('ewd-rungs'); if (!box) return;
+            box.innerHTML = '';
+            mixedRungs.forEach(function (m, i) {
+                var row = document.createElement('div'); row.className = 'ewd-rung'; row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
+                var num = document.createElement('span'); num.style.cssText = 'width:18px;color:var(--text-muted);font-size:12px;'; num.textContent = (i + 1) + '.';
+                var sel = document.createElement('select'); sel.className = 'form-select'; sel.style.maxWidth = '120px'; sel.setAttribute('data-rung-idx', i);
+                MIXED_TRACK.forEach(function (o) { var op = document.createElement('option'); op.value = o; op.textContent = o + ' m'; if (parseInt(m, 10) === o) op.selected = true; sel.appendChild(op); });
+                row.appendChild(num); row.appendChild(sel);
+                [['up', '↑'], ['down', '↓'], ['remove', '×']].forEach(function (a) {
+                    var b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-secondary btn-sm'; b.style.cssText = 'padding:2px 8px;';
+                    b.setAttribute('data-rung-act', a[0]); b.textContent = a[1];
+                    if (a[0] === 'up' && i === 0) b.disabled = true;
+                    if (a[0] === 'down' && i === mixedRungs.length - 1) b.disabled = true;
+                    if (a[0] === 'remove' && mixedRungs.length <= 1) b.disabled = true;
+                    row.appendChild(b);
+                });
+                box.appendChild(row);
+            });
+        }
+        function syncRungsFromDom() {
+            var arr = [];
+            document.querySelectorAll('#ewd-rungs select[data-rung-idx]').forEach(function (s) { arr.push(parseInt(s.value, 10) || 0); });
+            if (arr.length) mixedRungs = arr;
+        }
+        function mixedRungAction(act, i) {
+            syncRungsFromDom();
+            if (act === 'remove') { if (mixedRungs.length > 1) mixedRungs.splice(i, 1); }
+            else if (act === 'up' && i > 0) { var t = mixedRungs[i - 1]; mixedRungs[i - 1] = mixedRungs[i]; mixedRungs[i] = t; }
+            else if (act === 'down' && i < mixedRungs.length - 1) { var u = mixedRungs[i + 1]; mixedRungs[i + 1] = mixedRungs[i]; mixedRungs[i] = u; }
+            renderMixedRungs();
+        }
+        function mixedAddRung() { syncRungsFromDom(); mixedRungs.push(800); renderMixedRungs(); }
+
         function collectStructured() {
+            if (editData && editData.archetype_code === 'mixed_distance_repeats') {
+                syncRungsFromDom();
+                return { interval_distances: mixedRungs.slice() };
+            }
             var out = {};
             document.querySelectorAll('#ewd-st-fields [data-stkey]').forEach(function (el) {
                 var v = parseInt(el.value, 10); if (!isNaN(v)) out[el.getAttribute('data-stkey')] = v;
@@ -1718,6 +1778,14 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
         }
         function structuredWarnings(v) {
             var w = [];
+            if (v.interval_distances) {
+                var r = v.interval_distances;
+                if (r.length < 2) w.push('A mixed ladder needs at least 2 rungs.');
+                if (r.length > 12) w.push('A ladder of ' + r.length + ' rungs is unusual.');
+                var tot = r.reduce(function (a, b) { return a + b; }, 0);
+                if (tot > 12000) w.push('A total ladder distance of about ' + tot + ' m is very large.');
+                return w;
+            }
             if (v.rep_count != null && (v.rep_count < 1 || v.rep_count > 30)) w.push('Rep count of ' + v.rep_count + ' is unusual.');
             var durS = v.rep_duration_seconds != null ? v.rep_duration_seconds
                      : (v.rep_duration_minutes != null ? v.rep_duration_minutes * 60
@@ -2049,6 +2117,9 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 }, e.target);
                 return;
             }
+            var rungBtn = e.target.closest('#ewd-rungs [data-rung-act]');
+            if (rungBtn) { var rr = rungBtn.closest('.ewd-rung'); mixedRungAction(rungBtn.getAttribute('data-rung-act'), Array.prototype.indexOf.call(rr.parentNode.children, rr)); return; }
+            if (e.target.id === 'ewd-rung-add') { mixedAddRung(); return; }
             if (e.target.id === 'ewd-save-structured') { saveStructured(e.target); return; }
         });
         document.addEventListener('keydown', function (e) {
