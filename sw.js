@@ -12,7 +12,7 @@
 // CACHE_NAME. If this string never changes, stale CSS/HTML stays
 // cached indefinitely. Update to today's date (YYYYMMDD) before
 // committing; the deploy checklist runs the cache-bump command.
-const CACHE_NAME    = 'srf-20260624';
+const CACHE_NAME    = 'srf-20260626';
 const OFFLINE_URL   = '/app/offline';
 
 // Resources to pre-cache on install.
@@ -122,7 +122,7 @@ self.addEventListener('push', function (event) {
     const options = {
         body:    data.body    || '',
         icon:    '/assets/icons/icon-192.png',
-        badge:   '/assets/icons/icon-192.png',
+        badge:   '/assets/icons/badge-96.png',
         data:    data.url     || '/',
         // Tag by notification type so Chrome groups/dedupes related notifications;
         // renotify makes a new one of the same type replace + re-alert (not silently drop).
