@@ -33,8 +33,19 @@ const PRECACHE = [
     '/manifest.json',
 ];
 
+// True only on this service worker's very FIRST install for the scope (no prior
+// active worker). Used to gate clients.claim() in activate: we claim a fresh
+// first load so Chrome marks the page installable (WebAPK), but we never claim
+// on an update/deploy, which would swap the controller of an already-open
+// authenticated page mid-session (see the activate comment below).
+let isFirstInstall = false;
+
 // â”€â”€ Install â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 self.addEventListener('install', function (event) {
+    // On a first install there is no already-active worker; on an update,
+    // self.registration.active is the outgoing worker. Read it now (before
+    // skipWaiting) so activate can decide whether claiming is safe.
+    isFirstInstall = !self.registration.active;
     event.waitUntil(
         caches.open(CACHE_NAME).then(function (cache) {
             // Use {cache: 'reload'} so each request bypasses the browser's HTTP
@@ -53,19 +64,31 @@ self.addEventListener('install', function (event) {
 
 // â”€â”€ Activate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 self.addEventListener('activate', function (event) {
-    // Delete stale caches, but deliberately do NOT call self.clients.claim().
+    // Delete stale caches, then claim clients ONLY on the very first install.
+    //
+    // On an UPDATE (a deploy) we deliberately do NOT call self.clients.claim().
     // Claiming would swap the controller of an already-open, authenticated page
-    // mid-session the instant a deploy lands; paired with the cache flush above
-    // that produced stale "logged-out" navigations. Without claim, open pages
-    // keep their current controller until the next natural navigation/relaunch,
-    // and the active session is never interrupted. skipWaiting() (in install)
-    // still makes the new SW take over on the next launch.
+    // mid-session the instant a deploy lands; paired with the cache flush below
+    // that produced stale "logged-out" navigations. Without claim on update,
+    // open pages keep their current controller until the next natural
+    // navigation/relaunch, and the active session is never interrupted.
+    // skipWaiting() (in install) still makes the new SW take over on next launch.
+    //
+    // On a FIRST install there is no prior controller and no established session
+    // to disrupt, so claiming is safe AND necessary: a fresh first load is
+    // otherwise uncontrolled until the next navigation, which makes Chrome
+    // withhold "Install app" (WebAPK) and offer only "Add to Home Screen".
+    // Claiming brings that first page under control so Chrome marks it installable.
     event.waitUntil(
         caches.keys().then(function (keys) {
             return Promise.all(
                 keys.filter(function (k) { return k !== CACHE_NAME; })
                     .map(function (k) { return caches.delete(k); })
             );
+        }).then(function () {
+            if (isFirstInstall) {
+                return self.clients.claim();
+            }
         })
     );
 });

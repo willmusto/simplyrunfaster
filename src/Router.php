@@ -35,6 +35,13 @@ class Router
     public function dispatch(): void
     {
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        // HEAD is semantically identical to GET without a response body. Match it
+        // against GET routes so probes (e.g. Google's WebAPK minting server hitting
+        // the manifest start_url, /app/login) get 200 instead of a 404 that can
+        // break WebAPK minting. The SAPI discards the body for HEAD automatically.
+        if ($method === 'HEAD') {
+            $method = 'GET';
+        }
         $uri    = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 
         // Strip base path prefix

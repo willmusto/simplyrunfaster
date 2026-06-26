@@ -52,6 +52,28 @@
 
     // ── Service Worker registration ──────────────────────────
     if ('serviceWorker' in navigator) {
+        // Handle controller changes safely. The SW calls clients.claim() ONLY on
+        // its first install (see sw.js activate), so the single controllerchange a
+        // page can see is null -> new SW on a fresh, uncontrolled load. That page is
+        // already rendered correctly and merely becomes SW-controlled (which is what
+        // lets Chrome offer Install/WebAPK), so we must NOT reload it.
+        //
+        // We only reload when an EXISTING controller is swapped for a new one (a
+        // genuine mid-session takeover), and even then just once, guarded against a
+        // reload loop. Under the current SW that swap never happens on a deploy (no
+        // claim on update), so this stays dormant and no authenticated session is
+        // ever interrupted; it exists so that if update-claiming is ever introduced,
+        // the page reloads cleanly to a network-fetched authed view instead of being
+        // stranded under a new controller with a flushed cache.
+        var hadController = !!navigator.serviceWorker.controller;
+        var swReloading   = false;
+        navigator.serviceWorker.addEventListener('controllerchange', function () {
+            if (!hadController) return; // initial claim on a fresh load: nothing to do
+            if (swReloading) return;    // guard against reload loops
+            swReloading = true;
+            window.location.reload();
+        });
+
         window.addEventListener('load', function () {
             navigator.serviceWorker.register('/sw.js').then(function (reg) {
                 console.log('[SRF] Service worker registered', reg.scope);
