@@ -1059,6 +1059,42 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             <?php endif; ?>
         </div>
 
+        <!-- Pace zones (Screen 3 vitals: read-only at-a-glance; editing lives on the Profile tab) -->
+        <?php
+        $vzZones = ($profile && PaceZones::isPopulated($profile['pace_zones'] ?? null))
+            ? (json_decode((string)$profile['pace_zones'], true) ?: []) : [];
+        $vzFmt = static function ($secs): string {
+            $s = (int)$secs;
+            return $s > 0 ? sprintf('%d:%02d', intdiv($s, 60), $s % 60) : '?';
+        };
+        ?>
+        <?php if ($vzZones): ?>
+        <div class="section-label">PACE ZONES</div>
+        <div class="card" style="margin-bottom:16px;">
+            <?php if (isset($vzZones['easy']['min'], $vzZones['easy']['max'])): ?>
+            <div class="av-kv"><span>Easy</span><span><?= $vzFmt($vzZones['easy']['min']) ?>-<?= $vzFmt($vzZones['easy']['max']) ?> /mi</span></div>
+            <?php endif; ?>
+            <?php foreach (['marathon' => 'Marathon', 'half_marathon' => 'Half marathon', '10K' => '10K', '5K' => '5K', 'mile' => 'Mile'] as $zk => $zl): ?>
+                <?php if (isset($vzZones[$zk]) && is_numeric($vzZones[$zk])): ?>
+                <div class="av-kv"><span><?= $zl ?></span><span><?= $vzFmt($vzZones[$zk]) ?> /mi</span></div>
+                <?php endif; ?>
+            <?php endforeach; ?>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;">
+                <span class="pill" style="font-size:10px;background:var(--recessed-bg);color:var(--text-secondary);">
+                    <?php
+                    $vzSource = $profile['pace_zones_source'] ?? null;
+                    echo $vzSource === 'race_result' ? 'Verified: race result'
+                        : ($vzSource === 'easy_pace_estimate' ? 'Estimated: easy pace'
+                        : ($vzSource === 'manual' ? 'Manual: coach set' : 'Set'));
+                    ?>
+                </span>
+                <?php if (isset($profile['pace_zones_visible']) && (int)$profile['pace_zones_visible'] === 0): ?>
+                <span class="pill" style="font-size:10px;background:var(--recessed-bg);color:var(--color-warning);">Hidden from athlete</span>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <!-- Predictions + response profile (Coaching Intelligence Phase 3) -->
         <?php require_once __DIR__ . '/../partials/predictive.php'; ?>
         <?php $predFlags = array_values(array_filter($predictiveFlags ?? [], static fn($f) => pf_is_predictive((string)$f['flag_type']))); ?>
@@ -1106,6 +1142,16 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 <span><?= h($value) ?></span>
             </div>
             <?php endforeach; ?>
+            <?php $vzSub = $athlete['subscription_status'] ?? null; if ($vzSub):
+                $vzSubColor = in_array($vzSub, ['active', 'comped'], true) ? 'var(--color-success)'
+                    : ($vzSub === 'trialing' ? 'var(--color-info)'
+                    : ($vzSub === 'past_due' ? 'var(--color-warning)' : 'var(--color-danger)'));
+            ?>
+            <div class="av-kv">
+                <span>Billing</span>
+                <span style="color:<?= $vzSubColor ?>;font-weight:600;"><?= h(ucfirst(str_replace('_', ' ', (string)$vzSub))) ?></span>
+            </div>
+            <?php endif; ?>
         </div>
         <?php endif; ?>
 

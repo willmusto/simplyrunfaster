@@ -3914,7 +3914,7 @@ class CoachController
         // Head coaches/admins resolve via coach_id (kept in sync); assistant coaches
         // via coach_assignments.assistant_coach_id. Admins additionally see everyone.
         [$scope, $sp] = self::athleteScope('a');
-        $sql = 'SELECT a.*, u.name, u.email, u.theme_preference, u.timezone
+        $sql = 'SELECT a.*, u.name, u.email, u.theme_preference, u.timezone, u.subscription_status
                 FROM athletes a JOIN users u ON u.id = a.user_id
                 WHERE a.id = ? AND (' . $scope . ' OR ? IN (SELECT id FROM users WHERE role = "admin"))
                 LIMIT 1';
