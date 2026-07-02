@@ -162,6 +162,21 @@
         }
         .fine-print-label { font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 4px; font-size: 13px; }
 
+        /* ── Coach bio (placeholder until provided) ── */
+        .coach-card {
+            display: flex; gap: 20px; align-items: flex-start;
+            background: var(--card-bg); border: 1px dashed var(--border-strong);
+            border-radius: var(--radius-card); padding: 24px; margin-top: 8px;
+        }
+        .coach-photo {
+            flex-shrink: 0; width: 96px; height: 96px; border-radius: 50%;
+            background: var(--recessed-bg); border: 1px dashed var(--border-strong);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; color: var(--text-muted);
+        }
+        .coach-copy p { font-size: 15px; color: var(--text-secondary); font-style: italic; margin-top: 8px; }
+        @media (max-width: 480px) { .coach-card { flex-direction: column; align-items: center; text-align: center; } }
+
         /* ── Who for ── */
         .whofor { background: var(--card-bg); border-top: 0.5px solid var(--border-color); border-bottom: 0.5px solid var(--border-color); }
         .whofor-cta { margin-top: 28px; }
@@ -223,7 +238,7 @@
 <header class="hero">
     <div class="wrap">
         <h1>Real coaching.<br>Real results.</h1>
-        <p class="hero-sub">SimplyRunFaster pairs every athlete with a real coach &mdash; not an algorithm &mdash; who reviews your plan, watches your training, and thinks about you specifically. Starting at $39/month.</p>
+        <p class="hero-sub">SimplyRunFaster pairs every athlete with a real coach, not an algorithm. Your coach reviews your plan, watches your training, and thinks about you specifically. Starting at $39/month.</p>
         <div class="hero-ctas">
             <a class="btn btn-primary" href="/app/register">Get started &rarr;</a>
             <a class="btn btn-ghost" href="#how-it-works">How it works &darr;</a>
@@ -238,8 +253,8 @@
         <h2>Training apps aren&rsquo;t coaching.</h2>
         <div class="body-copy">
             <p>You&rsquo;ve tried the apps. You follow the plan on Monday, miss Thursday, and by Saturday you&rsquo;re improvising. The app doesn&rsquo;t notice. Nobody notices.</p>
-            <p>Real coaching is different. A real coach sees when you&rsquo;re struggling before you do. They adjust your plan not because a rule fired &mdash; because they made a judgment call about your training. They remember that you mentioned your left knee felt tight last week. They write you a note at the end of the month that tells you what all those runs actually meant.</p>
-            <p>SimplyRunFaster is real coaching &mdash; made accessible by technology that handles the structure so your coach can focus on the parts that actually require a human.</p>
+            <p>Real coaching is different. A real coach sees when you&rsquo;re struggling before you do. They adjust your plan not because a rule fired, but because they made a judgment call about your training. They remember that you mentioned your left knee felt tight last week. They write you a note at the end of the month that tells you what all those runs actually meant.</p>
+            <p>SimplyRunFaster is real coaching, made accessible by technology that handles the structure so your coach can focus on the parts that actually require a human.</p>
         </div>
     </div>
 </section>
@@ -253,7 +268,7 @@
             <div class="step">
                 <div class="step-num">1</div>
                 <h3>Tell us about your goals.</h3>
-                <p>You complete a short onboarding form &mdash; your goal race, your current training, your schedule. Then you have a 20-minute call with your coach to make sure we get it right.</p>
+                <p>You complete a short onboarding form: your goal race, your current training, your schedule. Then you have a 20-minute call with your coach to make sure we get it right.</p>
             </div>
             <div class="step">
                 <div class="step-num">2</div>
@@ -263,12 +278,12 @@
             <div class="step">
                 <div class="step-num">3</div>
                 <h3>Train. We watch.</h3>
-                <p>Your plan lives on your phone and your watch. Every session is tracked. Every week your coach reviews your training &mdash; what you did, how it went, what it means. When something needs to change, it changes.</p>
+                <p>Your plan lives on your phone and your watch. Every session is tracked. Every week your coach reviews your training: what you did, how it went, what it means. When something needs to change, it changes.</p>
             </div>
             <div class="step">
                 <div class="step-num">4</div>
                 <h3>Your coach checks in.</h3>
-                <p>Every month you get a letter from your coach. Not a stats dashboard. A letter &mdash; specific to your training, your month, your progress. Written in plain English by someone who actually looked at your data and thought about you.</p>
+                <p>Every month you get a letter from your coach. Not a stats dashboard. A letter, specific to your training, your month, your progress. Written in plain English by someone who actually looked at your data and thought about you.</p>
             </div>
         </div>
     </div>
@@ -286,7 +301,7 @@
             </div>
             <div class="stat">
                 <div class="stat-num">1</div>
-                <div class="stat-label">major overuse injury across an entire coaching career &mdash; and it was the coach himself</div>
+                <div class="stat-label">major overuse injury across an entire coaching career, and it was the coach himself</div>
             </div>
             <div class="stat">
                 <div class="stat-num">15+</div>
@@ -294,8 +309,27 @@
             </div>
         </div>
         <div class="body-copy wrap-narrow" style="padding:0;">
-            <p>We don&rsquo;t have a flashy percentage to sell you. We have a record. In fifteen years of coaching runners of all abilities &mdash; from high school athletes to adult marathoners &mdash; only one athlete failed to set a personal best. And in all that time, only one athlete sustained a major overuse injury across an entire career. That was the coach himself.</p>
+            <p>We don&rsquo;t have a flashy percentage to sell you. We have a record. In fifteen years of coaching runners of all abilities, from high school athletes to adult marathoners, only one athlete failed to set a personal best. And in all that time, only one athlete sustained a major overuse injury across an entire career. That was the coach himself.</p>
             <p>We tell you this not to brag. We tell you this because you deserve to know who is looking at your training.</p>
+        </div>
+    </div>
+</section>
+
+<!-- Your coach (bio + photo placeholder: the primary trust signal, positioning doc
+     section 12 item 1. Populated when Will provides the first-person bio and photo;
+     clearly marked as a placeholder until then, never a fabricated bio.) -->
+<section class="coach-bio">
+    <div class="wrap-narrow">
+        <div class="section-label">Your coach</div>
+        <h2>A real person. A real record.</h2>
+        <div class="coach-card">
+            <div class="coach-photo" aria-hidden="true">
+                <span>Photo</span>
+            </div>
+            <div class="coach-copy">
+                <span class="quote-tag">Placeholder</span>
+                <p>[Coach bio: first-person, in brand voice. Provided by the coach before launch.]</p>
+            </div>
         </div>
     </div>
 </section>
@@ -310,7 +344,7 @@
                 <div class="founding-badge">Founding member rate</div>
                 <div class="price-tier">Standard</div>
                 <div class="price-amount">$39<small>/month</small></div>
-                <div class="price-note">Founding member rate &mdash; locked for life while your account is active</div>
+                <div class="price-note">Founding member rate: locked for life while your account is active</div>
                 <ul class="price-list">
                     <li>A coach who reviews your plan before you see it</li>
                     <li>Training that adjusts to your actual life</li>
@@ -335,7 +369,7 @@
         </div>
         <div class="fine-print">
             <span class="fine-print-label">Fine print (that isn&rsquo;t fine print):</span>
-            No contracts. Cancel any time. Founding member pricing is locked as long as your account remains active &mdash; if you close your account and return, standard pricing applies. Watch integration (Garmin, Polar) is available but not required &mdash; the platform works fully without a smartwatch.
+            No contracts. Cancel any time. Founding member pricing is locked as long as your account remains active; if you close your account and return, standard pricing applies. Watch integration (Garmin, Polar) is available but not required. The platform works fully without a smartwatch.
         </div>
     </div>
 </section>
@@ -346,7 +380,7 @@
         <div class="section-label">Who this is for</div>
         <h2>This isn&rsquo;t for everyone. It might be for you.</h2>
         <div class="body-copy">
-            <p>SimplyRunFaster is built for runners who are already serious about the sport and want to get meaningfully better. If you&rsquo;ve finished a race and immediately wondered how to go faster next time &mdash; you&rsquo;re our athlete.</p>
+            <p>SimplyRunFaster is built for runners who are already serious about the sport and want to get meaningfully better. If you&rsquo;ve finished a race and immediately wondered how to go faster next time, you&rsquo;re our athlete.</p>
             <p>We&rsquo;re not the right fit if you&rsquo;re just getting started (there are great apps for that). We&rsquo;re not the right fit if you want an app that tells you you&rsquo;re doing great no matter what. We&rsquo;re the right fit if you want a coach who will tell you the truth, build you a real plan, and be genuinely invested in your result.</p>
         </div>
         <div class="whofor-cta">
@@ -364,18 +398,18 @@
         <div class="quotes">
             <div class="quote-card">
                 <span class="quote-tag">Placeholder</span>
-                <div class="quote-text">&ldquo;[Specific result &mdash; time, distance, PR margin]. [One sentence about the experience of being coached.]&rdquo;</div>
-                <div class="quote-attr">&mdash; [First name, last initial] &middot; [City] &middot; [Goal race]</div>
+                <div class="quote-text">&ldquo;[Specific result: time, distance, PR margin]. [One sentence about the experience of being coached.]&rdquo;</div>
+                <div class="quote-attr">[First name, last initial] &middot; [City] &middot; [Goal race]</div>
             </div>
             <div class="quote-card">
                 <span class="quote-tag">Placeholder</span>
-                <div class="quote-text">&ldquo;[Specific result &mdash; time, distance, PR margin]. [One sentence about the experience of being coached.]&rdquo;</div>
-                <div class="quote-attr">&mdash; [First name, last initial] &middot; [City] &middot; [Goal race]</div>
+                <div class="quote-text">&ldquo;[Specific result: time, distance, PR margin]. [One sentence about the experience of being coached.]&rdquo;</div>
+                <div class="quote-attr">[First name, last initial] &middot; [City] &middot; [Goal race]</div>
             </div>
             <div class="quote-card">
                 <span class="quote-tag">Placeholder</span>
-                <div class="quote-text">&ldquo;[Specific result &mdash; time, distance, PR margin]. [One sentence about the experience of being coached.]&rdquo;</div>
-                <div class="quote-attr">&mdash; [First name, last initial] &middot; [City] &middot; [Goal race]</div>
+                <div class="quote-text">&ldquo;[Specific result: time, distance, PR margin]. [One sentence about the experience of being coached.]&rdquo;</div>
+                <div class="quote-attr">[First name, last initial] &middot; [City] &middot; [Goal race]</div>
             </div>
         </div>
     </div>
@@ -386,7 +420,7 @@
     <div class="wrap">
         <h2>Ready to run faster?</h2>
         <div class="body-copy">
-            <p>Founding member pricing &mdash; $39/month, locked for life &mdash; is available now. Start with a free onboarding call. No commitment until you see your plan.</p>
+            <p>Founding member pricing, $39/month locked for life, is available now. Start with a free onboarding call. No commitment until you see your plan.</p>
         </div>
         <a class="btn btn-primary" href="/app/register">Get started &rarr;</a>
     </div>
