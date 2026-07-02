@@ -84,7 +84,15 @@ Auth::startSession();
 
 // ── Marketing / root ─────────────────────────────────────────
 if ($uri === '/' || $uri === '') {
-    include __DIR__ . '/views/marketing/placeholder.php';
+    // Capture ad/UTM attribution into the session; persisted onto the user
+    // record at registration (users.ad_campaign_id / users.ad_source).
+    if (!empty($_GET['utm_campaign'])) {
+        $_SESSION['ad_campaign_id'] = substr(trim((string)$_GET['utm_campaign']), 0, 255);
+    }
+    if (!empty($_GET['utm_source'])) {
+        $_SESSION['ad_source'] = substr(trim((string)$_GET['utm_source']), 0, 100);
+    }
+    include __DIR__ . '/views/marketing/landing.php';
     exit;
 }
 

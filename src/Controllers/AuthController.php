@@ -70,13 +70,24 @@ class AuthController
             Auth::redirect('/app/register');
         }
 
-        Auth::register([
+        // Ad/UTM attribution captured on the marketing landing page (index.php).
+        $adCampaign = $_SESSION['ad_campaign_id'] ?? null;
+        $adSource   = $_SESSION['ad_source'] ?? null;
+
+        $userId = Auth::register([
             'name'          => $name,
             'email'         => $email,
             'password'      => $password,
             'role'          => 'athlete',
-            'signup_source' => 'organic',
+            'signup_source' => ($adCampaign || $adSource) ? 'ad_campaign' : 'organic',
         ]);
+
+        if ($adCampaign || $adSource) {
+            Database::get()->prepare(
+                'UPDATE users SET ad_campaign_id = ?, ad_source = ? WHERE id = ?'
+            )->execute([$adCampaign, $adSource, $userId]);
+            unset($_SESSION['ad_campaign_id'], $_SESSION['ad_source']);
+        }
 
         // Account just created + logged in (session regenerated): 200 meta-refresh hop.
         Auth::redirectAfterAuth('/app/onboarding');
