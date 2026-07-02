@@ -71,6 +71,15 @@ class EmailTemplates
                     . (isset($data['detail_html']) ? $data['detail_html'] : ''),
                     'See my progress', '/progress');
 
+            case 'flag_digest':
+                $n = (int)($data['count'] ?? 0);
+                return self::compose($audience, 'Flag digest: ' . $n . ' flag' . ($n === 1 ? '' : 's') . ' across your roster',
+                    'Daily flag digest',
+                    '<p><strong>' . $n . '</strong> warning/info flag' . ($n === 1 ? '' : 's')
+                    . ' raised across your roster in the last day.</p>'
+                    . (isset($data['detail_html']) ? $data['detail_html'] : ''),
+                    'View alerts', '/coach/flags');
+
             case 'weekly_athlete_digest':
                 $rows = $data['detail_html'] ?? '';
                 return self::compose($audience, 'Weekly athlete digest',

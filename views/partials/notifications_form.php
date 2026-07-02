@@ -34,10 +34,11 @@ $alwaysOn = function (string $title, string $sub) {
 
 /** Render a controllable row with master toggle + inline channel/timing detail. */
 $row = function (string $type, string $title, string $sub, array $opts = []) use ($pref) {
-    $p       = $pref($type);
-    $enabled = (int)$p['enabled'] === 1;
-    $time    = $p['preferred_time'] ? substr($p['preferred_time'], 0, 5) : ($opts['default_time'] ?? '');
-    $day     = $p['preferred_day'];
+    $p        = $pref($type);
+    $enabled  = (int)$p['enabled'] === 1;
+    $time     = $p['preferred_time'] ? substr($p['preferred_time'], 0, 5) : ($opts['default_time'] ?? '');
+    $day      = $p['preferred_day'];
+    $delivery = ($p['delivery'] ?? 'immediate') === 'daily_digest' ? 'daily_digest' : 'immediate';
     ?>
     <div class="notif-row <?= $enabled ? '' : 'is-off' ?>">
         <div class="notif-row-head">
@@ -51,6 +52,17 @@ $row = function (string $type, string $title, string $sub, array $opts = []) use
             </label>
         </div>
         <div class="notif-detail">
+            <?php if (!empty($opts['delivery'])): ?>
+            <div>
+                <div class="notif-field-label">Delivery</div>
+                <select class="form-select" style="font-size:13px;max-width:180px;"
+                        data-notif-type="<?= h($type) ?>" data-notif-field="delivery">
+                    <option value="immediate" <?= $delivery === 'immediate' ? 'selected' : '' ?>>As they happen</option>
+                    <option value="daily_digest" <?= $delivery === 'daily_digest' ? 'selected' : '' ?>>Daily digest</option>
+                </select>
+            </div>
+            <?php endif; ?>
+
             <?php if (!empty($opts['day'])): ?>
             <div>
                 <div class="notif-field-label">Day</div>
@@ -131,8 +143,8 @@ $qEnd   = isset($quiet['end'])   ? substr($quiet['end'], 0, 5)   : '07:00';
     <?php else: ?>
         <div class="section-label">FLAGS &amp; ALERTS</div>
         <div class="card" style="margin-bottom:16px;">
-            <?php $row('warning_flag', 'Warning-level flags', 'Non-urgent issues worth a look'); ?>
-            <?php $row('info_flag', 'Info-level flags', 'Low-priority informational flags'); ?>
+            <?php $row('warning_flag', 'Warning-level flags', 'Non-urgent issues worth a look. Deliver each as it happens, or batched once a day.', ['delivery' => true]); ?>
+            <?php $row('info_flag', 'Info-level flags', 'Low-priority informational flags. Deliver each as it happens, or batched once a day.', ['delivery' => true]); ?>
         </div>
 
         <div class="section-label">ATHLETE ACTIVITY</div>

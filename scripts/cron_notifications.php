@@ -38,7 +38,7 @@ require_once SCRIPT_ROOT . '/src/PredictiveFlags.php';
 
 $verbose = in_array('verbose', $argv ?? [], true);
 $db      = Database::get();
-$counts  = ['tomorrow_plan' => 0, 'weekly_summary' => 0, 'pre_race_reminder' => 0, 'rpe_prompt' => 0, 'weekly_athlete_digest' => 0];
+$counts  = ['tomorrow_plan' => 0, 'weekly_summary' => 0, 'pre_race_reminder' => 0, 'rpe_prompt' => 0, 'weekly_athlete_digest' => 0, 'flag_digest' => 0];
 
 function vlog(bool $verbose, string $msg): void { if ($verbose) echo "  $msg\n"; }
 
@@ -186,6 +186,74 @@ foreach ($coaches as $c) {
     ]);
     if ($res['push'] || $res['email']) $counts['weekly_athlete_digest']++;
     vlog($verbose, $c['name'] . " → {$athleteCount} athletes" . ($res['suppressed'] ? " [{$res['suppressed']}]" : ' [sent]'));
+}
+
+// ── Job 6: flag_digest ───────────────────────────────────────────────────────
+// Once-daily batch of warning/info engine flags for coaches who set those types
+// to delivery=daily_digest (Notifications::notifyFlag held the immediate sends).
+// critical flags are never digested; they always dispatched immediately.
+// Guarded so a pre-migration-036 run (no delivery column) is a clean no-op.
+echo "Job: flag_digest\n";
+try {
+    $sevByType = ['warning_flag' => 'warning', 'info_flag' => 'info'];
+    foreach ($coaches as $c) {
+        $cid = (int)$c['user_id'];
+
+        // Which severities has this coach batched (and left enabled)?
+        $severities = [];
+        foreach ($sevByType as $type => $sev) {
+            $pref = Notifications::getPref($cid, $type);
+            if ((int)$pref['enabled'] === 1 && ($pref['delivery'] ?? 'immediate') === 'daily_digest') {
+                $severities[] = $sev;
+            }
+        }
+        if (empty($severities)) continue;
+
+        $ph = implode(',', array_fill(0, count($severities), '?'));
+        $stmt = $db->prepare(
+            "SELECT ef.severity, ef.message, u.name AS athlete_name
+             FROM engine_flags ef
+             JOIN athletes a ON a.id = ef.athlete_id AND a.coach_id = ? AND a.status = 'active'
+             JOIN users u ON u.id = a.user_id
+             WHERE ef.status = 'open'
+               AND ef.severity IN ($ph)
+               AND ef.created_at >= (NOW() - INTERVAL 1 DAY)
+             ORDER BY ef.created_at DESC"
+        );
+        $stmt->execute(array_merge([$cid], $severities));
+        $flags = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (empty($flags)) { vlog($verbose, $c['name'] . ' → no digestable flags'); continue; }
+
+        // Push summary: per-athlete counts. Email detail: the first 10 messages.
+        $byAthlete = [];
+        foreach ($flags as $f) {
+            $byAthlete[$f['athlete_name']] = ($byAthlete[$f['athlete_name']] ?? 0) + 1;
+        }
+        $parts = [];
+        foreach (array_slice($byAthlete, 0, 4, true) as $n => $cnt) {
+            $parts[] = $n . ' (' . $cnt . ')';
+        }
+        if (count($byAthlete) > 4) $parts[] = '+' . (count($byAthlete) - 4) . ' more';
+
+        $detail = '<ul style="margin:8px 0;padding-left:18px;color:#444;">';
+        foreach (array_slice($flags, 0, 10) as $f) {
+            $detail .= '<li style="margin-bottom:6px;">' . htmlspecialchars($f['message'], ENT_QUOTES, 'UTF-8') . '</li>';
+        }
+        $detail .= '</ul>';
+        if (count($flags) > 10) {
+            $detail .= '<p>And ' . (count($flags) - 10) . ' more in the app.</p>';
+        }
+
+        $res = Notifications::send($cid, 'flag_digest', [
+            'count'       => count($flags),
+            'summary'     => implode(', ', $parts),
+            'detail_html' => $detail,
+        ]);
+        if ($res['push'] || $res['email']) $counts['flag_digest']++;
+        vlog($verbose, $c['name'] . ' → ' . count($flags) . ' flag(s)' . ($res['suppressed'] ? " [{$res['suppressed']}]" : ' [sent]'));
+    }
+} catch (\Throwable $e) {
+    echo '  flag_digest skipped: ' . $e->getMessage() . "\n";
 }
 
 echo date('Y-m-d H:i:s') . ' — cron_notifications complete. Delivered: ' . json_encode($counts) . "\n";

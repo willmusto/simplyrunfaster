@@ -30,6 +30,12 @@ class Notifications
     ];
 
     /**
+     * Types whose delivery mode may be switched to the daily flag digest.
+     * critical_flag is deliberately excluded: it is always-on and always immediate.
+     */
+    public const DIGESTABLE = ['warning_flag', 'info_flag'];
+
+    /**
      * Canonical default preference per audience and type.
      *   enabled / push / email  → 1|0
      *   time  → default preferred_time (scheduled types)
@@ -59,6 +65,10 @@ class Notifications
             // Controllable
             'warning_flag'               => ['enabled' => 1, 'push' => 1, 'email' => 0],
             'info_flag'                  => ['enabled' => 0, 'push' => 1, 'email' => 0],
+            // Vehicle for batched warning/info flags (fires only when a digestable
+            // type is set to delivery=daily_digest). Not rendered as its own row in
+            // the settings UI; channel prefs still apply.
+            'flag_digest'                => ['enabled' => 1, 'push' => 1, 'email' => 1, 'time' => '07:30:00'],
             'athlete_session_note'       => ['enabled' => 1, 'push' => 1, 'email' => 0],
             'athlete_manual_log'         => ['enabled' => 0, 'push' => 1, 'email' => 0],
             'athlete_day_swap'           => ['enabled' => 0, 'push' => 1, 'email' => 0],
@@ -110,6 +120,7 @@ class Notifications
             'quiet_hours_end'   => self::QUIET_END_DEFAULT,
             'preferred_time'    => $d['time'] ?? null,
             'preferred_day'     => $d['day']  ?? null,
+            'delivery'          => $d['delivery'] ?? 'immediate',
         ];
     }
 
@@ -125,8 +136,8 @@ class Notifications
         $stmt = $db->prepare(
             'INSERT IGNORE INTO notification_preferences
                 (user_id, notification_type, enabled, channel_push, channel_email, channel_sms,
-                 quiet_hours_start, quiet_hours_end, preferred_time, preferred_day)
-             VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)'
+                 quiet_hours_start, quiet_hours_end, preferred_time, preferred_day, delivery)
+             VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)'
         );
 
         $inserted = 0;
@@ -135,7 +146,7 @@ class Notifications
             $stmt->execute([
                 $userId, $type, $def['enabled'], $def['channel_push'], $def['channel_email'],
                 $def['quiet_hours_start'], $def['quiet_hours_end'],
-                $def['preferred_time'], $def['preferred_day'],
+                $def['preferred_time'], $def['preferred_day'], $def['delivery'],
             ]);
             $inserted += $stmt->rowCount();
         }
@@ -200,6 +211,13 @@ class Notifications
                 if ($d < 0 || $d > 6) return false;
                 return $db->prepare('UPDATE notification_preferences SET preferred_day = ? WHERE user_id = ? AND notification_type = ?')
                           ->execute([$d, $userId, $type]);
+
+            case 'delivery':
+                // Only warning/info flags may be digested; critical is never batched.
+                if (!in_array($type, self::DIGESTABLE, true)) return false;
+                if (!in_array($value, ['immediate', 'daily_digest'], true)) return false;
+                return $db->prepare('UPDATE notification_preferences SET delivery = ? WHERE user_id = ? AND notification_type = ?')
+                          ->execute([$value, $userId, $type]);
         }
         return false;
     }
@@ -219,7 +237,7 @@ class Notifications
         $db   = Database::get();
         $stmt = $db->prepare(
             'SELECT enabled, channel_push, channel_email, channel_sms,
-                    quiet_hours_start, quiet_hours_end, preferred_time, preferred_day
+                    quiet_hours_start, quiet_hours_end, preferred_time, preferred_day, delivery
              FROM notification_preferences WHERE user_id = ? AND notification_type = ? LIMIT 1'
         );
         $stmt->execute([$userId, $type]);
@@ -229,6 +247,7 @@ class Notifications
             $row['channel_push']  = (int)$row['channel_push'];
             $row['channel_email'] = (int)$row['channel_email'];
             $row['channel_sms']   = (int)$row['channel_sms'];
+            $row['delivery']      = ($row['delivery'] ?? '') === 'daily_digest' ? 'daily_digest' : 'immediate';
             return $row;
         }
         return self::defaultFor($type);
@@ -527,6 +546,13 @@ class Notifications
                 return self::push('Workout moved', $name . ' moved a workout to a different day.',
                     '/app/coach/athlete/' . (int)($data['athlete_id'] ?? 0));
 
+            case 'flag_digest':
+                $n = (int)($data['count'] ?? 0);
+                return self::push('Flag digest',
+                    $n . ' flag' . ($n === 1 ? '' : 's') . ' across your roster in the last day'
+                    . (!empty($data['summary']) ? ': ' . self::snip((string)$data['summary'], 120) : '.'),
+                    '/app/coach/flags');
+
             case 'weekly_athlete_digest':
                 return self::push('Weekly digest',
                     'Weekly digest: ' . ($data['athletes'] ?? 0) . ' athletes, ' . ($data['open_flags'] ?? 0)
@@ -604,13 +630,25 @@ class Notifications
         $type = ['critical' => 'critical_flag', 'warning' => 'warning_flag', 'info' => 'info_flag'][$severity] ?? 'info_flag';
         try {
             $ctx = self::athleteContext($athleteId);
-            if ($ctx['coach_user_id']) {
-                self::send($ctx['coach_user_id'], $type, [
-                    'athlete_id'   => $athleteId,
-                    'athlete_name' => $ctx['athlete_name'],
-                    'flag_message' => $message,
-                ]);
+            if (!$ctx['coach_user_id']) return;
+
+            // Digest mode: warning/info flags set to daily_digest are not sent now.
+            // The daily cron (cron_notifications.php, flag_digest job) collects the
+            // flag rows directly from engine_flags; nothing is lost by skipping here.
+            // critical_flag is never digestable and always dispatches immediately.
+            if (in_array($type, self::DIGESTABLE, true)) {
+                $pref = self::getPref($ctx['coach_user_id'], $type);
+                if (($pref['delivery'] ?? 'immediate') === 'daily_digest') {
+                    error_log("Notifications: {$type} for athlete {$athleteId} held for daily digest.");
+                    return;
+                }
             }
+
+            self::send($ctx['coach_user_id'], $type, [
+                'athlete_id'   => $athleteId,
+                'athlete_name' => $ctx['athlete_name'],
+                'flag_message' => $message,
+            ]);
         } catch (\Throwable $e) {
             error_log('Notifications::notifyFlag failed: ' . $e->getMessage());
         }
