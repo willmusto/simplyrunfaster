@@ -755,6 +755,49 @@ class PlanGenerator
      *   plan untouched; generation math is unchanged (full-span), the carried dates are then
      *   restored from the prior plan.
      */
+    // ── Generate-to-draft Stage 1 (g2d spec section 4: parameterized write target) ──
+    //
+    // While $draftCtx is non-null, every generation-path write lands in the ephemeral
+    // staging tables (plan_drafts / plan_draft_workouts, migration 037) instead of the
+    // production tables, and every production side effect is suppressed: no archiving,
+    // no carry-over capture/apply, no engine flags, no approval-queue entry or coach
+    // notification, no base_classification write, no Intervals contact. The generation
+    // MATH is byte-identical; only where rows land differs. Reads of PRIOR plans
+    // (anti-repeat history, plan start date, preservation capture) intentionally stay
+    // on the live tables: a draft resolves against the athlete's real history.
+    // The staging tables are cloned from the production tables (CREATE TABLE LIKE)
+    // with a disjoint AUTO_INCREMENT range (1,000,000+) so even a missed table swap
+    // keyed by a draft plan id can never collide with a live plan row.
+    private static ?array $draftCtx = null;
+
+    private static function isDraft(): bool { return self::$draftCtx !== null; }
+    private static function plansTable(): string { return self::$draftCtx ? 'plan_drafts' : 'training_plans'; }
+    private static function workoutsTable(): string { return self::$draftCtx ? 'plan_draft_workouts' : 'planned_workouts'; }
+
+    /**
+     * Generate a full engine plan into the ephemeral staging tables (never the live
+     * plan). Returns the plan_drafts id, or null when generation is not possible.
+     * The live plan is untouched: not archived, not modified, not pushed.
+     */
+    public static function generateDraft(int $athleteId, int $coachId, string $trigger = 'coach_draft'): ?int
+    {
+        if (self::$draftCtx !== null) return null; // no nesting
+        self::$draftCtx = ['coach_id' => $coachId];
+        try {
+            $draftId = self::generate($athleteId, $trigger);
+            if ($draftId) {
+                Database::get()->prepare(
+                    'UPDATE plan_drafts
+                     SET coach_id = ?, expires_at = (NOW() + INTERVAL 1 DAY), source_trigger = ?
+                     WHERE id = ?'
+                )->execute([$coachId, $trigger, $draftId]);
+            }
+            return $draftId;
+        } finally {
+            self::$draftCtx = null;
+        }
+    }
+
     public static function generate(int $athleteId, string $trigger = 'onboarding', bool $fullWipe = false): ?int
     {
         $db      = Database::get();
@@ -782,8 +825,10 @@ class PlanGenerator
         // coach overrides) can read it without recomputing. Previously it was computed
         // transiently inside each generator and never written back, leaving the column NULL.
         $baseClassification = self::classifyAthlete($profile, self::$planDistance);
-        $db->prepare('UPDATE athlete_profiles SET base_classification = ? WHERE athlete_id = ?')
-           ->execute([$baseClassification, $athleteId]);
+        if (!self::isDraft()) {
+            $db->prepare('UPDATE athlete_profiles SET base_classification = ? WHERE athlete_id = ?')
+               ->execute([$baseClassification, $athleteId]);
+        }
 
         $planType = $profile['plan_type'] ?? 'development_plan';
 
@@ -810,9 +855,13 @@ class PlanGenerator
         // coach_locked rows from the prior ACTIVE plan BEFORE archiving, so the archive
         // can spare their Intervals events and we can carry them into the new plan after
         // generation. $fullWipe skips this entirely (legacy full rebuild).
-        $preserve = $fullWipe ? null : self::capturePreservation($athleteId, $db);
+        // Draft mode: no preservation capture (nothing is being replaced) and, above
+        // all, NO archiving of the live plan.
+        $preserve = ($fullWipe || self::isDraft()) ? null : self::capturePreservation($athleteId, $db);
 
-        self::archivePreviousPlans($athleteId, $db, $preserve['row_ids'] ?? []);
+        if (!self::isDraft()) {
+            self::archivePreviousPlans($athleteId, $db, $preserve['row_ids'] ?? []);
+        }
 
         $selector          = new ArchetypeSelector($db);
         $antiRepeatHistory = self::loadAntiRepeatHistory($athleteId, $db);
@@ -859,7 +908,10 @@ class PlanGenerator
             // misclassification arose. Runs on the final, preserved-and-patched content.
             self::flagClassificationContradiction($planId, $athleteId, $planType, $db);
             self::finalizeCoachingDecisions($planId, $db);
-            self::createApprovalQueueEntry($planId, $athleteId, $trigger, $db);
+            // A draft never enters the approval queue and never notifies the coach.
+            if (!self::isDraft()) {
+                self::createApprovalQueueEntry($planId, $athleteId, $trigger, $db);
+            }
         }
 
         self::$planDistance       = null;
@@ -917,7 +969,7 @@ class PlanGenerator
         if (!empty(self::$decisionFiredTitles)) {
             $lines[] = 'Coaching decisions applied: ' . implode(', ', array_values(self::$decisionFiredTitles));
             foreach (array_keys(self::$decisionConflictNotes) as $note) $lines[] = $note;
-            if (class_exists('CoachingDecisions')) {
+            if (!self::isDraft() && class_exists('CoachingDecisions')) {
                 CoachingDecisions::recordFired(array_keys(self::$decisionFiredTitles), $db);
             }
         } else {
@@ -925,7 +977,7 @@ class PlanGenerator
         }
 
         try {
-            $db->prepare('UPDATE training_plans SET coach_generation_notes = ? WHERE id = ?')
+            $db->prepare('UPDATE ' . self::plansTable() . ' SET coach_generation_notes = ? WHERE id = ?')
                ->execute([implode("\n", $lines), $planId]);
         } catch (\Throwable $e) {
             error_log('finalizeCoachingDecisions failed: ' . $e->getMessage());
@@ -967,7 +1019,7 @@ class PlanGenerator
         $db = $db ?? Database::get();
 
         $planStmt = $db->prepare(
-            'SELECT id, plan_start_date, plan_end_date FROM training_plans
+            'SELECT id, plan_start_date, plan_end_date FROM ' . self::plansTable() . '
              WHERE athlete_id = ? AND status IN ("active","pending_approval")
              ORDER BY id DESC LIMIT 1'
         );
@@ -992,7 +1044,7 @@ class PlanGenerator
 
         // Stable "normal long run" reference (max long in the plan) so the 60% cap never
         // compounds across re-runs — a reduced long run is never the max when a full one exists.
-        $nl = $db->prepare("SELECT MAX(target_duration) FROM planned_workouts WHERE plan_id = ? AND workout_type = 'long'");
+        $nl = $db->prepare("SELECT MAX(target_duration) FROM " . self::workoutsTable() . " WHERE plan_id = ? AND workout_type = 'long'");
         $nl->execute([$planId]);
         $normalLong = (int)($nl->fetchColumn() ?: 0);
         if ($normalLong < 60) $normalLong = 120;
@@ -1010,12 +1062,12 @@ class PlanGenerator
         $quality  = ['interval', 'tempo', 'hill', 'fartlek', 'speed', 'race_pace'];
 
         // Race day: clear non-locked training workouts (the race is its own calendar entry).
-        $db->prepare('DELETE FROM planned_workouts WHERE plan_id = ? AND scheduled_date = ? AND coach_locked = 0')
+        $db->prepare('DELETE FROM ' . self::workoutsTable() . ' WHERE plan_id = ? AND scheduled_date = ? AND coach_locked = 0')
            ->execute([$planId, $raceDate]);
 
         // Pre-race window (7 days before .. day before).
         $pre = $db->prepare(
-            'SELECT * FROM planned_workouts
+            'SELECT * FROM ' . self::workoutsTable() . '
              WHERE plan_id = ? AND coach_locked = 0 AND scheduled_date BETWEEN ? AND ?'
         );
         $pre->execute([
@@ -1025,7 +1077,7 @@ class PlanGenerator
         ]);
 
         $upd = $db->prepare(
-            'UPDATE planned_workouts
+            'UPDATE ' . self::workoutsTable() . '
              SET workout_type = ?, archetype_code = ?, archetype_variant = NULL, archetype_params = NULL,
                  structure = NULL, target_duration = ?, target_pace_min = NULL, target_pace_max = NULL,
                  intensity_load = ?, display_title = ?, display_summary = ?, athlete_instructions = ?, description = ?
@@ -1075,7 +1127,7 @@ class PlanGenerator
         // Post-race recovery days.
         $recDays = self::recoveryDaysForRace((string)$race['race_distance']);
         $insert  = $db->prepare(
-            'INSERT INTO planned_workouts
+            'INSERT INTO ' . self::workoutsTable() . '
              (plan_id, athlete_id, scheduled_date, workout_type, description,
               target_duration, intensity_load, visible_to_athlete, display_title, display_summary, athlete_instructions)
              VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)'
@@ -1107,14 +1159,14 @@ class PlanGenerator
                 $desc  = 'Easy recovery run, gentle and aerobic while you continue to recover from your race.';
             }
 
-            $ex = $db->prepare('SELECT id, coach_locked FROM planned_workouts WHERE plan_id = ? AND scheduled_date = ? LIMIT 1');
+            $ex = $db->prepare('SELECT id, coach_locked FROM ' . self::workoutsTable() . ' WHERE plan_id = ? AND scheduled_date = ? LIMIT 1');
             $ex->execute([$planId, $date]);
             $row = $ex->fetch(PDO::FETCH_ASSOC);
 
             if ($row) {
                 if (!empty($row['coach_locked'])) continue;
                 $db->prepare(
-                    'UPDATE planned_workouts
+                    'UPDATE ' . self::workoutsTable() . '
                      SET workout_type = ?, archetype_code = NULL, archetype_variant = NULL, archetype_params = NULL,
                          structure = NULL, target_duration = ?, target_pace_min = NULL, target_pace_max = NULL,
                          intensity_load = ?, display_title = ?, display_summary = ?, athlete_instructions = ?, description = ?,
@@ -2071,7 +2123,7 @@ class PlanGenerator
         // Create the plan first (inserts need the id); plan_end_date is finalized below
         // once the last session's date is known.
         $planId = self::createPlanRecord($athleteId, 'return_to_running', $startDate, $startDate, null, $trigger, $db);
-        $db->prepare('UPDATE training_plans SET rtr_current_stage = ? WHERE id = ?')->execute([$stage, $planId]);
+        $db->prepare('UPDATE ' . self::plansTable() . ' SET rtr_current_stage = ? WHERE id = ?')->execute([$stage, $planId]);
 
         $mustOff = json_decode($profile['must_off_days'] ?? '[]', true) ?: [];
         $insert  = self::rtrInsertStatement($db);
@@ -2111,13 +2163,13 @@ class PlanGenerator
         }
 
         // plan_end_date spans the full pre-generated progression (the last session's date).
-        $db->prepare('UPDATE training_plans SET plan_end_date = ? WHERE id = ?')->execute([$lastDate, $planId]);
+        $db->prepare('UPDATE ' . self::plansTable() . ' SET plan_end_date = ? WHERE id = ?')->execute([$lastDate, $planId]);
 
         // Open the initial rolling window (first RTR_WINDOW_DAYS days); everything beyond
         // it stays visible_to_athlete=0 until the rolling-window cron / approval reaches it.
         $windowEnd = date('Y-m-d', strtotime($startDate . ' +' . (self::RTR_WINDOW_DAYS - 1) . ' days'));
         $db->prepare(
-            'UPDATE planned_workouts SET visible_to_athlete = 1
+            'UPDATE ' . self::workoutsTable() . ' SET visible_to_athlete = 1
              WHERE plan_id = ? AND scheduled_date BETWEEN ? AND ?'
         )->execute([$planId, $startDate, $windowEnd]);
 
@@ -2132,7 +2184,7 @@ class PlanGenerator
     private static function rtrInsertStatement(PDO $db): PDOStatement
     {
         return $db->prepare(
-            'INSERT INTO planned_workouts
+            'INSERT INTO ' . self::workoutsTable() . '
              (plan_id, athlete_id, scheduled_date, workout_type,
               archetype_code, archetype_variant, archetype_params,
               description, target_duration, intensity_load, visible_to_athlete,
@@ -2460,14 +2512,14 @@ class PlanGenerator
     private static function ensurePlanStartEasyRun(
         int $planId, int $athleteId, array $profile, PDO $db, ArchetypeSelector $selector
     ): void {
-        $plan = $db->prepare('SELECT plan_start_date FROM training_plans WHERE id = ? LIMIT 1');
+        $plan = $db->prepare('SELECT plan_start_date FROM ' . self::plansTable() . ' WHERE id = ? LIMIT 1');
         $plan->execute([$planId]);
         $startDate = (string)($plan->fetchColumn() ?: '');
         if ($startDate === '') return;
 
         $existing = $db->prepare(
             'SELECT target_duration
-             FROM planned_workouts
+             FROM ' . self::workoutsTable() . '
              WHERE plan_id = ? AND scheduled_date = ?
              ORDER BY id ASC
              LIMIT 1'
@@ -2486,11 +2538,11 @@ class PlanGenerator
         $instance       = self::resolveStandardEasyRun($selector, $target, 'base', $goalDistance, $classification);
         if ($instance === null) return;
 
-        $db->prepare('DELETE FROM planned_workouts WHERE plan_id = ? AND scheduled_date = ?')
+        $db->prepare('DELETE FROM ' . self::workoutsTable() . ' WHERE plan_id = ? AND scheduled_date = ?')
             ->execute([$planId, $startDate]);
 
         $insert = $db->prepare(
-            'INSERT INTO planned_workouts
+            'INSERT INTO ' . self::workoutsTable() . '
              (plan_id, athlete_id, scheduled_date, workout_type,
               archetype_code, archetype_variant, archetype_params,
               description, target_duration, intensity_load, visible_to_athlete,
@@ -2555,14 +2607,14 @@ class PlanGenerator
                 if ($posInAvail !== false && $posInAvail < $runDays) {
                     $dur = max(20, (int)round($weeklyMins / $runDays));
                     $db->prepare(
-                        'INSERT INTO planned_workouts
+                        'INSERT INTO ' . self::workoutsTable() . '
                          (plan_id, athlete_id, scheduled_date, workout_type,
                           archetype_code, description, target_duration, intensity_load, visible_to_athlete)
                          VALUES (?, ?, ?, "recovery", "continuous_easy", "Easy recovery run, short and gentle. Keep the effort very easy.", ?, ?, 0)'
                     )->execute([$planId, $athleteId, $date, $dur, round($dur * 0.3, 2)]);
                 } else {
                     $db->prepare(
-                        'INSERT INTO planned_workouts
+                        'INSERT INTO ' . self::workoutsTable() . '
                          (plan_id, athlete_id, scheduled_date, workout_type,
                           description, target_duration, intensity_load, visible_to_athlete)
                          VALUES (?, ?, ?, "cross_train", ?, 30, ?, 0)'
@@ -2995,7 +3047,7 @@ class PlanGenerator
         $easyMins = $easyFloor;
 
         $insert = $db->prepare(
-            'INSERT INTO planned_workouts
+            'INSERT INTO ' . self::workoutsTable() . '
              (plan_id, athlete_id, scheduled_date, workout_type,
               archetype_code, archetype_variant, archetype_params,
               description, target_duration, intensity_load, visible_to_athlete,
@@ -5122,7 +5174,7 @@ class PlanGenerator
         if ($planType === 'return_to_running') return;
 
         $s1 = $db->prepare(
-            "SELECT COUNT(*) FROM planned_workouts
+            "SELECT COUNT(*) FROM " . self::workoutsTable() . "
              WHERE plan_id = ? AND archetype_code = 'run_walk_intervals' AND archetype_variant = 'stage_1'"
         );
         $s1->execute([$planId]);
@@ -5130,13 +5182,13 @@ class PlanGenerator
 
         // Continuous run (anything that is NOT a run/walk session) longer than 45 min.
         $cont = $db->prepare(
-            "SELECT COUNT(*) FROM planned_workouts
+            "SELECT COUNT(*) FROM " . self::workoutsTable() . "
              WHERE plan_id = ? AND target_duration > 45
                AND (archetype_code IS NULL OR archetype_code <> 'run_walk_intervals')"
         );
         $cont->execute([$planId]);
         $longest = $db->prepare(
-            "SELECT MAX(target_duration) FROM planned_workouts
+            "SELECT MAX(target_duration) FROM " . self::workoutsTable() . "
              WHERE plan_id = ? AND (archetype_code IS NULL OR archetype_code <> 'run_walk_intervals')"
         );
         $longest->execute([$planId]);
@@ -5162,7 +5214,7 @@ class PlanGenerator
         $stmt = $db->prepare(
             'SELECT scheduled_date, workout_type, archetype_code, archetype_params,
                     display_title, display_summary, athlete_instructions
-             FROM planned_workouts
+             FROM ' . self::workoutsTable() . '
              WHERE plan_id = ? AND archetype_code IS NOT NULL'
         );
         $stmt->execute([$planId]);
@@ -5733,7 +5785,7 @@ class PlanGenerator
         ?string $raceDate, string $trigger, PDO $db
     ): int {
         $db->prepare(
-            'INSERT INTO training_plans
+            'INSERT INTO ' . self::plansTable() . '
              (athlete_id, status, plan_start_date, plan_end_date,
               goal_race_date, generated_at, generation_trigger, plan_type)
              VALUES (?, "pending_approval", ?, ?, ?, NOW(), ?, ?)'
@@ -5771,6 +5823,9 @@ class PlanGenerator
         int $athleteId, string $flagType, string $severity, string $message, PDO $db,
         ?array $details = null, bool $dedupeOpen = true
     ): void {
+        // Draft generation raises no flags: the draft is reference material and must
+        // change nothing the coach or athlete sees outside the staging tables.
+        if (self::isDraft()) return;
         if ($dedupeOpen) {
             $check = $db->prepare(
                 'SELECT id FROM engine_flags WHERE athlete_id = ? AND flag_type = ? AND status = "open" LIMIT 1'
