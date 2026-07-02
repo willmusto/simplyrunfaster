@@ -1250,6 +1250,18 @@ class CoachController
                 'message' => 'That day is marked as a must-off day for this athlete.']); exit;
         }
 
+        // Adjacency guards (architecture section 12) — soft, overridable with force,
+        // same contract as must-off. The swap path above is exempt: the coach already
+        // confirmed that exchange explicitly.
+        if (!$force) {
+            $warnings = ScheduleAdjacency::warningsForMove($db, $planId, [$workoutId => $newDate]);
+            if (!empty($warnings)) {
+                echo json_encode(['success' => false, 'error' => 'soft_warning',
+                    'warning_type' => $warnings[0]['type'],
+                    'message'      => $warnings[0]['message']]); exit;
+            }
+        }
+
         // Conflict — destination day already holds a workout in this plan.
         if ($newDate !== $oldDate) {
             $conflict = $db->prepare(
@@ -1283,6 +1295,82 @@ class CoachController
             $db);
 
         echo json_encode(['success' => true]); exit;
+    }
+
+    /**
+     * Revert an athlete-moved workout to its original day (architecture section 12:
+     * "coach can reverse a swap from the plan view"). Body (JSON): { workout_id }.
+     * The move audit fields are cleared so the workout reads as never-moved.
+     */
+    public static function revertWorkoutMove(array $params): void
+    {
+        Auth::requireRole(['coach', 'admin']);
+        Auth::verifyCsrf();
+        header('Content-Type: application/json');
+
+        $coachId   = Auth::userId();
+        $athleteId = (int)($params['id'] ?? 0);
+        $db        = Database::get();
+
+        $athlete = self::getAthleteForCoach($athleteId, $coachId, $db);
+        if (!$athlete) { http_response_code(403); echo json_encode(['success' => false, 'error' => 'forbidden']); exit; }
+
+        $in        = self::jsonBody();
+        $workoutId = (int)($in['workout_id'] ?? 0);
+
+        $stmt = $db->prepare(
+            'SELECT id, plan_id, scheduled_date, original_scheduled_date, workout_type, target_duration
+             FROM planned_workouts
+             WHERE id = ? AND athlete_id = ? AND athlete_moved = 1
+               AND original_scheduled_date IS NOT NULL
+               AND (cancelled = 0 OR cancelled IS NULL)
+             LIMIT 1'
+        );
+        $stmt->execute([$workoutId, $athleteId]);
+        $workout = $stmt->fetch();
+        if (!$workout) {
+            echo json_encode(['success' => false, 'error' => 'not_found',
+                'message' => 'No athlete move to revert on this workout.']); exit;
+        }
+
+        $fromDate = (string)$workout['scheduled_date'];
+        $toDate   = (string)$workout['original_scheduled_date'];
+        $planId   = (int)$workout['plan_id'];
+
+        // The original day must be free; if it has been filled since, the coach
+        // resolves it by dragging instead of a blind exchange.
+        $conflict = $db->prepare(
+            'SELECT id FROM planned_workouts
+             WHERE athlete_id = ? AND plan_id = ? AND scheduled_date = ? AND id <> ?
+               AND (cancelled = 0 OR cancelled IS NULL) LIMIT 1'
+        );
+        $conflict->execute([$athleteId, $planId, $toDate, $workoutId]);
+        if ($conflict->fetchColumn()) {
+            echo json_encode(['success' => false, 'error' => 'conflict',
+                'message' => 'The original day now has another workout. Drag this one back manually instead.']); exit;
+        }
+
+        $db->prepare(
+            'UPDATE planned_workouts
+             SET scheduled_date = ?, original_scheduled_date = NULL,
+                 athlete_moved = 0, athlete_moved_at = NULL, must_off_override = 0
+             WHERE id = ?'
+        )->execute([$toDate, $workoutId]);
+
+        // Re-push (upsert by stable srf_{id} moves the event date). Best-effort.
+        try {
+            IntervalsService::pushWorkout($athleteId, $workoutId, $db);
+        } catch (\Throwable $e) {
+            error_log('revertWorkoutMove Intervals push failed for athlete ' . $athleteId . ': ' . $e->getMessage());
+        }
+
+        // Capture the coach adjustment (Coaching Intelligence Layer).
+        CoachAdjustments::record($workoutId, $athleteId, (int)$coachId, 'day_swap',
+            ['scheduled_date' => $fromDate, 'workout_type' => (string)$workout['workout_type'], 'duration_mins' => $workout['target_duration'] !== null ? (int)$workout['target_duration'] : null],
+            ['scheduled_date' => $toDate,   'workout_type' => (string)$workout['workout_type'], 'duration_mins' => $workout['target_duration'] !== null ? (int)$workout['target_duration'] : null],
+            $db);
+
+        echo json_encode(['success' => true, 'new_date' => $toDate]); exit;
     }
 
     /**
@@ -3856,6 +3944,7 @@ class CoachController
                     COALESCE(pw.athlete_instructions, pw.description, pw.display_summary, \'\') AS description,
                     pw.structure, pw.archetype_params, pw.target_duration, pw.intensity_load,
                     pw.coach_locked, pw.visible_to_athlete, pw.added_by_role, pw.carried_over_from_plan_id,
+                    pw.athlete_moved, pw.original_scheduled_date,
                     (
                         SELECT cw.compliance_score
                         FROM completed_workouts cw

@@ -233,6 +233,20 @@ class AthleteController
         $other->execute([$athleteId, $planId, $targetDate, $workoutId]);
         $otherId = (int)($other->fetchColumn() ?: 0);
 
+        // Adjacency guards (architecture section 12) - soft, overridable with force,
+        // same contract as must-off. Both swap legs are evaluated at their final dates.
+        if (!$force) {
+            $moves = [$workoutId => $targetDate];
+            if ($otherId > 0) $moves[$otherId] = $oldDate;
+            $warnings = ScheduleAdjacency::warningsForMove($db, $planId, $moves);
+            if (!empty($warnings)) {
+                echo json_encode(['success' => false, 'error' => 'soft_warning',
+                    'warning_type' => $warnings[0]['type'],
+                    'message'      => $warnings[0]['message']]);
+                exit;
+            }
+        }
+
         $now      = gmdate('Y-m-d H:i:s');
         $affected = [$workoutId];
 

@@ -280,6 +280,13 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
               .then(function (res) {
                   if (res && res.success) {
                       window.location.reload();
+                  } else if (res && res.error === 'soft_warning' && res.message) {
+                      // Adjacency advisory (long-run proximity / consecutive quality):
+                      // warn, allow with one confirmation, mirroring the must-off flow.
+                      busy = false;
+                      if (confirm(res.message + ' Move it anyway?')) {
+                          submit(targetDate, true);
+                      }
                   } else {
                       busy = false;
                       showError((res && res.message) ? res.message : 'Could not move the workout. Please try again.');

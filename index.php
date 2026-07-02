@@ -37,6 +37,7 @@ require_once __DIR__ . '/src/StripeWebhook.php';
 require_once __DIR__ . '/src/Crypto.php';
 require_once __DIR__ . '/src/IntervalsService.php';
 require_once __DIR__ . '/src/ProfileForm.php';
+require_once __DIR__ . '/src/ScheduleAdjacency.php';
 require_once __DIR__ . '/src/Controllers/AuthController.php';
 require_once __DIR__ . '/src/Controllers/OnboardingController.php';
 require_once __DIR__ . '/src/Controllers/AthleteController.php';
@@ -238,6 +239,7 @@ $router->get('/coach/workout/:id/thread/poll',      [CoachController::class, 'wo
 $router->post('/coach/workout/:id/send',            [CoachController::class, 'sendWorkoutMessage']);
 $router->post('/coach/workouts/:id/edit',             [CoachController::class, 'editPlannedWorkout']);
 $router->post('/coach/athlete/:id/workout/reschedule', [CoachController::class, 'rescheduleWorkout']);
+$router->post('/coach/athlete/:id/workout/revert-move', [CoachController::class, 'revertWorkoutMove']);
 $router->post('/coach/athlete/:id/workout/add',        [CoachController::class, 'addWorkout']);
 $router->post('/coach/athlete/:id/workout/remove',     [CoachController::class, 'removeWorkout']);
 $router->get('/coach/library',            [CoachController::class, 'library']);

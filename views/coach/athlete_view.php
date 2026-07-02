@@ -344,6 +344,12 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
         font-size: 12px;
         line-height: 1;
     }
+    .macro-moved-badge {
+        font-size: 11px;
+        line-height: 1;
+        color: var(--color-info);
+        font-weight: 700;
+    }
     .macro-compliance {
         margin-left: auto;
         align-self: center;
@@ -878,6 +884,8 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                                 'archetype_variant' => $w['archetype_variant'] !== null ? (string)$w['archetype_variant'] : '',
                                 'instructions'    => (string)($w['athlete_instructions'] ?? ''),
                                 'coach_notes'     => (string)($w['notes'] ?? ''),
+                                'athlete_moved'   => !empty($w['athlete_moved']) ? 1 : 0,
+                                'moved_from'      => !empty($w['original_scheduled_date']) ? (string)$w['original_scheduled_date'] : '',
                             ]), ENT_QUOTES, 'UTF-8');
                             ?>
                             <button type="button" class="macro-workout<?= $conflictRM ? ' macro-conflict-' . $conflictRM : '' ?>"
@@ -899,6 +907,9 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                                     <?php endif; ?>
                                     <?php if (!empty($w['carried_over_from_plan_id'])): ?>
                                     <span class="macro-carried-badge" title="Carried over from the prior plan (week already seen by the athlete)">↻</span>
+                                    <?php endif; ?>
+                                    <?php if (!empty($w['athlete_moved'])): ?>
+                                    <span class="macro-moved-badge" title="Moved by the athlete<?= !empty($w['original_scheduled_date']) ? ' (from ' . date('M j', strtotime((string)$w['original_scheduled_date'])) . ')' : '' ?>">⇄</span>
                                     <?php endif; ?>
                                     <?php if ($isPastWorkout): ?>
                                     <span class="compliance-dot <?= $complianceClass ?> macro-compliance"
@@ -1184,6 +1195,10 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 <div style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
                             color:var(--text-muted);margin-bottom:2px;">Target duration</div>
                 <div id="mwd-dur" style="font-size:14px;font-weight:500;color:var(--text-primary);"></div>
+            </div>
+            <div id="mwd-moved-wrap" style="display:none;margin-bottom:14px;font-size:12px;color:var(--text-secondary);">
+                <span>Moved by the athlete from <strong id="mwd-moved-from"></strong>.</span>
+                <button type="button" id="mwd-revert" class="btn btn-secondary btn-sm" style="margin-left:8px;">Revert to original day</button>
             </div>
             <div id="mwd-summary" style="font-size:13px;color:var(--text-muted);margin-bottom:10px;"></div>
             <div id="mwd-desc"
@@ -1472,6 +1487,11 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             setBlock('mwd-summary', d.summary);
             setBlock('mwd-desc', d.description);
 
+            // Athlete-moved indicator + revert action (future, uncompleted workouts only).
+            var showMoved = !!(d.athlete_moved && d.moved_from && d.editable);
+            $id('mwd-moved-wrap').style.display = showMoved ? '' : 'none';
+            if (showMoved) $id('mwd-moved-from').textContent = dateLabel(d.moved_from);
+
             // "Comment on session" appears only when this workout has a logged completion.
             var cwid  = d.completed_workout_id || 0;
             var cwrap = $id('mwd-comment-wrap');
@@ -1534,6 +1554,16 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                   var btn = document.querySelector('.macro-workout[data-workout-id="' + id + '"]');
                   if (btn) { var cell = btn.closest('.macro-day'); btn.remove(); if (cell) renderEmpty(cell, true); }
                   closeMwd();
+              })
+              .catch(function () { alert('Network error. Please try again.'); });
+        }
+
+        function revertMove() {
+            if (!mwdData || !mwdData.id) return;
+            post('/app/coach/athlete/' + CFG.athleteId + '/workout/revert-move', {workout_id: mwdData.id})
+              .then(function (res) {
+                  if (res && res.success) { window.location.reload(); return; }
+                  alert((res && res.message) ? res.message : 'Could not revert this workout.');
               })
               .catch(function () { alert('Network error. Please try again.'); });
         }
@@ -1942,6 +1972,12 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                       }
                       return;
                   }
+                  if (res && res.error === 'soft_warning') {
+                      if (confirm((res.message || 'This move creates a scheduling concern.') + ' Move it anyway?')) {
+                          doReschedule(id, newDate, btn, fromCell, toCell, true);
+                      }
+                      return;
+                  }
                   if (res && res.error === 'conflict' && res.existing_workout) {
                       var ex = res.existing_workout;
                       var label = ex.display_title || (ex.workout_type ? ex.workout_type.replace('_', ' ') : 'a workout');
@@ -2079,6 +2115,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             if (wbtn) { openMwd(wbtn); return; }
             if (e.target.id === 'mwd-bd' || e.target.id === 'mwd-close') { closeMwd(); return; }
             if (e.target.id === 'mwd-remove') { removeWorkout(); return; }
+            if (e.target.id === 'mwd-revert') { revertMove(); return; }
             if (e.target.id === 'mwd-edit') { openEwd(); return; }
             if (e.target.id === 'mwd-comment-btn') {
                 $id('mwd-comment-btn').style.display  = 'none';
