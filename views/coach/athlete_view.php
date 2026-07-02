@@ -1083,7 +1083,6 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
         <div class="section-label">PROFILE</div>
         <div class="card" style="margin-bottom:16px;">
             <?php $fields = [
-                'Experience'       => $profile['experience_level'] ?? null,
                 'Weekly volume'    => $profile['current_weekly_minutes'] ? format_duration((int)$profile['current_weekly_minutes']) . '/wk' : null,
                 'Training days'    => $profile['training_days_per_week'] ? $profile['training_days_per_week'] . ' days/week' : null,
                 'Units'            => $profile['units'] ?? null,

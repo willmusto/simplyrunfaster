@@ -58,23 +58,6 @@ include __DIR__ . '/../../views/layout/html_open.php';
             <div class="form-hint">Your coach reads this. Be specific if there's anything ongoing.</div>
         </div>
 
-        <div class="form-group">
-            <label class="form-label">How would you describe your running background?</label>
-            <div class="pill-choices">
-                <?php $levels = [
-                    'beginner'     => 'Beginner',
-                    'intermediate' => 'Intermediate',
-                    'advanced'     => 'Advanced / competitive',
-                ]; ?>
-                <?php foreach ($levels as $val => $label): ?>
-                <label class="pill-choice <?= ($d['experience_level'] ?? 'intermediate') === $val ? 'selected' : '' ?>">
-                    <input type="radio" name="experience_level" value="<?= h($val) ?>"
-                           <?= ($d['experience_level'] ?? 'intermediate') === $val ? 'checked' : '' ?>>
-                    <?= h($label) ?>
-                </label>
-                <?php endforeach; ?>
-            </div>
-        </div>
     </form>
 
     <div class="onboarding-footer">

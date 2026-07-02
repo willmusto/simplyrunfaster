@@ -200,7 +200,6 @@ class OnboardingController
         $_SESSION['onboarding_data']['years_running']       = (float)$years;
         $_SESSION['onboarding_data']['peak_weekly_minutes'] = (int)($_POST['peak_weekly_minutes'] ?? 0);
         $_SESSION['onboarding_data']['injury_history']      = trim($_POST['injury_history'] ?? '');
-        $_SESSION['onboarding_data']['experience_level']    = $_POST['experience_level'] ?? 'intermediate';
 
         self::advance($step);
     }
@@ -458,7 +457,6 @@ class OnboardingController
             'typical_easy_pace_max'      => $d['typical_easy_pace_max'] ?? null,
             'years_running'              => (float)($d['years_running'] ?? 0) ?: null,
             'peak_weekly_minutes'        => (int)($d['peak_weekly_minutes'] ?? 0) ?: null,
-            'experience_level'           => $d['experience_level'] ?? 'intermediate',
             'injury_history'             => $d['injury_history'] ?: null,
             'training_days_per_week'     => (int)($d['training_days_per_week'] ?? 0) ?: null,
             'must_off_days'              => $d['must_off_days'] ?: '[]',

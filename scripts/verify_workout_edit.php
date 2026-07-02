@@ -64,8 +64,8 @@ try {
     $athleteId = (int)$db->lastInsertId();
     $db->prepare(
         "INSERT INTO athlete_profiles (athlete_id, plan_type, training_days_per_week, must_off_days, goal_race_distance,
-            current_weekly_minutes, longest_recent_run_mins, experience_level, pace_zones_visible)
-         VALUES (?, 'development_plan', 5, '[]', '10K', 220, 70, 'intermediate', 1)"
+            current_weekly_minutes, longest_recent_run_mins, pace_zones_visible)
+         VALUES (?, 'development_plan', 5, '[]', '10K', 220, 70, 1)"
     )->execute([$athleteId]);
 
     $planId = PlanGenerator::generate($athleteId, 'onboarding');

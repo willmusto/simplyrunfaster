@@ -74,10 +74,10 @@ try {
     $db->prepare(
         "INSERT INTO athlete_profiles
             (athlete_id, plan_type, training_days_per_week, must_off_days,
-             return_time_off_band, cross_training_bike, experience_level,
+             return_time_off_band, cross_training_bike,
              current_weekly_minutes, pace_zones_visible)
          VALUES (?, 'return_to_running', 4, '[]', '6_16_weeks', 'stationary',
-                 'beginner', 60, 1)"
+                 60, 1)"
     )->execute([$athleteId]);
 
     // Generate the initial stage-1 window, then approve (activate) it.

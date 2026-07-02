@@ -66,7 +66,6 @@ CREATE TABLE IF NOT EXISTS `athlete_profiles` (
   `most_recent_race_date` date DEFAULT NULL,
   `years_running` float DEFAULT NULL,
   `peak_weekly_minutes` int(11) DEFAULT NULL COMMENT 'highest-ever weekly time on feet',
-  `experience_level` enum('beginner','intermediate','advanced') COLLATE utf8_unicode_ci DEFAULT NULL,
   `injury_history` text COLLATE utf8_unicode_ci,
   `training_days_per_week` int(11) DEFAULT NULL,
   `must_off_days` longtext COLLATE utf8_unicode_ci COMMENT 'JSON array of day numbers 0=Sun',

@@ -67,8 +67,8 @@ $setupAthlete = function () use ($db, &$athleteId, &$userId): int {
     $db->prepare(
         "INSERT INTO athlete_profiles
             (athlete_id, plan_type, training_days_per_week, must_off_days, goal_race_distance,
-             current_weekly_minutes, longest_recent_run_mins, experience_level, pace_zones_visible)
-         VALUES (?, 'development_plan', 4, '[]', '10K', 180, 60, 'intermediate', 1)"
+             current_weekly_minutes, longest_recent_run_mins, pace_zones_visible)
+         VALUES (?, 'development_plan', 4, '[]', '10K', 180, 60, 1)"
     )->execute([$aid]);
     $athleteId = $aid;
     return $aid;
