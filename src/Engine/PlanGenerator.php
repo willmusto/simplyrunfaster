@@ -5217,11 +5217,23 @@ class PlanGenerator
 
         $count = count($issues);
         $sample = array_slice($issues, 0, 5);
+        // Name the affected workouts (date + title) in the message itself so the
+        // flag is actionable without digging into the details JSON.
+        $named = [];
+        foreach (array_slice($issues, 0, 3) as $i) {
+            $when = !empty($i['date']) ? date('M j', strtotime($i['date'])) : 'undated';
+            $what = $i['display_title'] ?: $i['archetype_code'];
+            $named[] = "{$when} \"{$what}\"";
+        }
+        $list = implode(', ', $named);
+        if ($count > count($named)) {
+            $list .= ' and ' . ($count - count($named)) . ' more';
+        }
         self::raiseFlag(
             $athleteId,
             'display_generation_incomplete',
             'warning',
-            "Plan {$planId} has {$count} workout display(s) with incomplete generated text. Review before approval.",
+            "Plan {$planId} has {$count} workout display(s) with incomplete generated text: {$list}. Review before approval.",
             $db,
             ['plan_id' => $planId, 'issues' => $sample],
             false
@@ -5337,12 +5349,18 @@ class PlanGenerator
     private static function buildConstraints(array $profile): array
     {
         $hillAccess = !empty($profile['hill_access']) && $profile['hill_access'] !== 'none';
-        // track_field_background is a tinyint(1); read it as a boolean (it was compared to
-        // the string 'yes', so it never matched and the gate was permanently off).
-        $trackBg    = !empty($profile['track_field_background']);
+        // track_access is the athlete's own enum ('yes'/'no'/'road_reps_ok', schema default
+        // 'road_reps_ok'); the selector blocks track_requirement='required' archetypes only
+        // when it is 'no'. It must never be derived from track_field_background, which is a
+        // separate tinyint(1) gate consumed via selection.requires[] entries.
+        $trackAccess = $profile['track_access'] ?? null;
+        if (!in_array($trackAccess, ['yes', 'no', 'road_reps_ok'], true)) {
+            $trackAccess = 'road_reps_ok';
+        }
 
         return [
-            'track_access'                        => $trackBg ? 'yes' : 'no',
+            'track_access'                        => $trackAccess,
+            'track_field_background'              => !empty($profile['track_field_background']),
             'hill_access'                         => $hillAccess,
             'plyometric_clearance'                => !empty($profile['plyometric_clearance']),
             'hilly_terrain_or_substitute_route'   => $hillAccess,
