@@ -97,11 +97,53 @@
         section { padding: 88px 0; }
         .band-card { background: var(--card-bg); border-top: 0.5px solid var(--border-color); border-bottom: 0.5px solid var(--border-color); }
 
-        /* ── Hero: left-aligned, typographic, undecorated ── */
+        /* ── Hero: left-aligned, typographic; right side anchored by an app-UI
+               rendition built from the app's own design tokens (swapped for a real
+               screenshot when one is provided). Hidden below 900px so the mobile
+               hero stays spare. ── */
         .hero { padding: 104px 0 96px; }
+        .hero-grid { display: grid; grid-template-columns: 1fr; gap: 48px; align-items: center; }
+        @media (min-width: 900px) { .hero-grid { grid-template-columns: minmax(0, 11fr) minmax(0, 9fr); } }
         .hero h1 { max-width: 12ch; }
         .hero-sub { font-size: clamp(17px, 2.2vw, 19px); color: var(--text-secondary); max-width: 34rem; margin: 26px 0 36px; }
         .hero-ctas { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
+
+        .hero-visual { display: none; }
+        @media (min-width: 900px) { .hero-visual { display: block; } }
+        .app-card {
+            background: var(--card-bg); border: 0.5px solid var(--border-color);
+            border-radius: var(--radius-card); padding: 20px 22px; max-width: 360px;
+        }
+        .app-label {
+            font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+            text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px;
+        }
+        .app-pill {
+            display: inline-block; font-size: 11px; font-weight: 500;
+            background: var(--accent-fill); color: var(--accent-dark);
+            border-radius: 6px; padding: 3px 9px; margin-bottom: 8px;
+        }
+        .app-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+        .app-meta { font-size: 12px; color: var(--text-muted); margin: 3px 0 12px; }
+        .app-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.55; }
+        .app-note {
+            margin: 14px -22px -20px; padding: 12px 22px 16px;
+            background: var(--recessed-bg);
+            border-radius: 0 0 var(--radius-card) var(--radius-card);
+            font-size: 12.5px; color: var(--text-secondary); line-height: 1.5;
+        }
+        .app-note .from { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 3px; }
+        .app-card-back {
+            max-width: 320px; margin: -8px 0 0 48px; position: relative; z-index: -1;
+            transform: translateY(-4px);
+        }
+        .app-week { display: flex; gap: 8px; align-items: center; }
+        .app-day { font-size: 9px; font-weight: 600; color: var(--text-muted); text-align: center; flex: 1; }
+        .app-dot {
+            width: 26px; height: 26px; border-radius: 50%; margin: 4px auto 0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 8.5px; font-weight: 700; color: #fff;
+        }
 
         /* ── How it works: ruled structural list, not icon cards ── */
         .steps { border-top: 1px solid var(--border-strong); margin-top: 12px; max-width: 780px; }
@@ -247,12 +289,41 @@
 <!-- Hero -->
 <header class="hero">
     <div class="wrap">
-        <div class="eyebrow">Online running coaching</div>
-        <h1>Real coaching. Real results.</h1>
-        <p class="hero-sub">SimplyRunFaster pairs every athlete with a real coach, not an algorithm. Your coach reviews your plan, watches your training, and thinks about you specifically. Starting at $39/month.</p>
-        <div class="hero-ctas">
-            <a class="btn btn-primary" href="/app/register">Get started &rarr;</a>
-            <a class="text-link" href="#how-it-works">How it works &darr;</a>
+        <div class="hero-grid">
+            <div>
+                <div class="eyebrow">Online running coaching</div>
+                <h1>Real coaching. Real results.</h1>
+                <p class="hero-sub">SimplyRunFaster pairs every athlete with a real coach, not an algorithm. Your coach reviews your plan, watches your training, and thinks about you specifically. Starting at $39/month.</p>
+                <div class="hero-ctas">
+                    <a class="btn btn-primary" href="/app/register">Get started &rarr;</a>
+                    <a class="text-link" href="#how-it-works">How it works &darr;</a>
+                </div>
+            </div>
+            <div class="hero-visual" aria-hidden="true">
+                <div class="app-card">
+                    <div class="app-label">Today</div>
+                    <span class="app-pill">Tempo</span>
+                    <div class="app-title">Tempo Intervals</div>
+                    <div class="app-meta">45 min &middot; Thursday</div>
+                    <div class="app-desc">Warm up with 12 minutes of easy running. Then 3 x 8 minutes at a comfortably hard tempo effort with 3 minutes easy between. Cool down with 10 minutes easy.</div>
+                    <div class="app-note">
+                        <span class="from">From your coach</span>
+                        Strong long run Sunday. Hold the middle rep honest today and we build from there.
+                    </div>
+                </div>
+                <div class="app-card app-card-back">
+                    <div class="app-label">This week</div>
+                    <div class="app-week">
+                        <div class="app-day">M<span class="app-dot" style="background:var(--border-strong);"></span></div>
+                        <div class="app-day">T<span class="app-dot" style="background:#7FB7A3;">40</span></div>
+                        <div class="app-day">W<span class="app-dot" style="background:var(--border-strong);"></span></div>
+                        <div class="app-day">T<span class="app-dot" style="background:var(--accent-mid);">45</span></div>
+                        <div class="app-day">F<span class="app-dot" style="background:#7FB7A3;">35</span></div>
+                        <div class="app-day">S<span class="app-dot" style="background:var(--border-strong);"></span></div>
+                        <div class="app-day">S<span class="app-dot" style="background:var(--accent-dark);">1h30</span></div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </header>
@@ -371,7 +442,7 @@
                     <li>Guaranteed 48-hour coach response time</li>
                     <li>Monthly 20-minute video check-in with your coach</li>
                 </ul>
-                <a class="btn btn-primary" href="/app/register" style="background:var(--accent-strong);">Get started &rarr;</a>
+                <a class="btn btn-primary" href="/app/register">Get started &rarr;</a>
             </div>
         </div>
         <div class="fine-print">
