@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>SimplyRunFaster | Real coaching. Real results.</title>
-    <meta name="description" content="SimplyRunFaster pairs every athlete with a real coach, not an algorithm. Your coach reviews your plan, watches your training, and thinks about you specifically. Starting at $39/month.">
+    <meta name="description" content="SimplyRunFaster pairs every athlete with a real coach, not an AI. Your coach reviews your plan, watches your training, and thinks about you specifically. Starting at $39/month.">
     <meta property="og:title" content="SimplyRunFaster | Real coaching. Real results.">
     <meta property="og:description" content="A real coach reviews your plan, watches your training, and thinks about you specifically. Starting at $39/month.">
     <meta property="og:type" content="website">
@@ -237,7 +237,8 @@
             display: flex; align-items: center; justify-content: center;
             font-size: 11px; color: var(--text-muted);
         }
-        .coach-copy p { font-size: 15px; color: var(--text-secondary); font-style: italic; margin-top: 6px; }
+        .coach-copy p { font-size: 15px; color: var(--text-secondary); line-height: 1.65; }
+        .coach-copy p + p { margin-top: 12px; }
         @media (max-width: 480px) { .coach-card { flex-direction: column; } }
 
         .placeholder-note { font-size: 13px; color: var(--text-muted); font-style: italic; margin-top: 10px; }
@@ -293,7 +294,7 @@
             <div>
                 <div class="eyebrow">Online running coaching</div>
                 <h1>Real coaching. Real results.</h1>
-                <p class="hero-sub">SimplyRunFaster pairs every athlete with a real coach, not an algorithm. Your coach reviews your plan, watches your training, and thinks about you specifically. Starting at $39/month.</p>
+                <p class="hero-sub">SimplyRunFaster pairs every athlete with a real coach, not an AI. Your coach reviews your plan, watches your training, and thinks about you specifically. Starting at $39/month.</p>
                 <div class="hero-ctas">
                     <a class="btn btn-primary" href="/app/register">Get started &rarr;</a>
                     <a class="text-link" href="#how-it-works">How it works &darr;</a>
@@ -334,7 +335,7 @@
         <div class="eyebrow">The problem</div>
         <h2>Training apps aren&rsquo;t coaching.</h2>
         <div class="body-copy">
-            <p>You&rsquo;ve tried the apps. You follow the plan on Monday, miss Thursday, and by Saturday you&rsquo;re improvising. The app doesn&rsquo;t notice. Nobody notices.</p>
+            <p>You&rsquo;ve tried the apps, maybe even an AI coach. You follow the plan on Monday, miss Thursday, and by Saturday you&rsquo;re improvising. The app doesn&rsquo;t notice. Nobody notices.</p>
             <p>Real coaching is different. A real coach sees when you&rsquo;re struggling before you do. They adjust your plan not because a rule fired, but because they made a judgment call about your training. They remember that you mentioned your left knee felt tight last week. They write you a note at the end of the month that tells you what all those runs actually meant.</p>
             <p>SimplyRunFaster is real coaching, made accessible by technology that handles the structure so your coach can focus on the parts that actually require a human.</p>
         </div>
@@ -405,8 +406,10 @@
         <div class="coach-card">
             <div class="coach-photo" aria-hidden="true"><span>Photo</span></div>
             <div class="coach-copy">
-                <span class="quote-tag">Placeholder</span>
-                <p>[Coach bio: first-person, in brand voice. Provided by the coach before launch.]</p>
+                <p>I&rsquo;ve coached runners for over fifteen years, from middle schoolers to collegiate national champions to adult marathoners. Across five seasons at the high school level, I&rsquo;ve sent multiple athletes to the state meet every single time. I&rsquo;m proud of that record.</p>
+                <p>I didn&rsquo;t set out to make coaching my thing. After a summer working a running camp in college, I figured it probably wasn&rsquo;t my path. Then a year later a high school called looking for a cross country coach, I had the time, and I said I&rsquo;d fill in for a season. It stuck. The thing I&rsquo;d been wary of, how much I cared about my athletes&rsquo; outcomes, turned out to be the whole job.</p>
+                <p>The hard part of coaching isn&rsquo;t the X&rsquo;s and O&rsquo;s. It&rsquo;s getting an athlete to believe in the work, and in themselves. An AI can build you a training plan. It can&rsquo;t make you believe you&rsquo;re fitter than you&rsquo;ve ever been.</p>
+                <p>That&rsquo;s why I built SimplyRunFaster. The software handles the structure so the coaching can stay human. Every plan gets reviewed by a real coach before an athlete ever sees it.</p>
             </div>
         </div>
     </div>
