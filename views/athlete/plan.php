@@ -327,7 +327,7 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
     /* The class selector above outranks the UA [hidden] rule, so the attribute alone
        won't hide the overlay — restore it explicitly (also makes closeModal work). */
     .srf-move-overlay[hidden] { display:none; }
-    .srf-move-sheet { background:var(--surface-bg,var(--card-bg,#fff)); color:var(--text-primary,#111);
+    .srf-move-sheet { background:var(--card-bg); color:var(--text-primary);
         width:100%; max-width:480px; border-radius:16px 16px 0 0; padding:18px 18px 28px;
         max-height:85vh; overflow-y:auto; box-shadow:0 -8px 32px rgba(0,0,0,0.25); }
     @media (min-width:480px) { .srf-move-overlay { align-items:center; }
@@ -340,8 +340,8 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
     .srf-move-days { display:flex; flex-direction:column; gap:8px; }
     .srf-move-day { display:flex; align-items:center; justify-content:space-between; gap:12px;
         width:100%; text-align:left; padding:12px 14px; border:1px solid var(--border-color,rgba(0,0,0,0.1));
-        border-radius:10px; background:var(--card-bg,#fff); color:inherit; cursor:pointer; font:inherit; }
-    .srf-move-day:hover:not(:disabled) { border-color:var(--accent-mid,#4a7); }
+        border-radius:10px; background:var(--card-bg); color:inherit; cursor:pointer; font:inherit; }
+    .srf-move-day:hover:not(:disabled) { border-color:var(--accent-mid); }
     .srf-move-day:disabled { cursor:default; opacity:0.55; }
     .srf-move-day.is-current { border-style:dashed; }
     .srf-move-day.is-mustoff { opacity:0.7; }
@@ -350,9 +350,9 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
     .srf-move-day-date { font-size:11px; color:var(--text-muted); }
     .srf-move-day-content { font-size:12px; color:var(--text-muted); text-align:right; }
     .srf-move-badge { display:inline-block; padding:2px 8px; border-radius:10px;
-        background:var(--recessed-bg,rgba(0,0,0,0.06)); color:var(--text-secondary,#444); font-size:11px; }
+        background:var(--recessed-bg,rgba(0,0,0,0.06)); color:var(--text-secondary); font-size:11px; }
     .srf-move-lock { font-size:12px; }
-    .srf-move-error { margin-top:12px; font-size:13px; color:#C0392B; }
+    .srf-move-error { margin-top:12px; font-size:13px; color:var(--color-danger); }
     </style>
 
     <?php endif; ?>
@@ -360,20 +360,20 @@ $swapWindowDays = $swapWindowDays ?? 10;   // 10-day window (today + 9); control
     <!-- Race pills + race management (§26) -->
     <style>
     .srf-race-pill { display:inline-block; margin:0 0 8px; padding:6px 12px; border-radius:14px;
-        background:#C0392B; color:#fff; border:none; font:inherit; font-size:12px; font-weight:600;
+        background:var(--color-danger); color:#fff; border:none; font:inherit; font-size:12px; font-weight:600;
         cursor:pointer; text-align:left; }
     .srf-race-pill-static { cursor:default; }
     .srf-race-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:1000;
         display:flex; align-items:flex-end; justify-content:center; }
     .srf-race-overlay[hidden] { display:none; }
-    .srf-race-sheet { background:var(--surface-bg,var(--card-bg,#fff)); color:var(--text-primary,#111);
+    .srf-race-sheet { background:var(--card-bg); color:var(--text-primary);
         width:100%; max-width:480px; border-radius:16px 16px 0 0; padding:18px 18px 28px;
         max-height:88vh; overflow-y:auto; box-shadow:0 -8px 32px rgba(0,0,0,0.25); }
     @media (min-width:480px) { .srf-race-overlay { align-items:center; } .srf-race-sheet { border-radius:16px; } }
     .srf-race-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
     .srf-race-title { font-size:16px; font-weight:600; }
     .srf-race-close { background:none; border:none; font-size:26px; line-height:1; cursor:pointer; color:var(--text-muted); }
-    .srf-race-warn { background:#FEF3C7; color:#92400E; border-radius:8px; padding:10px 12px; font-size:13px; margin-top:8px; }
+    .srf-race-warn { background:var(--warning-fill); color:var(--color-warning); border-radius:8px; padding:10px 12px; font-size:13px; margin-top:8px; }
     </style>
 
     <!-- Add-a-race modal -->

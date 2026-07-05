@@ -24,7 +24,7 @@ $lrMin     = (int)($p['longest_recent_run_mins'] ?? 0);
 ?>
 <!-- WEEKLY VOLUME (dual-path) -->
 <div class="form-group" data-fitness-volume>
-    <label class="form-label">Weekly running volume <span style="color:var(--color-danger,#e5484d);">*</span></label>
+    <label class="form-label">Weekly running volume <span style="color:var(--color-danger);">*</span></label>
     <div class="pill-choices" style="margin-bottom:10px;">
         <label class="pill-choice selected" data-vol-toggle="time">
             <input type="radio" name="weekly_volume_method" value="time" checked> By time
@@ -64,7 +64,7 @@ $lrMin     = (int)($p['longest_recent_run_mins'] ?? 0);
 
 <!-- LONGEST RECENT RUN (dual-path) -->
 <div class="form-group" data-fitness-longest>
-    <label class="form-label">Longest run in the last 30 days <span style="color:var(--color-danger,#e5484d);">*</span></label>
+    <label class="form-label">Longest run in the last 30 days <span style="color:var(--color-danger);">*</span></label>
     <div class="pill-choices" style="margin-bottom:10px;">
         <label class="pill-choice selected" data-lr-toggle="time">
             <input type="radio" name="longest_method" value="time" checked> By time
@@ -93,7 +93,7 @@ $lrMin     = (int)($p['longest_recent_run_mins'] ?? 0);
         </div>
     </div>
     <div class="form-hint" data-lr-preview style="margin-top:8px;">A single continuous run, your longest recent effort.</div>
-    <div class="form-hint" data-fitness-warn style="display:none;margin-top:8px;color:var(--color-warning,#e0a800);"></div>
+    <div class="form-hint" data-fitness-warn style="display:none;margin-top:8px;color:var(--color-warning);"></div>
 </div>
 
 <script>

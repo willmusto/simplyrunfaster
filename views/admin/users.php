@@ -58,7 +58,7 @@ $selfId = (int)Auth::userId();
                         <?php if ((int)$u['active'] === 1): ?>
                         <span class="pill" style="background:var(--accent-fill);color:var(--accent-strong);">Active</span>
                         <?php else: ?>
-                        <span class="pill" style="background:#fdecea;color:#991b1b;">Deactivated</span>
+                        <span class="pill" style="background:var(--danger-fill);color:var(--color-danger);">Deactivated</span>
                         <?php endif; ?>
                     </td>
                     <td style="padding:10px 12px;color:var(--text-muted);">

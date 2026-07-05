@@ -15,12 +15,12 @@ $pageTitle = 'Connect Your Watch to SimplyRunFaster';
 $extraCss  = <<<CSS
 <style>
     .guide-page { max-width: 720px; margin: 0 auto; padding: 40px 20px 96px; line-height: 1.6; }
-    .guide-page h1 { color: #1D9E75; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 12px; }
+    .guide-page h1 { color: var(--accent-mid); font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 12px; }
     .guide-page .guide-intro { font-size: 16px; color: var(--text-primary); margin-bottom: 28px; }
     .guide-step { display: flex; gap: 14px; margin: 0 0 22px; }
     .guide-step .step-num {
         flex: 0 0 30px; width: 30px; height: 30px; border-radius: 50%;
-        background: #1D9E75; color: #fff; font-weight: 700; font-size: 15px;
+        background: var(--accent-mid); color: #fff; font-weight: 700; font-size: 15px;
         display: flex; align-items: center; justify-content: center;
     }
     .guide-step .step-body { flex: 1; }
@@ -28,19 +28,19 @@ $extraCss  = <<<CSS
     .guide-step p { font-size: 14px; color: var(--text-primary); margin: 0 0 8px; }
     .guide-step .step-note { font-size: 13px; color: var(--text-muted); }
     .guide-page .btn-guide {
-        display: inline-block; background: #1D9E75; color: #fff; text-decoration: none;
+        display: inline-block; background: var(--accent-mid); color: #fff; text-decoration: none;
         font-weight: 600; font-size: 14px; padding: 9px 16px; border-radius: 8px; margin: 4px 0;
     }
-    .guide-page .btn-guide.secondary { background: transparent; color: #1D9E75; border: 1px solid #1D9E75; }
-    .guide-next { background: var(--recessed-bg, #F5F3EF); border-radius: 12px; padding: 18px 20px; margin: 28px 0; }
+    .guide-page .btn-guide.secondary { background: transparent; color: var(--accent-mid); border: 1px solid var(--accent-mid); }
+    .guide-next { background: var(--recessed-bg); border-radius: 12px; padding: 18px 20px; margin: 28px 0; }
     .guide-next h2 { font-size: 16px; font-weight: 600; margin: 0 0 10px; }
     .guide-next ul { list-style: none; margin: 0; padding: 0; }
     .guide-next li { font-size: 14px; margin-bottom: 8px; padding-left: 24px; position: relative; }
-    .guide-next li::before { content: "✓"; color: #1D9E75; font-weight: 700; position: absolute; left: 0; }
-    .guide-faq h2 { color: #1D9E75; font-size: 19px; font-weight: 600; margin: 28px 0 12px; }
+    .guide-next li::before { content: "✓"; color: var(--accent-mid); font-weight: 700; position: absolute; left: 0; }
+    .guide-faq h2 { color: var(--accent-mid); font-size: 19px; font-weight: 600; margin: 28px 0 12px; }
     .guide-faq .faq-q { font-size: 15px; font-weight: 600; margin: 14px 0 2px; }
     .guide-faq .faq-a { font-size: 14px; color: var(--text-primary); margin: 0; }
-    .guide-page a { color: #1D9E75; }
+    .guide-page a { color: var(--accent-mid); }
 </style>
 CSS;
 

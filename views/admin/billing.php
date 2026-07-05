@@ -16,13 +16,13 @@ $statusColor = [
 
     <?php if (!empty($flashSuccess)): ?>
     <div class="alert alert-success" style="margin-bottom:16px;padding:10px 14px;border-radius:var(--radius-card);
-         background:var(--color-success-bg,#d1fae5);color:var(--color-success-text,#065f46);font-size:13px;">
+         background:var(--success-fill);color:var(--accent-dark);font-size:13px;">
         <?= h($flashSuccess) ?>
     </div>
     <?php endif; ?>
     <?php if (!empty($flashError)): ?>
     <div class="alert alert-error" style="margin-bottom:16px;padding:10px 14px;border-radius:var(--radius-card);
-         background:#fdecea;color:#991b1b;font-size:13px;">
+         background:var(--danger-fill);color:var(--color-danger);font-size:13px;">
         <?= h($flashError) ?>
     </div>
     <?php endif; ?>

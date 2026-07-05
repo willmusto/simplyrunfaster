@@ -65,11 +65,11 @@ $sort = $_GET['sort'] ?? 'alerts';
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                     <span style="font-size:14px;font-weight:600;"><?= h($a['name']) ?></span>
                     <?php if ($hasCritical): ?>
-                    <span class="pill" style="background:#FDECEA;color:#991B1B;font-size:10px;">
+                    <span class="pill" style="background:var(--danger-fill);color:var(--color-danger);font-size:10px;">
                         <?= (int)$a['open_critical'] ?> critical
                     </span>
                     <?php elseif ($hasWarning): ?>
-                    <span class="pill" style="background:#FEF9C3;color:#92400E;font-size:10px;">
+                    <span class="pill" style="background:var(--warning-fill);color:var(--color-warning);font-size:10px;">
                         <?= (int)$a['open_warnings'] ?> warning<?= $a['open_warnings'] > 1 ? 's' : '' ?>
                     </span>
                     <?php endif; ?>
@@ -79,7 +79,7 @@ $sort = $_GET['sort'] ?? 'alerts';
                     </span>
                     <?php endif; ?>
                     <?php if (!empty($a['pending_regen'])): ?>
-                    <span class="pill" style="background:#FEF9C3;color:#92400E;font-size:10px;"
+                    <span class="pill" style="background:var(--warning-fill);color:var(--color-warning);font-size:10px;"
                           title="Pending plan regeneration request">Regen request</span>
                     <?php endif; ?>
                 </div>

@@ -497,8 +497,8 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
     }
     #mwd-flag svg { display: block; }
     #mwd-flag:hover { color: var(--text-secondary); }
-    #mwd-flag.is-flagged { color: #1D9E75; }
-    #mwd-flag.is-flagged svg { fill: #1D9E75; stroke: #1D9E75; }
+    #mwd-flag.is-flagged { color: var(--accent-mid); }
+    #mwd-flag.is-flagged svg { fill: var(--accent-mid); stroke: var(--accent-mid); }
 
     /* ── Plan management: drag-to-reschedule, add, remove ── */
     .macro-workout[draggable="true"] { cursor: grab; }
@@ -591,10 +591,10 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
     .awd-actions { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
     #mwd-remove {
         display: block; width: 100%; margin-top: 18px; padding: 8px;
-        border: 1px solid #e5b4b4; border-radius: var(--radius-sm);
-        background: none; color: #b91c1c; font-size: 13px; cursor: pointer;
+        border: 1px solid var(--danger-border); border-radius: var(--radius-sm);
+        background: none; color: var(--color-danger); font-size: 13px; cursor: pointer;
     }
-    #mwd-remove:hover { background: #fdecea; }
+    #mwd-remove:hover { background: var(--danger-fill); }
     /* Edit-workout modal reuses the .awd-* element styles; only its container differs. */
     #ewd { display: none; position: fixed; inset: 0; z-index: 9999; align-items: center; justify-content: center; }
     #ewd.is-open { display: flex; }
@@ -967,7 +967,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             if ($genWarn) unset($_SESSION['generate_warning']);
             ?>
             <?php if ($genWarn): ?>
-            <div class="card" style="margin-bottom:12px;border:1px solid var(--color-warning,#e0a800);">
+            <div class="card" style="margin-bottom:12px;border:1px solid var(--color-warning);">
                 <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Incomplete profile data</div>
                 <p class="body-text" style="margin:0 0 8px;font-size:13px;"><?= h($genWarn['message']) ?></p>
                 <a href="/app/coach/athlete/<?= (int)$athlete['id'] ?>/edit" class="btn btn-secondary btn-sm">Set these in Edit Profile →</a>
@@ -1417,7 +1417,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
             <div id="ewd-pane-structure" style="display:none;">
                 <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Edit the workout's structure. These push to the watch as real steps, and the description updates to match. You can override the usual rules.</div>
                 <div id="ewd-st-fields"></div>
-                <div class="awd-err" id="ewd-st-warn" style="display:none;background:var(--warn-bg, #fff7ed);color:var(--warn-text, #9a3412);"></div>
+                <div class="awd-err" id="ewd-st-warn" style="display:none;background:var(--warning-fill);color:var(--color-warning);"></div>
                 <div class="awd-actions"><button type="button" id="ewd-save-structured" class="btn btn-primary btn-sm">Save structure</button></div>
             </div>
 
@@ -2233,20 +2233,20 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
     <!-- Race management (§26) -->
     <style>
     .macro-race-pill { display:block; width:100%; margin:0 0 6px; padding:5px 9px; border-radius:10px;
-        background:#C0392B; color:#fff; border:none; font:inherit; font-size:11px; font-weight:600;
+        background:var(--color-danger); color:#fff; border:none; font:inherit; font-size:11px; font-weight:600;
         text-align:left; cursor:pointer; }
-    .macro-conflict-yellow { box-shadow:0 0 0 2px #F59E0B inset; border-radius:6px; }
-    .macro-conflict-red    { box-shadow:0 0 0 2px #C0392B inset; border-radius:6px; }
+    .macro-conflict-yellow { box-shadow:0 0 0 2px var(--color-warning) inset; border-radius:6px; }
+    .macro-conflict-red    { box-shadow:0 0 0 2px var(--color-danger) inset; border-radius:6px; }
     .srf-race-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:1000;
         display:flex; align-items:center; justify-content:center; padding:16px; }
     .srf-race-overlay[hidden] { display:none; }
-    .srf-race-sheet { background:var(--surface-bg,var(--card-bg,#fff)); color:var(--text-primary,#111);
+    .srf-race-sheet { background:var(--card-bg); color:var(--text-primary);
         width:100%; max-width:460px; border-radius:16px; padding:18px; max-height:88vh; overflow-y:auto;
         box-shadow:0 8px 32px rgba(0,0,0,0.25); }
     .srf-race-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
     .srf-race-title { font-size:16px; font-weight:600; }
     .srf-race-close { background:none; border:none; font-size:26px; line-height:1; cursor:pointer; color:var(--text-muted); }
-    .srf-race-conflict { background:#FEF3C7; color:#92400E; border-radius:8px; padding:8px 10px; font-size:12px; margin-top:8px; }
+    .srf-race-conflict { background:var(--warning-fill); color:var(--color-warning); border-radius:8px; padding:8px 10px; font-size:12px; margin-top:8px; }
     </style>
 
     <!-- Coach add-race modal -->

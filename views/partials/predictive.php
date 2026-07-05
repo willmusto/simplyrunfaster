@@ -17,8 +17,8 @@ if (!function_exists('pf_is_predictive')) {
     {
         if (!$confidence) return '';
         $color = match ($confidence) {
-            'high'   => '#1D9E75',
-            'medium' => '#b97900',
+            'high'   => 'var(--accent-mid)',
+            'medium' => 'var(--color-warning)',
             default  => 'var(--text-muted)',
         };
         $label = ucfirst($confidence) . ' confidence';
@@ -67,7 +67,7 @@ if (!function_exists('pf_is_predictive')) {
         $out = '<div style="display:flex;flex-direction:column;gap:8px;">';
         foreach (($profile['metrics'] ?? []) as $m) {
             $conf = (string)($m['confidence'] ?? 'none');
-            $confColor = match ($conf) { 'high' => '#1D9E75', 'medium' => '#b97900', 'low' => 'var(--text-muted)', default => 'var(--text-muted)' };
+            $confColor = match ($conf) { 'high' => 'var(--accent-mid)', 'medium' => 'var(--color-warning)', 'low' => 'var(--text-muted)', default => 'var(--text-muted)' };
             $out .= '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;">'
                 . '<span style="font-size:12px;color:var(--text-secondary);">' . $h($m['label'] ?? '') . '</span>'
                 . '<span style="font-size:12px;font-weight:600;text-align:right;">' . $h(pf_metric_value($m));

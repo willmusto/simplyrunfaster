@@ -22,7 +22,7 @@ if (!empty($meta['race'])) {
     $bits[] = h((string)$r['race_name']) . ' · ' . h(date('M j', strtotime((string)$r['race_date'])));
 }
 $dot      = $meta['on_track'] ?? 'green';
-$dotColor = $dot === 'red' ? 'var(--color-danger)' : ($dot === 'amber' ? '#F59E0B' : '#1D9E75');
+$dotColor = $dot === 'red' ? 'var(--color-danger)' : ($dot === 'amber' ? 'var(--color-warning)' : 'var(--accent-mid)');
 $dotLabel = $dot === 'red' ? 'Open critical flags' : ($dot === 'amber' ? 'Open warnings' : 'On track');
 ?>
 <div class="av-chrome">

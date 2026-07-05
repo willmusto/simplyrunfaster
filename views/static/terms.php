@@ -20,7 +20,7 @@ $extraCss  = <<<CSS
         line-height: 1.65;
     }
     .terms-page h1 {
-        color: #1D9E75;
+        color: var(--accent-mid);
         font-size: 28px;
         font-weight: 700;
         letter-spacing: -0.02em;
@@ -32,7 +32,7 @@ $extraCss  = <<<CSS
         margin-bottom: 32px;
     }
     .terms-page h2 {
-        color: #1D9E75;
+        color: var(--accent-mid);
         font-size: 19px;
         font-weight: 600;
         margin: 32px 0 10px;
@@ -51,7 +51,7 @@ $extraCss  = <<<CSS
         margin: 8px 0 8px 22px;
     }
     .terms-page li { margin-bottom: 6px; }
-    .terms-page a { color: #1D9E75; }
+    .terms-page a { color: var(--accent-mid); }
     .terms-page strong { font-weight: 600; }
 </style>
 CSS;

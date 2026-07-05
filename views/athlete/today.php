@@ -55,7 +55,7 @@ $localHour = (int)Timezone::dateInZone($tz, 'now', 'G');
 
     <?php // Post-race result prompt (§26 / Part 6): most recent unlogged race in last 14 days. ?>
     <?php if (!empty($pendingRace)): ?>
-    <div class="card" style="border-left:3px solid #C0392B;margin-bottom:16px;">
+    <div class="card" style="border-left:3px solid var(--color-danger);margin-bottom:16px;">
         <div style="font-size:14px;font-weight:600;">How did <?= h($pendingRace['race_name']) ?> go?</div>
         <p class="body-text" style="margin:2px 0 10px;font-size:13px;">
             <?= h(RaceController::distanceLabel($pendingRace['race_distance'])) ?> ·

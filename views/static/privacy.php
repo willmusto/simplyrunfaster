@@ -18,7 +18,7 @@ $extraCss  = <<<CSS
         line-height: 1.65;
     }
     .privacy-page h1 {
-        color: #1D9E75;
+        color: var(--accent-mid);
         font-size: 28px;
         font-weight: 700;
         letter-spacing: -0.02em;
@@ -30,7 +30,7 @@ $extraCss  = <<<CSS
         margin-bottom: 32px;
     }
     .privacy-page h2 {
-        color: #1D9E75;
+        color: var(--accent-mid);
         font-size: 19px;
         font-weight: 600;
         margin: 32px 0 10px;
@@ -49,7 +49,7 @@ $extraCss  = <<<CSS
         margin: 8px 0 8px 22px;
     }
     .privacy-page li { margin-bottom: 6px; }
-    .privacy-page a { color: #1D9E75; }
+    .privacy-page a { color: var(--accent-mid); }
     .privacy-page strong { font-weight: 600; }
     .privacy-table {
         width: 100%;
@@ -59,13 +59,13 @@ $extraCss  = <<<CSS
     }
     .privacy-table th,
     .privacy-table td {
-        border: 1px solid var(--divider, #E2DED7);
+        border: 1px solid var(--divider);
         padding: 8px 10px;
         text-align: left;
         vertical-align: top;
     }
     .privacy-table th {
-        background: var(--recessed-bg, #F5F3EF);
+        background: var(--recessed-bg);
         font-weight: 600;
     }
 </style>

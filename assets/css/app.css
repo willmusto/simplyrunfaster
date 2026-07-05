@@ -40,6 +40,35 @@
     --color-danger:   #A32D2D;
     --color-info:     #185FA5;
 
+    /* Semantic soft fills (flag cards, banners, badges). Single source for the
+       tints that views previously hardcoded per screen. */
+    --danger-fill:    #FDECEA;
+    --danger-border:  #E5B4B4;
+    --warning-fill:   #FEF3CD;
+    --info-fill:      #EAF2FF;
+    --success-fill:   #EEF7F2;
+
+    /* Type scale (UI direction section 4). The values every screen should draw
+       from instead of freelancing sizes; family matches the marketing site. */
+    --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --text-2xs:  10px;
+    --text-xs:   11px;
+    --text-sm:   12px;
+    --text-base: 13px;
+    --text-md:   14px;
+    --text-lg:   16px;
+    --text-xl:   20px;
+    --text-2xl:  22px;
+
+    /* Spacing scale. */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+
     /* Nav */
     --nav-height-bottom: 64px;
     --sidebar-width:     240px;

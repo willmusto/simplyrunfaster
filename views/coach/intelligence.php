@@ -24,7 +24,7 @@ $borderFor = static function (string $sev): string {
     return match ($sev) {
         'critical'    => 'var(--color-danger)',
         'warning'     => 'var(--color-warning)',
-        'opportunity' => '#1D9E75',
+        'opportunity' => 'var(--accent-mid)',
         default       => 'var(--text-muted)',
     };
 };
@@ -98,7 +98,7 @@ $ruleTitle = static function (array $a): string {
     </p>
 
     <?php if (!empty($flashSuccess)): ?>
-    <div class="card" style="border-left:3px solid #1D9E75;margin-bottom:16px;"><?= h($flashSuccess) ?></div>
+    <div class="card" style="border-left:3px solid var(--accent-mid);margin-bottom:16px;"><?= h($flashSuccess) ?></div>
     <?php endif; ?>
     <?php if (!empty($flashError)): ?>
     <div class="card" style="border-left:3px solid var(--color-danger);margin-bottom:16px;"><?= h($flashError) ?></div>
@@ -107,7 +107,7 @@ $ruleTitle = static function (array $a): string {
     <!-- ════════ WEEKLY REVIEW PROMPT ════════ -->
     <?php $reviewDone = !empty($review) && !empty($review['completed_at']); ?>
     <?php if (!$reviewDone): ?>
-    <div class="card" style="border-left:3px solid #1D9E75;margin-bottom:20px;background:rgba(29,158,117,0.06);">
+    <div class="card" style="border-left:3px solid var(--accent-mid);margin-bottom:20px;background:rgba(29,158,117,0.06);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
             <div>
                 <div style="font-weight:600;margin-bottom:2px;">Your weekly coaching review is ready.</div>
@@ -162,7 +162,7 @@ $ruleTitle = static function (array $a): string {
     <div class="section-label" style="margin-top:8px;">ATHLETE FLAGS</div>
 
     <?php if (empty($entries)): ?>
-    <div class="card" style="border-left:3px solid #1D9E75;margin-bottom:24px;">
+    <div class="card" style="border-left:3px solid var(--accent-mid);margin-bottom:24px;">
         <div class="empty-state" style="padding:20px 0;">
             <div class="empty-state-title">No open flags</div>
             <p class="body-text">All athletes are on track. New patterns appear here after the daily intelligence run.</p>
@@ -282,10 +282,10 @@ $ruleTitle = static function (array $a): string {
     <?php if (!empty($proposedDecisions)): $propTotal = count($proposedDecisions); ?>
     <div class="section-label" style="margin-top:28px;">
         PROPOSED DECISIONS
-        <span class="pill" style="font-size:10px;background:rgba(217,145,0,0.15);color:#b97900;"><?= $propTotal ?></span>
+        <span class="pill" style="font-size:10px;background:rgba(217,145,0,0.15);color:var(--color-warning);"><?= $propTotal ?></span>
     </div>
     <?php foreach (array_slice($proposedDecisions, 0, 2) as $d): ?>
-    <div class="roster-row" style="margin-bottom:8px;border-left:3px solid #d99100;">
+    <div class="roster-row" style="margin-bottom:8px;border-left:3px solid var(--color-warning);">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
                 <div style="font-size:14px;font-weight:600;margin-bottom:2px;"><?= h($d['title']) ?></div>
@@ -295,7 +295,7 @@ $ruleTitle = static function (array $a): string {
         </div>
     </div>
     <?php endforeach; ?>
-    <a href="/app/coach/intelligence/review" class="body-text" style="display:inline-block;margin:4px 0 8px;font-size:13px;color:#1D9E75;text-decoration:none;font-weight:600;">Review all <?= $propTotal ?> proposed rule<?= $propTotal === 1 ? '' : 's' ?> →</a>
+    <a href="/app/coach/intelligence/review" class="body-text" style="display:inline-block;margin:4px 0 8px;font-size:13px;color:var(--accent-mid);text-decoration:none;font-weight:600;">Review all <?= $propTotal ?> proposed rule<?= $propTotal === 1 ? '' : 's' ?> →</a>
     <?php endif; ?>
 
     <!-- ════════ SECTION 2 — FLAGGED FOR REVIEW ════════ -->
@@ -341,7 +341,7 @@ $ruleTitle = static function (array $a): string {
     <?php if (!empty($assistantProposals)): ?>
     <div class="section-label" style="margin-top:28px;">ASSISTANT PROPOSALS</div>
     <?php foreach ($assistantProposals as $p): ?>
-    <div class="roster-row" style="margin-bottom:8px;border-left:3px solid #d99100;">
+    <div class="roster-row" style="margin-bottom:8px;border-left:3px solid var(--color-warning);">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
                 <div style="font-size:14px;font-weight:600;margin-bottom:2px;"><?= h($p['title']) ?></div>
@@ -416,7 +416,7 @@ $ruleTitle = static function (array $a): string {
             <div class="decision-cell">
                 <?php if ($isProposed): ?>
                 <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                    <span class="pill" style="font-size:10px;background:rgba(217,145,0,0.15);color:#b97900;">Proposed</span>
+                    <span class="pill" style="font-size:10px;background:rgba(217,145,0,0.15);color:var(--color-warning);">Proposed</span>
                     <form method="POST" action="/app/coach/intelligence/decision/<?= (int)$d['id'] ?>/approve" style="margin:0;">
                         <?= Auth::csrfField() ?>
                         <input type="hidden" name="from" value="library">
@@ -429,7 +429,7 @@ $ruleTitle = static function (array $a): string {
                     </form>
                 </div>
                 <?php elseif ($isAsstProp): ?>
-                <span class="pill" style="font-size:10px;background:rgba(217,145,0,0.15);color:#b97900;">Awaiting head coach</span>
+                <span class="pill" style="font-size:10px;background:rgba(217,145,0,0.15);color:var(--color-warning);">Awaiting head coach</span>
                 <?php else: ?>
                 <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                     <form method="POST" action="/app/coach/intelligence/decision/<?= (int)$d['id'] ?>/toggle" style="margin:0;">
@@ -442,12 +442,12 @@ $ruleTitle = static function (array $a): string {
                     <?php if ($isActive && $canShare): ?>
                     <form method="POST" action="/app/coach/intelligence/decision/<?= (int)$d['id'] ?>/share" style="margin:0;" title="Share this rule across the whole roster">
                         <?= Auth::csrfField() ?>
-                        <button type="submit" class="btn btn-sm" style="<?= $isShared ? 'background:#eef7f2;color:#1D9E75;' : 'background:var(--recessed-bg);color:var(--text-muted);' ?>">
+                        <button type="submit" class="btn btn-sm" style="<?= $isShared ? 'background:var(--success-fill);color:var(--accent-mid);' : 'background:var(--recessed-bg);color:var(--text-muted);' ?>">
                             <?= $isShared ? 'Shared' : 'Share' ?>
                         </button>
                     </form>
                     <?php elseif ($isShared): ?>
-                    <span class="pill" style="font-size:10px;background:#eef7f2;color:#1D9E75;">Shared</span>
+                    <span class="pill" style="font-size:10px;background:var(--success-fill);color:var(--accent-mid);">Shared</span>
                     <?php endif; ?>
                 </div>
                 <?php endif; ?>

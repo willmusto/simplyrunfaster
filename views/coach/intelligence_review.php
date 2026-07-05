@@ -12,7 +12,7 @@
 $borderFor = static function (string $sev): string {
     return match ($sev) {
         'warning'     => 'var(--color-warning)',
-        'opportunity' => '#1D9E75',
+        'opportunity' => 'var(--accent-mid)',
         default       => 'var(--text-muted)',
     };
 };
@@ -116,14 +116,14 @@ $reviewDone = !empty($review) && !empty($review['completed_at']);
     </p>
 
     <?php if ($reviewDone): ?>
-    <div class="card" style="border-left:3px solid #1D9E75;margin-bottom:16px;">
+    <div class="card" style="border-left:3px solid var(--accent-mid);margin-bottom:16px;">
         You completed this week's review <?= h(Timezone::format($review['completed_at'], 'l \a\t g:i A')) ?>.
         You can keep reviewing — marking complete again updates the record.
     </div>
     <?php endif; ?>
 
     <?php if (!empty($flashSuccess)): ?>
-    <div class="card" style="border-left:3px solid #1D9E75;margin-bottom:16px;"><?= h($flashSuccess) ?></div>
+    <div class="card" style="border-left:3px solid var(--accent-mid);margin-bottom:16px;"><?= h($flashSuccess) ?></div>
     <?php endif; ?>
     <?php if (!empty($flashError)): ?>
     <div class="card" style="border-left:3px solid var(--color-danger);margin-bottom:16px;"><?= h($flashError) ?></div>
@@ -142,7 +142,7 @@ $reviewDone = !empty($review) && !empty($review['completed_at']);
         $sd = json_decode((string)($d['scope_distances'] ?? ''), true) ?: [];
         $sp = json_decode((string)($d['scope_phases'] ?? ''), true) ?: [];
     ?>
-    <div class="roster-row" style="margin-bottom:8px;border-left:3px solid #d99100;">
+    <div class="roster-row" style="margin-bottom:8px;border-left:3px solid var(--color-warning);">
         <div style="font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;">
             Proposed rule — based on <?= $n ?> similar adjustment<?= $n === 1 ? '' : 's' ?>
         </div>

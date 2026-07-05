@@ -90,7 +90,7 @@ $rowDate = static fn(string $d): string => date('D M j', strtotime($d));
                     <?php endif; ?>
                     <span class="pill" style="font-size:10px;background:var(--recessed-bg);color:var(--text-muted);"><?= $isManual ? 'Manual' : 'Watch' ?></span>
                     <?php if ($noteCount > 0): ?>
-                    <span class="pill" style="font-size:10px;background:var(--recessed-bg);color:#1D9E75;" title="<?= (int)$noteCount ?> note<?= $noteCount === 1 ? '' : 's' ?> on this session">💬 <?= (int)$noteCount ?></span>
+                    <span class="pill" style="font-size:10px;background:var(--recessed-bg);color:var(--accent-mid);" title="<?= (int)$noteCount ?> note<?= $noteCount === 1 ? '' : 's' ?> on this session">💬 <?= (int)$noteCount ?></span>
                     <?php endif; ?>
                 </div>
 
@@ -219,7 +219,7 @@ $rowDate = static fn(string $d): string => date('D M j', strtotime($d));
               out.style.display = 'block';
               out.textContent = (res && res.message) ? res.message
                               : (res && res.error ? res.error : 'Re-sync failed. Please try again.');
-              out.style.color = (res && res.success) ? '#1D9E75' : 'var(--color-danger)';
+              out.style.color = (res && res.success) ? 'var(--accent-mid)' : 'var(--color-danger)';
               // Reload to surface freshly imported runs in the log below.
               if (res && res.success && res.imported_new > 0) {
                   setTimeout(function () { location.reload(); }, 1200);

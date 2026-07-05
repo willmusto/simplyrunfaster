@@ -128,7 +128,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
                        value="<?= h($d['goal_race_date'] ?? '') ?>"
                        min="<?= date('Y-m-d', strtotime('+4 weeks')) ?>">
                 <div class="form-error" id="raceDateError"
-                     style="display:none;color:var(--danger,#c0392b);font-size:13px;margin-top:6px;">
+                     style="display:none;color:var(--color-danger);font-size:13px;margin-top:6px;">
                     Please enter your goal race date to continue.
                 </div>
             </div>

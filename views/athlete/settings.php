@@ -88,7 +88,7 @@
             <span class="device-name">
                 Intervals.icu
                 <?php if ($intervalsConnected): ?>
-                <span style="display:inline-block;margin-left:6px;font-size:11px;font-weight:600;color:#1D9E75;
+                <span style="display:inline-block;margin-left:6px;font-size:11px;font-weight:600;color:var(--accent-mid);
                              background:rgba(29,158,117,0.12);border-radius:10px;padding:2px 8px;vertical-align:middle;">Connected</span>
                 <?php endif; ?>
                 <div style="font-size:12px;color:var(--text-muted);margin-top:3px;font-weight:400;">
@@ -103,7 +103,7 @@
                 <?php if ($intervalsConnected): ?>
                 <div style="margin-top:8px;">
                     <button type="button" class="btn btn-secondary btn-sm" data-intervals-sync>Sync workouts now</button>
-                    <div data-intervals-sync-error style="display:none;font-size:12px;color:#C0392B;margin-top:6px;"></div>
+                    <div data-intervals-sync-error style="display:none;font-size:12px;color:var(--color-danger);margin-top:6px;"></div>
                 </div>
                 <?php endif; ?>
             </span>
@@ -196,7 +196,7 @@
                   if (res && res.success) {
                       var n = res.pushed || 0;
                       btn.textContent = n === 0 ? '✓ Up to date' : '✓ Synced (' + n + ' workout' + (n === 1 ? '' : 's') + ')';
-                      btn.style.color = '#1D9E75';
+                      btn.style.color = 'var(--accent-mid)';
                       // Re-enable after 60s with the original label.
                       setTimeout(function () {
                           btn.disabled = false;
