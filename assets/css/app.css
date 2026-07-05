@@ -1950,3 +1950,99 @@ body.is-offline .offline-banner { display: block; }
 }
 /* Messages chat keeps its own compact header — the strip sits under it, full-bleed. */
 .msg-header .av-tabs { margin-top: 8px; }
+
+/* ============================================================
+   Design-language kit — graduated from the coach-dashboard
+   prototype (Will-approved). These are THE shared patterns for
+   propagating the considered-density language across screens:
+   list-in-card, triage/stat chips, quiet links, ghost actions,
+   section rhythm. Use these instead of per-view styles.
+   ============================================================ */
+
+.section-block { margin-bottom: var(--space-6); }
+.section-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: var(--space-2); margin-bottom: var(--space-3);
+}
+.section-head .section-label { margin: 0; }
+
+/* Triage / stat chips: numerals speak, color only when action lives there. */
+.stat-strip { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.stat-chip {
+    display: inline-flex; align-items: baseline; gap: 6px;
+    padding: 6px 12px; border-radius: var(--radius-sm);
+    background: var(--card-bg); border: var(--card-border);
+    font-size: var(--text-sm); color: var(--text-secondary);
+    text-decoration: none;
+}
+.stat-chip .n { font-size: var(--text-lg); font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.stat-chip.is-alert .n  { color: var(--color-danger); }
+.stat-chip.is-action .n { color: var(--accent-mid); }
+.stat-chip.is-zero      { color: var(--text-muted); }
+.stat-chip.is-zero .n   { color: var(--text-muted); font-weight: 500; }
+.stat-chip[href]:hover  { background: var(--elevated-bg); }
+
+/* List-in-card: one surface per section, hairline-divided rows. */
+.list-card {
+    background: var(--card-bg); border: var(--card-border);
+    border-radius: var(--radius-card); overflow: hidden;
+}
+.list-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-3); padding: var(--space-3) var(--space-4);
+}
+.list-row + .list-row { border-top: 1px solid var(--divider); }
+a.list-row { text-decoration: none; color: var(--text-primary); }
+a.list-row:hover { background: var(--elevated-bg); }
+.list-row.severity-critical { border-left: 3px solid var(--color-danger);  padding-left: calc(var(--space-4) - 3px); }
+.list-row.severity-warning  { border-left: 3px solid var(--color-warning); padding-left: calc(var(--space-4) - 3px); }
+.row-main { min-width: 0; flex: 1; }
+.row-name { font-size: var(--text-md); font-weight: 600; }
+.row-meta { font-size: var(--text-sm); color: var(--text-muted); margin-top: 1px; }
+.row-preview {
+    font-size: var(--text-base); color: var(--text-secondary); margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.row-actions { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-2); }
+
+/* Quiet link: the secondary action treatment (vs one primary button per screen). */
+.link-quiet { font-size: var(--text-base); font-weight: 500; color: var(--accent-strong); text-decoration: none; white-space: nowrap; }
+.link-quiet:hover { text-decoration: underline; }
+
+/* Ghost action: destructive-adjacent actions that must not compete with navigation. */
+.btn-ghost {
+    background: none; border: none; cursor: pointer; padding: 6px 8px;
+    font-size: var(--text-sm); font-weight: 500; color: var(--text-muted);
+    border-radius: var(--radius-xs);
+}
+.btn-ghost:hover { color: var(--text-secondary); background: var(--recessed-bg); }
+
+/* Right-aligned numeral cell (countdowns, percentages). */
+.count-cell { text-align: right; flex-shrink: 0; }
+.count-cell .n   { font-size: var(--text-lg); font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.count-cell .sub { font-size: var(--text-xs); color: var(--text-muted); }
+.count-cell.is-accent .n { color: var(--accent-mid); }
+
+.badge-new {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--color-info); background: var(--info-fill);
+    border-radius: 999px; padding: 1px 8px; flex-shrink: 0;
+}
+
+.card-allclear {
+    display: flex; align-items: center; gap: var(--space-2);
+    background: var(--card-bg); border: var(--card-border);
+    border-left: 3px solid var(--color-success);
+    border-radius: var(--radius-card); padding: var(--space-3) var(--space-4);
+    font-size: var(--text-base); color: var(--text-secondary);
+}
+
+/* Filter chips (sort bars, category filters): active is a quiet accent fill,
+   never a full teal button. */
+.filter-chip {
+    display: inline-block; font-size: var(--text-sm); padding: 5px 12px;
+    border-radius: 999px; background: var(--recessed-bg); color: var(--text-secondary);
+    text-decoration: none; white-space: nowrap;
+}
+.filter-chip:hover { background: var(--elevated-bg); }
+.filter-chip.is-active { background: var(--accent-fill); color: var(--accent-dark); font-weight: 600; }

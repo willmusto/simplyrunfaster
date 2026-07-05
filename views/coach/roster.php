@@ -1,31 +1,31 @@
 <?php
 // $athletes = roster array (sorted by $sort)
+// Design-language propagation (screen 2 after the dashboard reference): same
+// data, same links, presentation on the shared kit. The roster rows finally use
+// their own .roster-row list-in-card contract (contiguous rows in one surface)
+// instead of floating cards.
 $sort = $_GET['sort'] ?? 'alerts';
 ?>
 <div class="page-content">
 
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+    <div class="section-head" style="margin-bottom:var(--space-3);">
         <div class="page-heading">Athletes
-            <span style="font-size:14px;font-weight:400;color:var(--text-muted);margin-left:6px;">
+            <span style="font-size:var(--text-md);font-weight:400;color:var(--text-muted);margin-left:6px;">
                 (<?= count($athletes) ?>)
             </span>
         </div>
         <a href="/app/coach/invites" class="btn btn-secondary btn-sm">+ Invite athlete</a>
     </div>
 
-    <!-- Sort bar -->
-    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+    <!-- Sort bar: quiet filter chips, active carries the accent fill -->
+    <div style="display:flex;gap:var(--space-2);margin-bottom:var(--space-3);flex-wrap:wrap;">
         <?php foreach ([
             'alerts'     => 'Alerts',
             'compliance' => 'Compliance',
             'race_date'  => 'Race date',
             'name'       => 'Name',
         ] as $key => $label): ?>
-        <a href="?sort=<?= h($key) ?>"
-           style="font-size:12px;padding:5px 12px;border-radius:20px;
-                  background:<?= $sort === $key ? 'var(--accent-mid)' : 'var(--recessed-bg)' ?>;
-                  color:<?= $sort === $key ? '#fff' : 'var(--text-secondary)' ?>;
-                  text-decoration:none;white-space:nowrap;">
+        <a href="?sort=<?= h($key) ?>" class="filter-chip <?= $sort === $key ? 'is-active' : '' ?>">
             <?= h($label) ?>
         </a>
         <?php endforeach; ?>
@@ -39,21 +39,20 @@ $sort = $_GET['sort'] ?? 'alerts';
     </div>
     <?php else: ?>
 
-    <?php foreach ($athletes as $a):
-        $hasCritical = ($a['open_critical'] ?? 0) > 0;
-        $hasWarning  = ($a['open_warnings'] ?? 0) > 0;
-        $severityClass = $hasCritical ? 'severity-critical' : ($hasWarning ? 'severity-warning' : '');
+    <div class="list-card">
+        <?php foreach ($athletes as $a):
+            $hasCritical = ($a['open_critical'] ?? 0) > 0;
+            $hasWarning  = ($a['open_warnings'] ?? 0) > 0;
+            $severityClass = $hasCritical ? 'severity-critical' : ($hasWarning ? 'severity-warning' : '');
 
-        $compliance = $a['avg_compliance'] !== null ? (float)$a['avg_compliance'] : null;
-        $complianceColor = $compliance === null
-            ? 'var(--text-muted)'
-            : ($compliance >= 0.85
-                ? 'var(--color-success)'
-                : ($compliance >= 0.70 ? 'var(--color-warning)' : 'var(--color-danger)'));
-    ?>
-    <a href="/app/coach/athlete/<?= (int)$a['id'] ?>" class="roster-row <?= $severityClass ?>"
-       style="text-decoration:none;display:block;margin-bottom:8px;">
-        <div style="display:flex;align-items:center;gap:10px;">
+            $compliance = $a['avg_compliance'] !== null ? (float)$a['avg_compliance'] : null;
+            $complianceColor = $compliance === null
+                ? 'var(--text-muted)'
+                : ($compliance >= 0.85
+                    ? 'var(--color-success)'
+                    : ($compliance >= 0.70 ? 'var(--color-warning)' : 'var(--color-danger)'));
+        ?>
+        <a href="/app/coach/athlete/<?= (int)$a['id'] ?>" class="list-row <?= $severityClass ?>">
 
             <!-- Avatar -->
             <div class="athlete-avatar" style="flex-shrink:0;">
@@ -61,9 +60,9 @@ $sort = $_GET['sort'] ?? 'alerts';
             </div>
 
             <!-- Main info -->
-            <div style="flex:1;min-width:0;">
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                    <span style="font-size:14px;font-weight:600;"><?= h($a['name']) ?></span>
+            <div class="row-main">
+                <div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;">
+                    <span class="row-name"><?= h($a['name']) ?></span>
                     <?php if ($hasCritical): ?>
                     <span class="pill" style="background:var(--danger-fill);color:var(--color-danger);font-size:10px;">
                         <?= (int)$a['open_critical'] ?> critical
@@ -83,26 +82,24 @@ $sort = $_GET['sort'] ?? 'alerts';
                           title="Pending plan regeneration request">Regen request</span>
                     <?php endif; ?>
                 </div>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
+                <div class="row-meta">
                     <?php if ($a['plan_type']): ?>
                     <?= h(ucfirst(str_replace('_', ' ', $a['plan_type']))) ?>
                     <?php else: ?>
                     No active plan
                     <?php endif; ?>
                     <?php if ($a['next_race_date']): ?>
-                    · <?= h(ucfirst($a['next_race_distance'] ?? '')) ?> <?= date('M j', strtotime($a['next_race_date'])) ?>
+                    &middot; <?= h(ucfirst($a['next_race_distance'] ?? '')) ?> <?= date('M j', strtotime($a['next_race_date'])) ?>
                     <?php endif; ?>
                 </div>
             </div>
 
-            <!-- Compliance + arrow -->
-            <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;">
+            <!-- Compliance + affordance -->
+            <div style="display:flex;align-items:center;gap:var(--space-3);flex-shrink:0;">
                 <?php if ($compliance !== null): ?>
-                <div style="text-align:right;">
-                    <div style="font-size:15px;font-weight:600;color:<?= $complianceColor ?>;">
-                        <?= round($compliance * 100) ?>%
-                    </div>
-                    <div style="font-size:10px;color:var(--text-muted);">28d compliance</div>
+                <div class="count-cell">
+                    <div class="n" style="color:<?= $complianceColor ?>;"><?= round($compliance * 100) ?>%</div>
+                    <div class="sub">28d compliance</div>
                 </div>
                 <?php endif; ?>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -111,9 +108,9 @@ $sort = $_GET['sort'] ?? 'alerts';
                 </svg>
             </div>
 
-        </div>
-    </a>
-    <?php endforeach; ?>
+        </a>
+        <?php endforeach; ?>
+    </div>
     <?php endif; ?>
 
 </div>
