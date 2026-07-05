@@ -97,6 +97,16 @@
         section { padding: 88px 0; }
         .band-card { background: var(--card-bg); border-top: 0.5px solid var(--border-color); border-bottom: 0.5px solid var(--border-color); }
 
+        /* ── Editorial split: section label + heading in a left column, content in a
+               wider right column, so full page width is used with intent. Sections
+               whose bodies already span the page (pricing cards, testimonial grid,
+               track-record rows) instead keep a top heading + full-width body. ── */
+        .split { display: grid; grid-template-columns: 1fr; gap: 24px 56px; }
+        @media (min-width: 900px) {
+            .split { grid-template-columns: 300px minmax(0, 1fr); }
+            .split-head h2 { margin-bottom: 0; }
+        }
+
         /* ── Hero: left-aligned, typographic; right side anchored by an app-UI
                rendition built from the app's own design tokens (swapped for a real
                screenshot when one is provided). Hidden below 900px so the mobile
@@ -146,7 +156,7 @@
         }
 
         /* ── How it works: ruled structural list, not icon cards ── */
-        .steps { border-top: 1px solid var(--border-strong); margin-top: 12px; max-width: 780px; }
+        .steps { border-top: 1px solid var(--border-strong); }
         .step {
             display: grid; grid-template-columns: 72px 1fr; gap: 8px 20px;
             padding: 26px 0; border-bottom: 1px solid var(--border-color); align-items: baseline;
@@ -187,7 +197,7 @@
 
         /* ── Pricing ── */
         .price-cards { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 40px; }
-        @media (min-width: 720px) { .price-cards { grid-template-columns: 1fr 1fr; max-width: 860px; } }
+        @media (min-width: 720px) { .price-cards { grid-template-columns: 1fr 1fr; } }
         .price-card {
             background: var(--card-bg); border: 0.5px solid var(--border-color);
             border-radius: var(--radius-card); padding: 32px 28px; display: flex; flex-direction: column;
@@ -215,7 +225,7 @@
         }
         .price-plus { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
         .fine-print {
-            margin-top: 24px; max-width: 860px; background: var(--recessed-bg); border-radius: var(--radius-sm);
+            margin-top: 24px; background: var(--recessed-bg); border-radius: var(--radius-sm);
             padding: 18px 20px; font-size: 13.5px; color: var(--text-secondary);
         }
         .fine-print-label { font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 4px; font-size: 12.5px; }
@@ -227,9 +237,9 @@
             border: 0.5px solid var(--border-strong); border-radius: 999px; padding: 2px 8px;
         }
         .coach-card {
-            display: flex; gap: 22px; align-items: flex-start; max-width: 720px;
+            display: flex; gap: 22px; align-items: flex-start;
             background: var(--card-bg); border: 1px dashed var(--border-strong);
-            border-radius: var(--radius-card); padding: 26px; margin-top: 8px;
+            border-radius: var(--radius-card); padding: 26px;
         }
         .coach-photo {
             flex-shrink: 0; width: 88px; height: 88px; border-radius: 50%;
@@ -332,12 +342,16 @@
 <!-- The Problem -->
 <section class="band-card">
     <div class="wrap">
-        <div class="eyebrow">The problem</div>
-        <h2>Training apps aren&rsquo;t coaching.</h2>
-        <div class="body-copy">
-            <p>You&rsquo;ve tried the apps, maybe even an AI coach. You follow the plan on Monday, miss Thursday, and by Saturday you&rsquo;re improvising. The app doesn&rsquo;t notice. Nobody notices.</p>
-            <p>Real coaching is different. A real coach sees when you&rsquo;re struggling before you do. They adjust your plan not because a rule fired, but because they made a judgment call about your training. They remember that you mentioned your left knee felt tight last week. They write you a note at the end of the month that tells you what all those runs actually meant.</p>
-            <p>SimplyRunFaster is real coaching, made accessible by technology that handles the structure so your coach can focus on the parts that actually require a human.</p>
+        <div class="split">
+            <div class="split-head">
+                <div class="eyebrow">The problem</div>
+                <h2>Training apps aren&rsquo;t coaching.</h2>
+            </div>
+            <div class="body-copy">
+                <p>You&rsquo;ve tried the apps, maybe even an AI coach. You follow the plan on Monday, miss Thursday, and by Saturday you&rsquo;re improvising. The app doesn&rsquo;t notice. Nobody notices.</p>
+                <p>Real coaching is different. A real coach sees when you&rsquo;re struggling before you do. They adjust your plan not because a rule fired, but because they made a judgment call about your training. They remember that you mentioned your left knee felt tight last week. They write you a note at the end of the month that tells you what all those runs actually meant.</p>
+                <p>SimplyRunFaster is real coaching, made accessible by technology that handles the structure so your coach can focus on the parts that actually require a human.</p>
+            </div>
         </div>
     </div>
 </section>
@@ -345,9 +359,12 @@
 <!-- How It Works -->
 <section id="how-it-works">
     <div class="wrap">
-        <div class="eyebrow">How it works</div>
-        <h2>Here&rsquo;s how it works.</h2>
-        <div class="steps">
+        <div class="split">
+            <div class="split-head">
+                <div class="eyebrow">How it works</div>
+                <h2>Here&rsquo;s how it works.</h2>
+            </div>
+            <div class="steps">
             <div class="step">
                 <div class="step-num">01</div>
                 <h3>Tell us about your goals.</h3>
@@ -367,6 +384,7 @@
                 <div class="step-num">04</div>
                 <h3>Your coach checks in.</h3>
                 <p>Every month you get a letter from your coach. Not a stats dashboard. A letter, specific to your training, your month, your progress. Written in plain English by someone who actually looked at your data and thought about you.</p>
+            </div>
             </div>
         </div>
     </div>
@@ -401,15 +419,19 @@
 <!-- Your coach (bio + photo placeholder: primary trust signal, populated when provided) -->
 <section>
     <div class="wrap">
-        <div class="eyebrow">Your coach</div>
-        <h2>A real person. A real record.</h2>
-        <div class="coach-card">
+        <div class="split">
+            <div class="split-head">
+                <div class="eyebrow">Your coach</div>
+                <h2>A real person. A real record.</h2>
+            </div>
+            <div class="coach-card">
             <div class="coach-photo" aria-hidden="true"><span>Photo</span></div>
             <div class="coach-copy">
                 <p>I&rsquo;ve coached runners for over fifteen years, from middle schoolers to collegiate national champions to adult marathoners. Across five seasons at the high school level, I&rsquo;ve sent multiple athletes to the state meet every single time. I&rsquo;m proud of that record.</p>
                 <p>I didn&rsquo;t set out to make coaching my thing. After a summer working a running camp in college, I figured it probably wasn&rsquo;t my path. Then a year later a high school called looking for a cross country coach, I had the time, and I said I&rsquo;d fill in for a season. It stuck. The thing I&rsquo;d been wary of, how much I cared about my athletes&rsquo; outcomes, turned out to be the whole job.</p>
                 <p>The hard part of coaching isn&rsquo;t the X&rsquo;s and O&rsquo;s. It&rsquo;s getting an athlete to believe in the work, and in themselves. An AI can build you a training plan. It can&rsquo;t make you believe you&rsquo;re fitter than you&rsquo;ve ever been.</p>
                 <p>That&rsquo;s why I built SimplyRunFaster. The software handles the structure so the coaching can stay human. Every plan gets reviewed by a real coach before an athlete ever sees it.</p>
+            </div>
             </div>
         </div>
     </div>
@@ -458,14 +480,20 @@
 <!-- Who This Is For -->
 <section>
     <div class="wrap">
-        <div class="eyebrow">Who this is for</div>
-        <h2>This isn&rsquo;t for everyone.<br>It might be for you.</h2>
-        <div class="body-copy">
-            <p>SimplyRunFaster is built for runners who are already serious about the sport and want to get meaningfully better. If you&rsquo;ve finished a race and immediately wondered how to go faster next time, you&rsquo;re our athlete.</p>
-            <p>We&rsquo;re not the right fit if you&rsquo;re just getting started (there are great apps for that). We&rsquo;re not the right fit if you want an app that tells you you&rsquo;re doing great no matter what. We&rsquo;re the right fit if you want a coach who will tell you the truth, build you a real plan, and be genuinely invested in your result.</p>
-        </div>
-        <div style="margin-top:30px;">
-            <a class="btn btn-primary" href="/app/register">Start with a free onboarding call &rarr;</a>
+        <div class="split">
+            <div class="split-head">
+                <div class="eyebrow">Who this is for</div>
+                <h2>This isn&rsquo;t for everyone.<br>It might be for you.</h2>
+            </div>
+            <div>
+                <div class="body-copy">
+                    <p>SimplyRunFaster is built for runners who are already serious about the sport and want to get meaningfully better. If you&rsquo;ve finished a race and immediately wondered how to go faster next time, you&rsquo;re our athlete.</p>
+                    <p>We&rsquo;re not the right fit if you&rsquo;re just getting started (there are great apps for that). We&rsquo;re not the right fit if you want an app that tells you you&rsquo;re doing great no matter what. We&rsquo;re the right fit if you want a coach who will tell you the truth, build you a real plan, and be genuinely invested in your result.</p>
+                </div>
+                <div style="margin-top:30px;">
+                    <a class="btn btn-primary" href="/app/register">Start with a free onboarding call &rarr;</a>
+                </div>
+            </div>
         </div>
     </div>
 </section>
