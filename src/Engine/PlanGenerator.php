@@ -3953,9 +3953,22 @@ class PlanGenerator
 
         // distance_range: half-mile estimate for time-based workouts, based on
         // the same effective duration stored in planned_workouts.target_duration.
+        // Structured-effort correction (section 19 item 9): the main set of a quality
+        // session converts at easy pace plus a per-type offset (recoveries between
+        // hard reps cover less ground per minute than continuous easy running);
+        // warmup/cooldown minutes stay at easy pace. Hills are deliberately absent
+        // from the offset map, and types without an entry carry no offset, so both
+        // stay byte-identical to the historical estimate.
         if (!empty($display['show_distance_range'])) {
+            $wtForRange = $archetype['resolved_variant']['workout_type']
+                ?? $archetype['metadata']['workout_type']
+                ?? $archetype['workout_type'] ?? '';
+            $rangeOffset = self::EFFORT_PACE_OFFSETS[$wtForRange] ?? 0.0;
+            $wuCd        = max(0, (int)($params['warmup_minutes'] ?? 0))
+                         + max(0, (int)($params['cooldown_minutes'] ?? 0));
             $params['distance_range'] = self::computeDistanceRange(
-                $displayDuration, $goalDistance, $classification
+                $displayDuration, $goalDistance, $classification,
+                $rangeOffset, max(0, $displayDuration - $wuCd)
             );
         }
 
@@ -4017,11 +4030,42 @@ class PlanGenerator
     }
 
     /**
+     * Min/mi ADDED to the easy-pace table for a quality session's main set when
+     * estimating display distance ranges (section 19 item 9). Recovery jogs and
+     * standing rests between hard reps mean less ground covered per minute than
+     * continuous easy running. Values approved by Will, July 2026. Hills are
+     * handled by their own display path and are deliberately absent here; tempo
+     * is 0.0 by decision (threshold pace roughly offsets its recoveries).
+     */
+    private const EFFORT_PACE_OFFSETS = [
+        'speed'    => 2.0,
+        'interval' => 1.25,
+        'fartlek'  => 0.5,
+        'tempo'    => 0.0,
+    ];
+
+    /**
+     * Offset taper for long main sets: the full offset applies to the first
+     * EFFORT_OFFSET_TAPER_MINUTES of main set; minutes beyond convert at
+     * offset * EFFORT_OFFSET_TAPER_FACTOR. Long sessions settle into sustained
+     * rhythm, so the rep-and-recover penalty saturates rather than compounding
+     * linearly forever. Both are one-line tunables.
+     */
+    private const EFFORT_OFFSET_TAPER_MINUTES = 60;
+    private const EFFORT_OFFSET_TAPER_FACTOR  = 0.5;
+
+    /**
      * Compute a half-mile "X–Y miles" estimate for a time-based workout.
      * Uses classification- and goal-distance-based easy pace ranges.
+     *
+     * When $mainSetOffset > 0, $mainSetMinutes convert at (easy pace + offset)
+     * and the remaining minutes (warmup/cooldown) at easy pace. With a zero
+     * offset the result is byte-identical to the historical whole-duration
+     * easy-pace estimate.
      */
     private static function computeDistanceRange(
-        int $durationMinutes, string $goalDistance, string $classification
+        int $durationMinutes, string $goalDistance, string $classification,
+        float $mainSetOffset = 0.0, ?int $mainSetMinutes = null
     ): string {
         // [fast_pace_min_per_mile, slow_pace_min_per_mile]
         $paceRanges = [
@@ -4043,8 +4087,23 @@ class PlanGenerator
         $paces = $paceRanges[$cls][$goalDistance] ?? $paceRanges[$cls]['5K'];
 
         [$fastPace, $slowPace] = $paces;
-        $lower = self::roundDisplayMiles($durationMinutes / $slowPace);
-        $upper = self::roundDisplayMiles($durationMinutes / $fastPace);
+        $main = ($mainSetOffset > 0 && $mainSetMinutes !== null)
+            ? max(0, min($mainSetMinutes, $durationMinutes)) : 0;
+        $rest = $durationMinutes - $main;
+        // Taper: full offset up to the threshold, half offset beyond it.
+        $mainFull  = min($main, self::EFFORT_OFFSET_TAPER_MINUTES);
+        $mainTaper = $main - $mainFull;
+        $taperOff  = $mainSetOffset * self::EFFORT_OFFSET_TAPER_FACTOR;
+        $lower = self::roundDisplayMiles(
+            $rest / $slowPace
+            + ($mainFull  > 0 ? $mainFull  / ($slowPace + $mainSetOffset) : 0)
+            + ($mainTaper > 0 ? $mainTaper / ($slowPace + $taperOff) : 0)
+        );
+        $upper = self::roundDisplayMiles(
+            $rest / $fastPace
+            + ($mainFull  > 0 ? $mainFull  / ($fastPace + $mainSetOffset) : 0)
+            + ($mainTaper > 0 ? $mainTaper / ($fastPace + $taperOff) : 0)
+        );
         if ($upper <= $lower) {
             $upper = $lower + 0.5;
         }
