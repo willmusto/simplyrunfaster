@@ -104,6 +104,9 @@
         .split { display: grid; grid-template-columns: 1fr; gap: 24px 56px; }
         @media (min-width: 900px) {
             .split { grid-template-columns: 300px minmax(0, 1fr); }
+            /* Wider label column for long two-line headlines (who-this-is-for):
+               sized so the headline wraps at its intended break, not in fragments. */
+            .split--wide { grid-template-columns: 460px minmax(0, 1fr); }
             .split-head h2 { margin-bottom: 0; }
         }
 
@@ -176,7 +179,7 @@
         .record { background: var(--dark-bg); color: #fff; padding: 96px 0; }
         .record .eyebrow { color: var(--accent-on-dark); }
         .record h2 { color: #fff; max-width: 16ch; }
-        .stat-rows { margin: 48px 0 56px; border-top: 1px solid rgba(255,255,255,0.1); }
+        .stat-rows { margin: 0 0 48px; border-top: 1px solid rgba(255,255,255,0.1); }
         .stat-row {
             display: grid; grid-template-columns: minmax(120px, 220px) 1fr;
             gap: 24px; align-items: center;
@@ -393,9 +396,13 @@
 <!-- Track Record: the signature moment -->
 <section class="record">
     <div class="wrap">
-        <div class="eyebrow">The track record</div>
-        <h2>The numbers are simple.</h2>
-        <div class="stat-rows">
+        <div class="split">
+            <div class="split-head">
+                <div class="eyebrow">The track record</div>
+                <h2>The numbers are simple.</h2>
+            </div>
+            <div>
+            <div class="stat-rows">
             <div class="stat-row">
                 <div class="num">1</div>
                 <div class="statement">athlete in 15+ years of coaching who didn&rsquo;t run a personal best</div>
@@ -409,9 +416,11 @@
                 <div class="statement">years coaching runners at high school, collegiate, and adult levels</div>
             </div>
         </div>
-        <div class="body-copy">
-            <p>We don&rsquo;t have a flashy percentage to sell you. We have a record. In fifteen years of coaching runners of all abilities, from high school athletes to adult marathoners, only one athlete failed to set a personal best. And in all that time, only one athlete sustained a major overuse injury across an entire career. That was the coach himself.</p>
-            <p>We tell you this not to brag. We tell you this because <strong>you deserve to know who is looking at your training.</strong></p>
+            <div class="body-copy">
+                <p>We don&rsquo;t have a flashy percentage to sell you. We have a record. In fifteen years of coaching runners of all abilities, from high school athletes to adult marathoners, only one athlete failed to set a personal best. And in all that time, only one athlete sustained a major overuse injury across an entire career. That was the coach himself.</p>
+                <p>We tell you this not to brag. We tell you this because <strong>you deserve to know who is looking at your training.</strong></p>
+            </div>
+            </div>
         </div>
     </div>
 </section>
@@ -480,7 +489,7 @@
 <!-- Who This Is For -->
 <section>
     <div class="wrap">
-        <div class="split">
+        <div class="split split--wide">
             <div class="split-head">
                 <div class="eyebrow">Who this is for</div>
                 <h2>This isn&rsquo;t for everyone.<br>It might be for you.</h2>
