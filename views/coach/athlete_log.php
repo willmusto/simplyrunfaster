@@ -62,9 +62,9 @@ $rowDate = static fn(string $d): string => date('D M j', strtotime($d));
 
     <?php foreach ($log['weeks'] as $wk): ?>
     <!-- Week rollup -->
-    <div class="section-label" style="margin-top:18px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline;">
-        <span><?= h($wk['label']) ?></span>
-        <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);font-size:12px;">
+    <div class="section-head" style="margin-top:var(--space-5);flex-wrap:wrap;">
+        <div class="section-label"><?= h($wk['label']) ?></div>
+        <span style="font-size:var(--text-sm);color:var(--text-muted);">
             <?= (int)$wk['runs'] ?> run<?= (int)$wk['runs'] === 1 ? '' : 's' ?>
             · <?= h(format_duration((int)$wk['total_minutes'])) ?>
             <?php if ((float)$wk['total_distance'] > 0): ?> · <?= h($fmtDist($wk['total_distance'])) ?><?php endif; ?>
@@ -72,6 +72,7 @@ $rowDate = static fn(string $d): string => date('D M j', strtotime($d));
         </span>
     </div>
 
+    <div class="list-card">
     <?php foreach ($wk['rows'] as $r):
         $wt        = (string)($r['workout_type'] ?? '') ?: (string)($r['planned_type'] ?? 'easy');
         $matched   = !empty($r['matched']);
@@ -79,8 +80,8 @@ $rowDate = static fn(string $d): string => date('D M j', strtotime($d));
         $noteCount = (int)($r['note_count'] ?? 0);
         $effort    = $r['effort_descriptor'] !== null ? ($effortLabel[$r['effort_descriptor']] ?? ucfirst((string)$r['effort_descriptor'])) : null;
     ?>
-    <div class="roster-row" style="margin-bottom:8px;<?= $matched ? '' : 'border-left:3px solid var(--text-muted);' ?>">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+    <div class="roster-row" style="<?= $matched ? '' : 'border-left:3px solid var(--text-muted);' ?>">
+        <div style="flex:1;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
                     <span style="font-size:12px;color:var(--text-muted);min-width:88px;"><?= h($rowDate((string)$r['activity_date'])) ?></span>
@@ -164,13 +165,16 @@ $rowDate = static fn(string $d): string => date('D M j', strtotime($d));
             </div>
 
             <?php if ($matched): ?>
-            <a href="/app/coach/workout/<?= (int)$r['planned_workout_id'] ?>/thread" class="btn btn-secondary btn-sm" style="flex-shrink:0;">
-                <?= $noteCount > 0 ? 'View thread' : 'Comment' ?>
-            </a>
+            <div class="row-side">
+                <a href="/app/coach/workout/<?= (int)$r['planned_workout_id'] ?>/thread" class="btn btn-secondary btn-sm">
+                    <?= $noteCount > 0 ? 'View thread' : 'Comment' ?>
+                </a>
+            </div>
             <?php endif; ?>
         </div>
     </div>
     <?php endforeach; ?>
+    </div><!-- /.list-card -->
     <?php endforeach; ?>
     <?php endif; ?>
 
