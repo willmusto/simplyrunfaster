@@ -1812,47 +1812,11 @@ class CoachController
         exit;
     }
 
-    public static function flags(): void
-    {
-        Auth::requireRole(['coach','assistant_coach','admin']);
-        require_once __DIR__ . '/../../views/layout/base.php';
-
-        $db      = Database::get();
-        $coachId = Auth::userId();
-
-        $flags            = self::getOpenFlags($coachId, $db, null, 100);
-
-        // Enrich pace_recalibration flags with the race + current/proposed zones so the
-        // alerts view can render the side-by-side recalibration card (§26 / Part 7).
-        foreach ($flags as &$f) {
-            if (($f['flag_type'] ?? '') !== 'pace_recalibration') continue;
-            $d = json_decode((string)($f['details'] ?? ''), true);
-            $raceId = (int)($d['race_id'] ?? 0);
-            if (!$raceId) continue;
-            $rs = $db->prepare(
-                'SELECT r.id, r.race_distance, r.result_time, r.race_date, r.proposed_pace_zones,
-                        ap.pace_zones AS current_pace_zones
-                 FROM races r JOIN athlete_profiles ap ON ap.athlete_id = r.athlete_id
-                 WHERE r.id = ? LIMIT 1'
-            );
-            $rs->execute([$raceId]);
-            if ($row = $rs->fetch(PDO::FETCH_ASSOC)) $f['recal'] = $row;
-        }
-        unset($f);
-
-        $athletes         = self::getRosterAthletes($coachId, $db);
-        $openFlags        = count($flags);
-        $pendingApprovals = self::getPendingApprovalsCount($coachId, $db);
-
-        $pageTitle = 'Alerts';
-        $activeNav = 'flags';
-        include __DIR__ . '/../../views/layout/html_open.php';
-        include __DIR__ . '/../../views/layout/nav_coach.php';
-        include __DIR__ . '/../../views/coach/flags.php';
-        include __DIR__ . '/../../views/layout/html_close.php';
-    }
-
     // ── Intelligence page (Coaching Intelligence Layer, Part 6) ────────────────
+    // (The old standalone Alerts page is gone: GET /coach/flags is a legacy alias
+    // kept ONLY because flag push notifications and "View alerts" emails deep-link
+    // to it; it forwards to intelligence(). The old flags() method and
+    // views/coach/flags.php were removed as dead code.)
 
     /**
      * GET /app/coach/intelligence — the renamed + expanded Alerts page. Three sections:
