@@ -133,7 +133,7 @@ $ruleTitle = static function (array $a): string {
         $hidden = $i >= 3;
     ?>
     <div class="roster-row ri-row<?= $hidden ? ' ri-extra' : '' ?>" style="margin-bottom:8px;border-left:3px solid <?= $borderFor($sev) ?>;<?= $hidden ? 'display:none;' : '' ?>">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <div style="flex:1;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
                 <div style="font-size:14px;font-weight:600;margin-bottom:4px;"><?= h($ins['title']) ?></div>
                 <p class="body-text" style="margin:0 0 8px;white-space:pre-line;"><?= h($ins['detail']) ?></p>
@@ -144,9 +144,9 @@ $ruleTitle = static function (array $a): string {
                     <?php endforeach; ?>
                 </div>
             </div>
-            <form method="POST" action="/app/coach/intelligence/insight/<?= (int)$ins['id'] ?>/dismiss" style="flex-shrink:0;">
+            <form method="POST" action="/app/coach/intelligence/insight/<?= (int)$ins['id'] ?>/dismiss" class="row-side">
                 <?= Auth::csrfField() ?>
-                <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
+                <button type="submit" class="btn-ghost">Dismiss</button>
             </form>
         </div>
     </div>
@@ -176,7 +176,7 @@ $ruleTitle = static function (array $a): string {
     <?php if ($entry['source'] === 'intel'): ?>
         <?php [$actUrl, $actLabel] = $intelAction($f); ?>
         <div class="roster-row" style="margin-bottom:8px;border-left:3px solid <?= $borderFor($sev) ?>;">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div style="flex:1;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
                 <div style="flex:1;min-width:200px;">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
                         <span style="font-size:14px;font-weight:600;"><?= h($f['athlete_name']) ?></span>
@@ -194,7 +194,7 @@ $ruleTitle = static function (array $a): string {
                         Raised <?= h(Timezone::format($f['created_at'], 'M j, Y')) ?>
                     </div>
                 </div>
-                <div style="display:flex;gap:8px;flex-shrink:0;">
+                <div class="row-side">
                     <?php if (($f['flag_type'] ?? '') === 'adaptation_ahead'): ?>
                     <form method="POST" action="/app/coach/intelligence/flag/<?= (int)$f['id'] ?>/adapt-accept">
                         <?= Auth::csrfField() ?>
@@ -205,14 +205,14 @@ $ruleTitle = static function (array $a): string {
                     <?php endif; ?>
                     <form method="POST" action="/app/coach/intelligence/flag/<?= (int)$f['id'] ?>/dismiss">
                         <?= Auth::csrfField() ?>
-                        <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
+                        <button type="submit" class="btn-ghost">Dismiss</button>
                     </form>
                 </div>
             </div>
         </div>
     <?php else: /* engine flag — preserve existing Alerts behavior + recal/profile cards */ ?>
         <div class="roster-row" style="margin-bottom:8px;border-left:3px solid <?= $borderFor($sev) ?>;">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div style="flex:1;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
                 <div style="flex:1;min-width:200px;">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
                         <span style="font-size:14px;font-weight:600;"><?= h($f['athlete_name']) ?></span>
@@ -256,7 +256,7 @@ $ruleTitle = static function (array $a): string {
                             <?php endif; ?>
                             <form method="POST" action="/app/coach/races/<?= (int)$recal['id'] ?>/recalibrate/dismiss" style="display:inline;">
                                 <?= Auth::csrfField() ?>
-                                <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
+                                <button type="submit" class="btn-ghost">Dismiss</button>
                             </form>
                         </div>
                     </div>
@@ -265,11 +265,11 @@ $ruleTitle = static function (array $a): string {
                         Raised <?= h(Timezone::format($f['created_at'], 'M j, Y')) ?>
                     </div>
                 </div>
-                <div style="display:flex;gap:8px;flex-shrink:0;">
+                <div class="row-side">
                     <a href="/app/coach/athlete/<?= (int)$f['athlete_id'] ?>" class="btn btn-secondary btn-sm">View</a>
                     <form method="POST" action="/app/coach/flags/<?= (int)$f['id'] ?>/dismiss">
                         <?= Auth::csrfField() ?>
-                        <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
+                        <button type="submit" class="btn-ghost">Dismiss</button>
                     </form>
                 </div>
             </div>
@@ -286,7 +286,7 @@ $ruleTitle = static function (array $a): string {
     </div>
     <?php foreach (array_slice($proposedDecisions, 0, 2) as $d): ?>
     <div class="roster-row" style="margin-bottom:8px;border-left:3px solid var(--color-warning);">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <div style="flex:1;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
                 <div style="font-size:14px;font-weight:600;margin-bottom:2px;"><?= h($d['title']) ?></div>
                 <div style="font-size:12px;color:var(--text-muted);">Based on <?= (int)$d['proposed_from_count'] ?> adjustment<?= (int)$d['proposed_from_count'] === 1 ? '' : 's' ?></div>
@@ -308,7 +308,7 @@ $ruleTitle = static function (array $a): string {
     <?php else: ?>
     <?php foreach ($flaggedAdjustments as $a): ?>
     <div class="roster-row" style="margin-bottom:8px;">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <div style="flex:1;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
                     <span style="font-size:14px;font-weight:600;"><?= h($a['athlete_name']) ?></span>
@@ -321,7 +321,7 @@ $ruleTitle = static function (array $a): string {
                     <?= h(Timezone::format($a['adjusted_at'], 'M j, Y')) ?>
                 </div>
             </div>
-            <div style="display:flex;gap:8px;flex-shrink:0;">
+            <div class="row-side">
                 <button type="button" class="btn btn-primary btn-sm js-add-rule"
                         data-adj-id="<?= (int)$a['id'] ?>"
                         data-title="<?= h($ruleTitle($a)) ?>"
@@ -329,7 +329,7 @@ $ruleTitle = static function (array $a): string {
                         data-phase="<?= h((string)($a['ctx_phase'] ?? '')) ?>">Add as rule</button>
                 <form method="POST" action="/app/coach/intelligence/adjustment/<?= (int)$a['id'] ?>/dismiss">
                     <?= Auth::csrfField() ?>
-                    <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
+                    <button type="submit" class="btn-ghost">Dismiss</button>
                 </form>
             </div>
         </div>
@@ -342,7 +342,7 @@ $ruleTitle = static function (array $a): string {
     <div class="section-label" style="margin-top:28px;">ASSISTANT PROPOSALS</div>
     <?php foreach ($assistantProposals as $p): ?>
     <div class="roster-row" style="margin-bottom:8px;border-left:3px solid var(--color-warning);">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <div style="flex:1;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
                 <div style="font-size:14px;font-weight:600;margin-bottom:2px;"><?= h($p['title']) ?></div>
                 <div style="font-size:12px;color:var(--text-muted);">Proposed by <?= h($p['author_name'] ?? 'assistant coach') ?></div>
@@ -350,14 +350,14 @@ $ruleTitle = static function (array $a): string {
                 <p class="body-text" style="margin:4px 0 0;font-size:13px;color:var(--text-secondary);"><?= h($p['reason']) ?></p>
                 <?php endif; ?>
             </div>
-            <div style="display:flex;gap:8px;flex-shrink:0;">
+            <div class="row-side">
                 <form method="POST" action="/app/coach/intelligence/proposal/<?= (int)$p['id'] ?>/approve" style="margin:0;">
                     <?= Auth::csrfField() ?>
                     <button type="submit" class="btn btn-primary btn-sm">Approve</button>
                 </form>
                 <form method="POST" action="/app/coach/intelligence/proposal/<?= (int)$p['id'] ?>/dismiss" style="margin:0;">
                     <?= Auth::csrfField() ?>
-                    <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
+                    <button type="submit" class="btn-ghost">Dismiss</button>
                 </form>
             </div>
         </div>
@@ -425,7 +425,7 @@ $ruleTitle = static function (array $a): string {
                     <form method="POST" action="/app/coach/intelligence/decision/<?= (int)$d['id'] ?>/dismiss" style="margin:0;">
                         <?= Auth::csrfField() ?>
                         <input type="hidden" name="from" value="library">
-                        <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
+                        <button type="submit" class="btn-ghost">Dismiss</button>
                     </form>
                 </div>
                 <?php elseif ($isAsstProp): ?>
