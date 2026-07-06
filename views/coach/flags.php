@@ -7,18 +7,28 @@ foreach ($flags as $f) {
 ?>
 <div class="page-content">
 
-    <div class="page-heading" style="margin-bottom:4px;">Alerts</div>
-    <p class="body-text" style="margin-bottom:24px;">
-        Engine-generated flags that need your attention.
-    </p>
+    <div style="margin-bottom:var(--space-6);">
+        <div class="page-heading" style="margin-bottom:0;">Alerts</div>
+        <div style="font-size:var(--text-sm);color:var(--text-muted);margin-top:2px;">
+            Engine-generated flags that need your attention.
+        </div>
+        <?php if (!empty($flags)): ?>
+        <div class="stat-strip" style="margin-top:var(--space-3);">
+            <a class="stat-chip <?= !empty($bySeverity['critical']) ? 'is-alert' : 'is-zero' ?>" href="#sev-critical">
+                <span class="n"><?= count($bySeverity['critical']) ?></span> critical
+            </a>
+            <a class="stat-chip <?= !empty($bySeverity['warning']) ? '' : 'is-zero' ?>" href="#sev-warning">
+                <span class="n"><?= count($bySeverity['warning']) ?></span> warning<?= count($bySeverity['warning']) !== 1 ? 's' : '' ?>
+            </a>
+            <a class="stat-chip is-zero" href="#sev-info">
+                <span class="n"><?= count($bySeverity['info']) ?></span> info
+            </a>
+        </div>
+        <?php endif; ?>
+    </div>
 
     <?php if (empty($flags)): ?>
-    <div class="card" style="border-left:3px solid var(--color-success);">
-        <div class="empty-state" style="padding:24px 0;">
-            <div class="empty-state-title">No open alerts</div>
-            <p class="body-text">All athletes are on track. Check back after the next plan engine run.</p>
-        </div>
-    </div>
+    <div class="card-allclear">All athletes are on track. Check back after the next plan engine run.</div>
     <?php else: ?>
 
     <?php foreach ([
@@ -29,14 +39,16 @@ foreach ($flags as $f) {
     ] as $sev => [$label, $pillClass, $sectionColor, $cardClass]):
         if (empty($bySeverity[$sev])) continue;
     ?>
-    <div class="section-label" style="color:<?= $sectionColor ?>;margin-top:20px;"><?= $label ?></div>
+    <div class="section-head" id="sev-<?= $sev ?>" style="margin-top:var(--space-5);">
+        <div class="section-label" style="color:<?= $sectionColor ?>;"><?= $label ?></div>
+    </div>
     <?php foreach ($bySeverity[$sev] as $flag): ?>
-    <div class="flag-card <?= $cardClass ?>" style="margin-bottom:8px;">
+    <div class="flag-card <?= $cardClass ?>" style="margin-bottom:var(--space-2);">
         <div class="flag-body">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div>
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
-                    <span style="font-size:14px;font-weight:600;"><?= h($flag['athlete_name']) ?></span>
+                <div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:4px;flex-wrap:wrap;">
+                    <span class="row-name"><?= h($flag['athlete_name']) ?></span>
                     <span class="pill <?= $pillClass ?>" style="font-size:10px;<?= $pillClass === '' ? 'background:var(--recessed-bg);color:var(--text-secondary);' : '' ?>">
                         <?= h($flag['flag_type']) ?>
                     </span>
@@ -86,7 +98,7 @@ foreach ($flags as $f) {
                         <?php endif; ?>
                         <form method="POST" action="/app/coach/races/<?= (int)$recal['id'] ?>/recalibrate/dismiss" style="display:inline;">
                             <?= Auth::csrfField() ?>
-                            <button type="submit" class="btn btn-sm" style="background:var(--recessed-bg);color:var(--text-muted);">Dismiss</button>
+                            <button type="submit" class="btn-ghost">Dismiss</button>
                         </form>
                     </div>
 
@@ -116,15 +128,15 @@ foreach ($flags as $f) {
                     <?php endif; ?>
                 </div>
                 <?php endif; ?>
-                <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">
+                <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-2);">
                     Raised <?= h(Timezone::format($flag['created_at'], 'M j, Y')) ?>
                 </div>
             </div>
-            <div style="display:flex;gap:8px;flex-shrink:0;">
+            <div style="display:flex;gap:var(--space-2);align-items:center;flex-shrink:0;">
                 <a href="/app/coach/athlete/<?= (int)$flag['athlete_id'] ?>" class="btn btn-secondary btn-sm">View</a>
                 <form method="POST" action="/app/coach/flags/<?= (int)$flag['id'] ?>/dismiss">
                     <?= Auth::csrfField() ?>
-                    <button type="submit" class="btn btn-secondary btn-sm">Dismiss</button>
+                    <button type="submit" class="btn-ghost">Dismiss</button>
                 </form>
             </div>
         </div>
@@ -135,7 +147,7 @@ foreach ($flags as $f) {
     <?php endif; ?>
 
     <style>
-    .srf-recal { background:var(--recessed-bg,rgba(0,0,0,0.04)); border-radius:10px; padding:12px; margin:8px 0; }
+    .srf-recal { background:var(--recessed-bg); border-radius:var(--radius-sm); padding:var(--space-3); margin:var(--space-2) 0; }
     .srf-recal .form-input { padding:4px 8px; font-size:13px; }
     </style>
     <script>
