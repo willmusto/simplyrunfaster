@@ -3,39 +3,38 @@
 ?>
 <div class="page-content">
 
-    <div class="page-heading" style="margin-bottom:4px;">Plan Approvals</div>
-    <p class="body-text" style="margin-bottom:12px;">
-        Review and approve generated training plans before athletes can see them.
-    </p>
-
-    <?php if (empty($pendingPlans)): ?>
-    <div class="card" style="border-left:3px solid var(--color-success);">
-        <div class="empty-state" style="padding:24px 0;">
-            <div class="empty-state-title">All caught up</div>
-            <p class="body-text">No plans are waiting for review.</p>
+    <div style="margin-bottom:var(--space-6);">
+        <div class="page-heading" style="margin-bottom:0;">Plan Approvals</div>
+        <div style="font-size:var(--text-sm);color:var(--text-muted);margin-top:2px;">
+            Review and approve generated training plans before athletes can see them<?= !empty($pendingPlans) ? ' &middot; ' . count($pendingPlans) . ' waiting' : '' ?>.
         </div>
     </div>
+
+    <?php if (empty($pendingPlans)): ?>
+    <div class="card-allclear">All caught up. No plans are waiting for review.</div>
     <?php else: ?>
 
     <?php foreach ($pendingPlans as $plan): ?>
-    <div class="card" style="margin-bottom:16px;">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-            <div>
-                <div style="font-size:15px;font-weight:600;"><?= h($plan['athlete_name']) ?></div>
-                <div style="font-size:13px;color:var(--text-secondary);margin-top:2px;">
+    <div class="card" style="margin-bottom:var(--space-4);">
+        <div style="display:flex;align-items:flex-start;gap:var(--space-2);flex-wrap:wrap;margin-bottom:var(--space-3);">
+            <div class="row-main">
+                <div class="row-name"><?= h($plan['athlete_name']) ?></div>
+                <div class="row-meta">
                     <?= h(ucfirst(str_replace('_', ' ', $plan['plan_type']))) ?>
-                    &nbsp;·&nbsp;
+                    &middot;
                     <?= date('M j, Y', strtotime($plan['plan_start_date'])) ?>
-                    –
+                    &ndash;
                     <?= date('M j, Y', strtotime($plan['plan_end_date'])) ?>
                 </div>
-                <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:4px;">
                     Requested <?= h(Timezone::format($plan['requested_at'], 'M j')) ?>
                 </div>
             </div>
-            <a href="/app/coach/athlete/<?= (int)$plan['athlete_id'] ?>" class="btn btn-secondary btn-sm">
-                View athlete
-            </a>
+            <div class="row-side">
+                <a href="/app/coach/athlete/<?= (int)$plan['athlete_id'] ?>" class="btn btn-secondary btn-sm">
+                    View athlete
+                </a>
+            </div>
         </div>
 
         <div class="divider" style="margin:0 0 12px;"></div>
