@@ -14,6 +14,11 @@
     --accent-mid:     #1D9E75;
     --accent-strong:  #0F6E56;
     --accent-dark:    #085041;
+    /* Text ON an accent-fill surface. Light: dark teal on pale fill. Dark mode
+       flips accent-fill to #085041, so this MUST flip too or text disappears
+       (accent-dark equals the dark fill). Always pair fill+on-fill, never
+       fill+accent-dark. */
+    --accent-on-fill: #085041;
 
     /* Surface — Light Mode (default) */
     --page-bg:        #F5F3EF;
@@ -103,6 +108,7 @@
     /* Dark mode accent adjustments */
     --accent-fill:    #085041;
     --accent-strong:  #5DCAA5;
+    --accent-on-fill: #5DCAA5;
 }
 
 /* System preference fallback */
@@ -122,6 +128,7 @@
         --text-accent:    #1D9E75;
         --accent-fill:    #085041;
         --accent-strong:  #5DCAA5;
+        --accent-on-fill: #5DCAA5;
     }
 }
 
@@ -735,7 +742,7 @@ select[data-backfill-days]:focus {
 .pill-choice.selected {
     border-color: var(--accent-mid);
     background: var(--accent-fill);
-    color: var(--accent-dark);
+    color: var(--accent-on-fill);
 }
 
 /* Toggle switches */
@@ -2045,4 +2052,4 @@ a.list-row:hover { background: var(--elevated-bg); }
     text-decoration: none; white-space: nowrap;
 }
 .filter-chip:hover { background: var(--elevated-bg); }
-.filter-chip.is-active { background: var(--accent-fill); color: var(--accent-dark); font-weight: 600; }
+.filter-chip.is-active { background: var(--accent-fill); color: var(--accent-on-fill); font-weight: 600; }
