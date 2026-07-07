@@ -719,8 +719,7 @@ $raceConflictClass = function (string $date) use ($raceDates): string {
                 $isLongDescription = mb_strlen($description) > 160;
                 $descriptionPreview = mb_substr($description, 0, 160);
             ?>
-            <div class="card" style="margin-bottom:6px;<?= $isPast ? 'opacity:.65;' : '' ?>
-                                     <?= $isToday ? 'border-left:3px solid var(--accent-mid);' : '' ?>">
+            <div class="card<?= $isToday ? ' card-next-up' : '' ?>" style="margin-bottom:6px;<?= $isPast ? 'opacity:.65;' : '' ?>">
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                     <span style="font-size:11px;color:var(--text-muted);min-width:60px;">
                         <?= date('D M j', strtotime($w['scheduled_date'])) ?>

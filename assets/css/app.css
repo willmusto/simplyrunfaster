@@ -503,8 +503,8 @@ img { max-width: 100%; display: block; }
 }
 
 .card-next-up {
-    border-left: 3px solid var(--accent-mid);
-    padding-left: 17px; /* 20px - 3px border */
+    /* Today's-session highlight: colored by the structural edge band (see the
+       design-language kit section). */
 }
 
 /* Metric tiles */
@@ -864,12 +864,9 @@ select[data-backfill-days]:focus {
     align-items: flex-start;
 }
 
-.flag-card-warning { border-left: 3px solid var(--color-warning); }
-.flag-card-critical { border-left: 3px solid var(--color-danger); }
-.flag-card-info     { border-left: 3px solid var(--color-info); }
-.flag-card-opportunity { border-left: 3px solid var(--color-success); }
+/* Severity is carried by the pill/dot inside the card, never by an edge rail. */
 /* Resolved flags (Flags-tab history): muted rail + dimmed, regardless of severity. */
-.flag-card-resolved { border-left: 3px solid var(--text-muted); opacity: 0.85; }
+.flag-card-resolved { opacity: 0.85; }
 
 /* Flag-card header: pills/title on the left, aside (resolution badge, date) on the
    right. Wraps cleanly on narrow cards. Shared by every flag surface. */
@@ -1059,12 +1056,8 @@ select[data-backfill-days]:focus {
     text-decoration: none;
 }
 
-/* Views emit `.severity-critical` / `.severity-warning`; keep both names so the
-   colored severity rail renders on roster + dashboard rows. */
-.roster-row.flag-critical,
-.roster-row.severity-critical { border-left: 3px solid var(--color-danger); padding-left: 17px; }
-.roster-row.flag-warning,
-.roster-row.severity-warning  { border-left: 3px solid var(--color-warning); padding-left: 17px; }
+/* Severity on roster/dashboard rows is carried by the count pills inside the
+   row (never an edge rail); the severity-* classes remain as semantic hooks. */
 
 .roster-avatar {
     width: 36px;
@@ -1561,7 +1554,6 @@ body.is-offline .offline-banner { display: block; }
     border: var(--card-border);
     border-radius: 12px;
     padding: 12px 14px;
-    border-left: 3px solid var(--accent-mid);
 }
 
 .msg-session-card-header {
@@ -1719,7 +1711,6 @@ body.is-offline .offline-banner { display: block; }
     gap: 12px;
     background: var(--card-bg);
     border: var(--card-border);
-    border-left: 3px solid var(--accent-mid);
     border-radius: var(--radius-card);
     box-shadow: 0 6px 24px rgba(0,0,0,0.16);
     padding: 12px 14px;
@@ -2001,8 +1992,7 @@ body.is-offline .offline-banner { display: block; }
 .list-row + .list-row { border-top: 1px solid var(--divider); }
 a.list-row { text-decoration: none; color: var(--text-primary); }
 a.list-row:hover { background: var(--elevated-bg); }
-.list-row.severity-critical { border-left: 3px solid var(--color-danger);  padding-left: calc(var(--space-4) - 3px); }
-.list-row.severity-warning  { border-left: 3px solid var(--color-warning); padding-left: calc(var(--space-4) - 3px); }
+/* Row severity is rendered by the structural edge band (below). */
 .row-main { min-width: 0; flex: 1; }
 .row-name { font-size: var(--text-md); font-weight: 600; }
 .row-meta { font-size: var(--text-sm); color: var(--text-muted); margin-top: 1px; }
@@ -2048,10 +2038,54 @@ a.list-row:hover { background: var(--elevated-bg); }
 .card-allclear {
     display: flex; align-items: center; gap: var(--space-2);
     background: var(--card-bg); border: var(--card-border);
-    border-left: 3px solid var(--color-success);
     border-radius: var(--radius-card); padding: var(--space-3) var(--space-4);
     font-size: var(--text-base); color: var(--text-secondary);
 }
+
+/* ── Structural edge band: the severity/state marker on cards and rows.
+      The card clips to its own radius (overflow hidden), and a flat ::before
+      block hugs the left inside edge, so the band's OUTER corners round with
+      the card while its INNER edge stays a straight vertical line. NEVER use
+      border-left on a rounded card: a single-sided border bends around the
+      corner radius and reads as the soft floating rail. ── */
+.edge-band,
+.card-next-up,
+.card-allclear,
+.push-prompt,
+.msg-session-card,
+.flag-card-critical, .flag-card-warning, .flag-card-info,
+.flag-card-opportunity, .flag-card-resolved,
+.roster-row.flag-critical, .roster-row.severity-critical,
+.roster-row.flag-warning, .roster-row.severity-warning,
+.list-row.severity-critical, .list-row.severity-warning {
+    position: relative;
+    overflow: hidden;
+}
+.edge-band::before,
+.card-next-up::before,
+.card-allclear::before,
+.push-prompt::before,
+.msg-session-card::before,
+.flag-card-critical::before, .flag-card-warning::before, .flag-card-info::before,
+.flag-card-opportunity::before, .flag-card-resolved::before,
+.roster-row.flag-critical::before, .roster-row.severity-critical::before,
+.roster-row.flag-warning::before, .roster-row.severity-warning::before,
+.list-row.severity-critical::before, .list-row.severity-warning::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 5px;
+    border-radius: 0;
+    background: var(--band-color, var(--border-strong));
+}
+.flag-card-critical, .roster-row.flag-critical, .roster-row.severity-critical,
+.list-row.severity-critical, .edge-band.is-critical { --band-color: var(--color-danger); }
+.flag-card-warning, .roster-row.flag-warning, .roster-row.severity-warning,
+.list-row.severity-warning, .edge-band.is-warning { --band-color: var(--color-warning); }
+.flag-card-info, .edge-band.is-info { --band-color: var(--color-info); }
+.flag-card-opportunity, .card-allclear, .edge-band.is-success { --band-color: var(--color-success); }
+.flag-card-resolved, .edge-band.is-muted { --band-color: var(--text-muted); }
+.card-next-up, .push-prompt, .msg-session-card, .edge-band.is-accent { --band-color: var(--accent-mid); }
 
 /* Filter chips (sort bars, category filters): active is a quiet accent fill,
    never a full teal button. */

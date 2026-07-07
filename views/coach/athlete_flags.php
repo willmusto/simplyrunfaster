@@ -90,7 +90,7 @@ $resolved = $flagRecord['resolved'] ?? [];
     <!-- ════════ OPEN ════════ -->
     <div class="section-label">OPEN</div>
     <?php if (empty($open)): ?>
-    <div class="card" style="border-left:3px solid var(--accent-mid);margin-bottom:24px;">
+    <div class="card edge-band is-accent" style="margin-bottom:24px;">
         <div class="empty-state" style="padding:18px 0;">
             <div class="empty-state-title">No open flags</div>
             <p class="body-text">This athlete is on track right now.</p>

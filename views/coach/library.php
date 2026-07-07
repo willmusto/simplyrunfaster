@@ -75,7 +75,7 @@ $hasFilter    = $filterType !== '' || $filterPhase !== '' || $filterDistance !==
     .lib-variant-count { font-size: 11px; color: var(--text-muted); }
     .lib-sys { font-size: 10px; color: var(--text-muted); }
 
-    .lib-empty { border-left: 3px solid var(--border-strong); }
+
 
     /* ── Detail drawer (right on desktop, bottom sheet on mobile) ── */
     #libDetailBd { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 9998; }
@@ -188,7 +188,7 @@ $hasFilter    = $filterType !== '' || $filterPhase !== '' || $filterDistance !==
     </form>
 
     <?php if (empty($archetypes)): ?>
-    <div class="card lib-empty">
+    <div class="card lib-empty edge-band is-muted">
         <div class="empty-state" style="padding:24px 0;">
             <div class="empty-state-title">No archetypes match</div>
             <p class="body-text">Try adjusting or clearing your filters.</p>

@@ -29,6 +29,16 @@ $borderFor = static function (string $sev): string {
     };
 };
 
+// Structural edge-band class for a severity (the kit's non-rail marker).
+$bandFor = static function (string $sev): string {
+    return match ($sev) {
+        'critical'    => 'edge-band is-critical',
+        'warning'     => 'edge-band is-warning',
+        'opportunity' => 'edge-band is-accent',
+        default       => 'edge-band is-muted',
+    };
+};
+
 // Contextual [Action] target for an intelligence flag.
 $intelAction = static function (array $f): array {
     $aid = (int)$f['athlete_id'];
@@ -98,16 +108,16 @@ $ruleTitle = static function (array $a): string {
     </p>
 
     <?php if (!empty($flashSuccess)): ?>
-    <div class="card" style="border-left:3px solid var(--accent-mid);margin-bottom:16px;"><?= h($flashSuccess) ?></div>
+    <div class="flash flash-success" style="margin-bottom:16px;"><?= h($flashSuccess) ?></div>
     <?php endif; ?>
     <?php if (!empty($flashError)): ?>
-    <div class="card" style="border-left:3px solid var(--color-danger);margin-bottom:16px;"><?= h($flashError) ?></div>
+    <div class="flash flash-error" style="margin-bottom:16px;"><?= h($flashError) ?></div>
     <?php endif; ?>
 
     <!-- ════════ WEEKLY REVIEW PROMPT ════════ -->
     <?php $reviewDone = !empty($review) && !empty($review['completed_at']); ?>
     <?php if (!$reviewDone): ?>
-    <div class="card" style="border-left:3px solid var(--accent-mid);margin-bottom:20px;background:rgba(29,158,117,0.06);">
+    <div class="card edge-band is-accent" style="margin-bottom:20px;background:rgba(29,158,117,0.06);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
             <div>
                 <div style="font-weight:600;margin-bottom:2px;">Your weekly coaching review is ready.</div>
@@ -132,7 +142,7 @@ $ruleTitle = static function (array $a): string {
         $insIds = json_decode((string)($ins['athlete_ids'] ?? ''), true) ?: [];
         $hidden = $i >= 3;
     ?>
-    <div class="roster-row ri-row<?= $hidden ? ' ri-extra' : '' ?>" style="margin-bottom:8px;border-left:3px solid <?= $borderFor($sev) ?>;<?= $hidden ? 'display:none;' : '' ?>">
+    <div class="roster-row ri-row <?= $bandFor($sev) ?><?= $hidden ? ' ri-extra' : '' ?>" style="margin-bottom:8px;<?= $hidden ? 'display:none;' : '' ?>">
         <div style="flex:1;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
                 <div style="font-size:14px;font-weight:600;margin-bottom:4px;"><?= h($ins['title']) ?></div>
@@ -162,7 +172,7 @@ $ruleTitle = static function (array $a): string {
     <div class="section-label" style="margin-top:8px;">ATHLETE FLAGS</div>
 
     <?php if (empty($entries)): ?>
-    <div class="card" style="border-left:3px solid var(--accent-mid);margin-bottom:24px;">
+    <div class="card edge-band is-accent" style="margin-bottom:24px;">
         <div class="empty-state" style="padding:20px 0;">
             <div class="empty-state-title">No open flags</div>
             <p class="body-text">All athletes are on track. New patterns appear here after the daily intelligence run.</p>
@@ -175,7 +185,7 @@ $ruleTitle = static function (array $a): string {
     ?>
     <?php if ($entry['source'] === 'intel'): ?>
         <?php [$actUrl, $actLabel] = $intelAction($f); ?>
-        <div class="roster-row" style="margin-bottom:8px;border-left:3px solid <?= $borderFor($sev) ?>;">
+        <div class="roster-row <?= $bandFor($sev) ?>" style="margin-bottom:8px;">
             <div style="flex:1;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
                 <div style="flex:1;min-width:200px;">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
@@ -211,7 +221,7 @@ $ruleTitle = static function (array $a): string {
             </div>
         </div>
     <?php else: /* engine flag — preserve existing Alerts behavior + recal/profile cards */ ?>
-        <div class="roster-row" style="margin-bottom:8px;border-left:3px solid <?= $borderFor($sev) ?>;">
+        <div class="roster-row <?= $bandFor($sev) ?>" style="margin-bottom:8px;">
             <div style="flex:1;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
                 <div style="flex:1;min-width:200px;">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
@@ -285,7 +295,7 @@ $ruleTitle = static function (array $a): string {
         <span class="pill" style="font-size:10px;background:rgba(217,145,0,0.15);color:var(--color-warning);"><?= $propTotal ?></span>
     </div>
     <?php foreach (array_slice($proposedDecisions, 0, 2) as $d): ?>
-    <div class="roster-row" style="margin-bottom:8px;border-left:3px solid var(--color-warning);">
+    <div class="roster-row edge-band is-warning" style="margin-bottom:8px;">
         <div style="flex:1;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
                 <div style="font-size:14px;font-weight:600;margin-bottom:2px;"><?= h($d['title']) ?></div>
@@ -341,7 +351,7 @@ $ruleTitle = static function (array $a): string {
     <?php if (!empty($assistantProposals)): ?>
     <div class="section-label" style="margin-top:28px;">ASSISTANT PROPOSALS</div>
     <?php foreach ($assistantProposals as $p): ?>
-    <div class="roster-row" style="margin-bottom:8px;border-left:3px solid var(--color-warning);">
+    <div class="roster-row edge-band is-warning" style="margin-bottom:8px;">
         <div style="flex:1;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
                 <div style="font-size:14px;font-weight:600;margin-bottom:2px;"><?= h($p['title']) ?></div>

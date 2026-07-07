@@ -116,17 +116,17 @@ $reviewDone = !empty($review) && !empty($review['completed_at']);
     </p>
 
     <?php if ($reviewDone): ?>
-    <div class="card" style="border-left:3px solid var(--accent-mid);margin-bottom:16px;">
+    <div class="card edge-band is-accent" style="margin-bottom:16px;">
         You completed this week's review <?= h(Timezone::format($review['completed_at'], 'l \a\t g:i A')) ?>.
         You can keep reviewing — marking complete again updates the record.
     </div>
     <?php endif; ?>
 
     <?php if (!empty($flashSuccess)): ?>
-    <div class="card" style="border-left:3px solid var(--accent-mid);margin-bottom:16px;"><?= h($flashSuccess) ?></div>
+    <div class="flash flash-success" style="margin-bottom:16px;"><?= h($flashSuccess) ?></div>
     <?php endif; ?>
     <?php if (!empty($flashError)): ?>
-    <div class="card" style="border-left:3px solid var(--color-danger);margin-bottom:16px;"><?= h($flashError) ?></div>
+    <div class="flash flash-error" style="margin-bottom:16px;"><?= h($flashError) ?></div>
     <?php endif; ?>
 
     <!-- ════════ SECTION 1 — PROPOSED DECISIONS ════════ -->
@@ -142,7 +142,7 @@ $reviewDone = !empty($review) && !empty($review['completed_at']);
         $sd = json_decode((string)($d['scope_distances'] ?? ''), true) ?: [];
         $sp = json_decode((string)($d['scope_phases'] ?? ''), true) ?: [];
     ?>
-    <div class="roster-row" style="margin-bottom:8px;border-left:3px solid var(--color-warning);">
+    <div class="roster-row edge-band is-warning" style="margin-bottom:8px;">
         <div style="font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;">
             Proposed rule — based on <?= $n ?> similar adjustment<?= $n === 1 ? '' : 's' ?>
         </div>
@@ -199,7 +199,7 @@ $reviewDone = !empty($review) && !empty($review['completed_at']);
         $sev = (string)$ins['severity'];
         $ids = json_decode((string)($ins['athlete_ids'] ?? ''), true) ?: [];
     ?>
-    <div class="roster-row" style="margin-bottom:8px;border-left:3px solid <?= $borderFor($sev) ?>;">
+    <div class="roster-row <?= $bandFor($sev) ?>" style="margin-bottom:8px;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
                 <div style="font-size:14px;font-weight:600;margin-bottom:4px;"><?= h($ins['title']) ?></div>

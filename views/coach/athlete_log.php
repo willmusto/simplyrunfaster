@@ -80,7 +80,7 @@ $rowDate = static fn(string $d): string => date('D M j', strtotime($d));
         $noteCount = (int)($r['note_count'] ?? 0);
         $effort    = $r['effort_descriptor'] !== null ? ($effortLabel[$r['effort_descriptor']] ?? ucfirst((string)$r['effort_descriptor'])) : null;
     ?>
-    <div class="roster-row" style="<?= $matched ? '' : 'border-left:3px solid var(--text-muted);' ?>">
+    <div class="roster-row<?= $matched ? '' : ' edge-band is-muted' ?>">
         <div style="flex:1;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">

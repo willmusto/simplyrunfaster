@@ -29,7 +29,7 @@ include __DIR__ . '/../../views/layout/html_open.php';
         </p>
 
         <?php if (!empty($d['is_hyrox'])): ?>
-        <div class="card" style="margin-bottom:16px;border-left:3px solid var(--accent-mid);">
+        <div class="card edge-band is-accent" style="margin-bottom:16px;">
             <div style="font-size:14px;font-weight:600;margin-bottom:4px;">Training for Hyrox</div>
             <p class="body-text" style="margin:0;font-size:13px;">
                 SimplyRunFaster will build your running fitness for Hyrox. For the functional fitness
