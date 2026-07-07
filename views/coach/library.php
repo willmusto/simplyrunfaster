@@ -49,9 +49,9 @@ $hasFilter    = $filterType !== '' || $filterPhase !== '' || $filterDistance !==
         padding: 14px 16px;
         cursor: pointer;
         font: inherit;
-        transition: border-color .12s, box-shadow .12s;
+        transition: border-color .12s, background .12s;
     }
-    .lib-card:hover { border-color: var(--accent-mid); box-shadow: 0 2px 10px rgba(0,0,0,.06); }
+    .lib-card:hover { border-color: var(--accent-mid); background: var(--elevated-bg); }
     .lib-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
     .lib-card-name { font-size: 14px; font-weight: 600; line-height: 1.3; }
     .lib-card-code { font-size: 11px; color: var(--text-muted); margin-top: 2px; font-family: ui-monospace, monospace; }
